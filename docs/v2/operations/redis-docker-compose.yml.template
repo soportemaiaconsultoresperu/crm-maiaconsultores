@@ -1,0 +1,57 @@
+# V2 — Redis container (production)
+#
+# Per docs/v2/01-roadmap.md D-22:
+#   - self-hosted Redis inside Docker (NO managed Redis services);
+#   - internal Docker network; Redis MUST NOT be exposed to the Internet;
+#   - password required (REDIS_PASSWORD); never committed to git;
+#   - appendonly=yes with everysec fsync for crash-safe persistence;
+#   - maxmemory capped, allkeys-lru eviction;
+#   - restart: unless-stopped;
+#   - healthcheck via redis-cli ping.
+#
+# Copy to docker-compose.v2.yml at the project root and fill REDIS_PASSWORD
+# from your secret manager. Never commit a real password.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: crm-maia-redis
+    restart: unless-stopped
+    networks:
+      - crm-internal
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory ${REDIS_MAXMEMORY:-512mb}
+      --maxmemory-policy allkeys-lru
+      --save ""
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - -a
+        - ${REDIS_PASSWORD}
+        - --no-auth-warning
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  crm-internal:
+    internal: true
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local

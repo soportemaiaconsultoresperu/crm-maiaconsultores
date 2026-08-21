@@ -1,0 +1,311 @@
+/*
+ * CRM Maia Consultores — application stylesheet.
+ *
+ * AdminLTE 4 ships Bootstrap 5 compiled inside its dist CSS (ADR-010 /
+ * ADR-016), so no separate Bootstrap import is required. Project-specific
+ * overrides live below and must stay minimal; larger theming belongs in
+ * later blocks.
+ */
+
+@import "admin-lte/dist/css/adminlte.min.css";
+/* Icon font (Bootstrap Icons) — blank-box fix for every <i class="bi bi-*">. */
+@import "bootstrap-icons/font/bootstrap-icons.css";
+
+:root {
+	--bs-body-font-family:
+		system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+/* Brand accent for the CRM Maia sidebar header. */
+.app-logo {
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+/* Login screen: full-height centered card. */
+.login-page {
+	min-height: 100vh;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background-color: var(--bs-secondary-bg);
+}
+
+/* Calendar (RF-CAL-001..003): month grid + status-colored events. */
+.calendar-month-grid {
+	table-layout: fixed;
+}
+.calendar-month-grid td.calendar-cell {
+	vertical-align: top;
+	height: 8rem;
+}
+.calendar-month-grid td.calendar-cell.calendar-today {
+	background-color: rgba(var(--bs-warning-rgb), 0.08);
+}
+.calendar-event {
+	padding-left: 4px;
+	border-left-width: 3px;
+	border-left-style: solid;
+}
+.calendar-event-completed {
+	border-left-color: var(--bs-success);
+}
+.calendar-event-cancelled {
+	border-left-color: var(--bs-secondary);
+}
+.calendar-event-in_process {
+	border-left-color: var(--bs-info);
+}
+.calendar-event-overdue {
+	border-left-color: var(--bs-danger);
+}
+.calendar-event-pending {
+	border-left-color: var(--bs-warning);
+}
+
+/*
+     * ─── Zoho CRM theme (high contrast) ──────────────────────────────────
+     * Project-wide visual restyle. CSS overrides ONLY (no vendor edits):
+     * AdminLTE 4 structure classes stay intact; we redefine Bootstrap CSS
+     * variables plus component selectors below. Palette: primary blue
+     * #0B5CAB, hover #08427E, sidebar navy #16283F, body #EDF0F4, borders
+     * #CBD3DD, near-black text #151B23, secondary text #3D4756.
+     */
+
+:root {
+	--bs-primary: #0b5cab;
+	--bs-primary-rgb: 11, 92, 171;
+	--bs-success: #21a366;
+	--bs-success-rgb: 33, 163, 102;
+	--bs-danger: #e42527;
+	--bs-danger-rgb: 228, 37, 39;
+	--bs-warning: #f5a623;
+	--bs-warning-rgb: 245, 166, 35;
+	--bs-info: #0fa3b1;
+	--bs-info-rgb: 15, 163, 177;
+	--bs-link-color: #0b5cab;
+	--bs-link-color-rgb: 11, 92, 171;
+	--bs-link-hover-color: #08427e;
+	--bs-link-hover-color-rgb: 8, 66, 126;
+	--bs-body-bg: #edf0f4;
+	--bs-body-color: #151b23;
+	--bs-border-color: #cbd3dd;
+	--bs-focus-ring-color: rgba(11, 92, 171, 0.3);
+}
+
+body {
+	background-color: #edf0f4;
+	color: #151b23;
+}
+
+a {
+	color: #0b5cab;
+	font-weight: 500;
+}
+a:hover {
+	color: #08427e;
+}
+
+/* ── Sidebar: DARK navy, white text, blue active state ───────────────── */
+/*
+     * Single high-specificity block that also feeds the AdminLTE 4
+     * sidebar variables so every internal AdminLTE rule follows the dark
+     * scheme (links, submenu, header, brand).
+     */
+.app-sidebar {
+	background-color: #3a4d68;
+	--lte-sidebar-color: #e7ecf3;
+	--lte-sidebar-hover-bg: #4a5d7a;
+	--lte-sidebar-hover-color: #ffffff;
+	--lte-sidebar-menu-active-bg: #0b5cab;
+	--lte-sidebar-menu-active-color: #ffffff;
+	--lte-sidebar-header-color: #c9d4e2;
+	--lte-sidebar-active-color: #ffffff;
+	--lte-sidebar-submenu-color: #c9d4e2;
+	--lte-sidebar-submenu-hover-bg: #4a5d7a;
+	--lte-sidebar-submenu-hover-color: #ffffff;
+	--lte-sidebar-submenu-active-bg: #0b5cab;
+	--lte-sidebar-submenu-active-color: #ffffff;
+	border-right: 1px solid #2a3a55;
+}
+.app-sidebar .sidebar-brand {
+	background-color: #2a3a55;
+	border-bottom: 1px solid #0b5cab;
+}
+.app-sidebar .sidebar-brand .app-logo {
+	color: #ffffff;
+	font-weight: 700;
+}
+.app-sidebar .sidebar-nav .nav-link {
+	color: #e7ecf3;
+	font-weight: 500;
+	border-radius: 0;
+}
+.app-sidebar .sidebar-nav .nav-link .nav-icon {
+	color: inherit;
+}
+.app-sidebar .sidebar-nav .nav-link:hover,
+.app-sidebar .sidebar-nav .nav-link:focus {
+	background-color: #1e3352;
+	color: #ffffff;
+}
+.app-sidebar .sidebar-nav .nav-link.active,
+.app-sidebar .sidebar-nav .nav-item.menu-open > .nav-link {
+	background-color: #0b5cab;
+	color: #ffffff;
+	font-weight: 600;
+	box-shadow: inset 4px 0 0 #4c9aff;
+}
+.app-sidebar .sidebar-nav .nav-link.active .nav-icon,
+.app-sidebar .sidebar-nav .nav-link.active p {
+	color: #ffffff;
+}
+.app-sidebar .sidebar-nav .nav-header {
+	color: #9fb0c7;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+/* ── Header/navbar: solid primary blue, white bold links ──────────────── */
+.app-header.navbar {
+	background: #0b5cab;
+	box-shadow: 0 1px 4px rgba(16, 24, 40, 0.25);
+}
+.app-header.navbar .nav-link,
+.app-header.navbar .navbar-nav .nav-link {
+	color: #ffffff;
+	font-weight: 600;
+}
+.app-header.navbar .nav-link:hover,
+.app-header.navbar .nav-link:focus {
+	color: #ffffff;
+}
+.app-header.navbar .dropdown-toggle::after {
+	border-top-color: #ffffff;
+}
+
+/* ── Content area ────────────────────────────────────────────────────── */
+.app-content-header h1 {
+	color: #151b23;
+	font-weight: 700;
+}
+.breadcrumb-item a {
+	color: #0b5cab;
+}
+.breadcrumb-item a:hover {
+	color: #08427e;
+}
+
+/* Cards: white surface, crisp border, subtle shadow. */
+.card {
+	background-color: #ffffff;
+	border: 1px solid #cbd3dd;
+	border-radius: 8px;
+	box-shadow: 0 2px 4px rgba(21, 27, 35, 0.06);
+}
+.card-header {
+	background-color: #ffffff;
+	border-bottom: 1px solid #e1e7ee;
+}
+.card-title {
+	color: #151b23;
+	font-weight: 600;
+}
+
+/* Tables: uppercase letter-spaced headers on cool grey, blue row hover. */
+.table {
+	--bs-table-color: #212936;
+}
+.table thead th {
+	background-color: #e8edf4;
+	color: #151b23;
+	font-weight: 700;
+	text-transform: uppercase;
+	font-size: 0.72rem;
+	letter-spacing: 0.04em;
+	border-bottom: 2px solid #cbd3dd;
+}
+.table-hover tbody tr:hover {
+	background-color: #edf3fa;
+}
+
+/* ── Buttons: strong blue primary, clearly visible outline-secondary ──── */
+.btn {
+	border-radius: 6px;
+}
+.btn-primary,
+.btn-primary.disabled,
+.btn-primary:disabled {
+	--bs-btn-bg: #0b5cab;
+	--bs-btn-border-color: #0b5cab;
+	--bs-btn-hover-bg: #08427e;
+	--bs-btn-hover-border-color: #08427e;
+	--bs-btn-active-bg: #08427e;
+	--bs-btn-active-border-color: #08427e;
+	--bs-btn-disabled-bg: #0b5cab;
+	--bs-btn-disabled-border-color: #0b5cab;
+	--bs-btn-color: #ffffff;
+	--bs-btn-hover-color: #ffffff;
+	--bs-btn-font-weight: 600;
+}
+.btn-outline-primary {
+	--bs-btn-color: #0b5cab;
+	--bs-btn-border-color: #0b5cab;
+	--bs-btn-hover-bg: #0b5cab;
+	--bs-btn-hover-border-color: #0b5cab;
+	--bs-btn-hover-color: #ffffff;
+	--bs-btn-active-bg: #08427e;
+	--bs-btn-active-border-color: #08427e;
+	--bs-btn-focus-shadow-rgb: 11, 92, 171;
+}
+.btn-outline-secondary {
+	--bs-btn-color: #3d4756;
+	--bs-btn-border-color: #aeb9c6;
+	--bs-btn-hover-bg: #e8edf4;
+	--bs-btn-hover-border-color: #aeb9c6;
+	--bs-btn-hover-color: #151b23;
+	--bs-btn-active-bg: #e8edf4;
+	--bs-btn-active-color: #151b23;
+	--bs-btn-focus-shadow-rgb: 174, 185, 198;
+}
+
+/* Badges / pagination / form focus all follow the primary blue. */
+.text-bg-primary,
+.bg-primary {
+	background-color: #0b5cab !important;
+}
+.pagination {
+	--bs-pagination-active-bg: #0b5cab;
+	--bs-pagination-active-border-color: #0b5cab;
+	--bs-pagination-color: #0b5cab;
+	--bs-pagination-hover-color: #08427e;
+	--bs-pagination-focus-box-shadow: 0 0 0 0.25rem rgba(11, 92, 171, 0.3);
+}
+.pagination .page-item.active .page-link {
+	background-color: #0b5cab;
+	color: #ffffff;
+	border-color: #0b5cab;
+}
+
+/* Forms: near-black labels, grey-blue borders, blue focus ring. */
+.form-label {
+	color: #151b23;
+	font-weight: 600;
+}
+.form-control,
+.form-select {
+	border-color: #cbd3dd;
+}
+.form-control::placeholder {
+	color: #7a8694;
+}
+.form-control:focus,
+.form-select:focus {
+	border-color: #0b5cab;
+	box-shadow: 0 0 0 0.25rem rgba(11, 92, 171, 0.3);
+}
+
+/* Secondary/description text: never lighter than #3D4756. */
+.text-secondary {
+	color: #3d4756;
+}

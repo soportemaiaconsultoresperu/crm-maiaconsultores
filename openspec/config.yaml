@@ -1,0 +1,68 @@
+# SDD project context — B12-UI
+project:
+  name: crm-maia
+  display_name: CRM Maia Consultores
+  root: C:/laragon/www/crm-maia-consultores
+  repository: none  # Workspace intentionally has not been initialized as git.
+
+change:
+  id: b12-ui
+  title: Automation engine administration UI
+  artifact_store: openspec
+  execution_mode: interactive
+
+stack:
+  framework: Laravel 13.25
+  language: PHP 8.3.16
+  ui: Livewire 4, AdminLTE, Bootstrap 5
+  authorization: Spatie Laravel Permission
+  audit: Spatie Activitylog
+
+delivery:
+  strict_tdd: true
+  tdd_cycle:
+    - RED
+    - GREEN
+    - TRIANGULATE
+    - REFACTOR
+  phase_rules:
+    init: Create and maintain only SDD context; do not alter application code.
+    explore: Inspect the B12 engine, placeholder routes/views, permissions, and test seams before proposing UI behavior.
+    proposal: In interactive mode, offer a 3–5 question product round before writing the proposal; do not advance without approval.
+    spec_design_tasks: Produce only after the preceding phase is explicitly approved.
+    apply: Follow strict TDD; preserve B12 engine contracts and do not modify V1/V2 paths outside approved scope.
+    verification: Run focused tests during development and php artisan test before completion.
+
+testing:
+  command: php artisan test
+  phpunit_config: phpunit.xml
+  runner: PHPUnit via Laravel Artisan
+  database:
+    connection: sqlite
+    database: ':memory:'
+  conventions:
+    - Place behavior tests in tests/Feature and isolated logic tests in tests/Unit.
+    - Feature tests extend Tests\\TestCase and normally use RefreshDatabase.
+    - Seed only required fixtures/permissions in setUp, then create users with factories and assign roles explicitly.
+    - Exercise HTTP surfaces with actingAs(), named routes or admin URLs, and response assertions such as assertOk(), assertForbidden(), assertRedirect(), and assertSee().
+    - For interactive Livewire components, use Livewire::test(Component::class), then set(), call(), assertSet(), assertHasErrors(), assertDispatched(), and rendered-output assertions as appropriate; retain HTTP route/gate coverage around the component host.
+    - Use Queue::fake(), Bus::fake(), Mail::fake(), or Event::fake() when asserting side effects rather than executing external work.
+
+context:
+  completed_blocks:
+    - B10 audit
+    - B11 integrations infrastructure
+    - B12 automation engine
+  b12_ui_starting_point:
+    - AutomationController is intentionally thin and serves three read-only placeholder views.
+    - routes/web.php identifies the full admin UI as B12-UI.
+    - No resources/views/livewire directory exists yet.
+  boundaries:
+    - Do not modify existing V1/V2 paths during SDD initialization.
+    - Preserve automation engine persistence, idempotency, permissions, and asynchronous action contracts.
+  primary_docs:
+    - docs/v2/01-roadmap.md
+    - docs/v2/00-baseline.md
+    - docs/ARQUITECTURA.md
+    - docs/INDEX.md
+    - docs/AVANCE.md
