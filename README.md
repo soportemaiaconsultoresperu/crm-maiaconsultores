@@ -89,4 +89,37 @@ La suite usa SQLite en memoria (`phpunit.xml`); la aplicación corre sobre MySQL
 - El código consulta **permisos**, nunca nombres de rol.
 - Multi-moneda: se registra y se totaliza, **no** se consolida.
 - Cada acción sensible queda en `activity_log` (Spatie) con old / new values y motivo.
-- Docker entregado (`docker-compose.yml` + `Dockerfile`) pero la verificación de la pila queda pendiente del daemon local (ver `docs/AVANCE.md` I-01).
+- Docker de producción: Caddy termina HTTPS, PHP-FPM ejecuta Laravel y MySQL permanece dentro de la red de Compose.
+
+## Despliegue con Docker (producción)
+
+El despliegue publica exclusivamente Caddy en los puertos 80 y 443 para
+`crm.maiaconsultores.com`. Caddy obtiene y renueva automáticamente los
+certificados de Let's Encrypt; antes de iniciarlo, el DNS del dominio debe
+resolver hacia el servidor y ambos puertos deben estar accesibles desde
+Internet. Configurá `CADDY_EMAIL` en `.env.docker` con el correo de contacto
+para el registro de Let's Encrypt. MySQL no publica ningún puerto del host.
+
+```bash
+# Crear el archivo local de secretos (no se versiona) y completarlo.
+cp docker/env.docker.example .env.docker
+
+# Construir y arrancar. --env-file hace que la interpolación de Compose y los
+# contenedores usen el mismo archivo de producción.
+docker compose --env-file .env.docker up --build -d
+```
+
+El servicio `init` espera a que MySQL esté sano y ejecuta una vez
+`php artisan migrate --force` seguido de `php artisan db:seed --force`.
+`app`, `queue` y `scheduler` no arrancan hasta que termine correctamente. El
+`DatabaseSeeder` normal crea o actualiza el administrador de la **aplicación**
+en la tabla `users` usando `ADMIN_NAME`, `ADMIN_EMAIL` y `ADMIN_PASSWORD`, y le
+asigna el rol `admin`; esos valores no son el usuario de infraestructura MySQL.
+No se generan datos de demostración durante el despliegue.
+
+Para comprobar la configuración sin arrancar contenedores ni contactar
+servicios externos:
+
+```bash
+docker compose --env-file docker/env.docker.example config --quiet
+```

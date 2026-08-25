@@ -8,6 +8,7 @@ use App\Models\ActivityType;
 use App\Models\Currency;
 use App\Models\LeadSource;
 use App\Models\LeadStatus;
+use App\Models\InvoiceStatus;
 use App\Models\LossReason;
 use App\Models\PipelineStage;
 use App\Models\ProductCategory;
@@ -38,6 +39,7 @@ class CatalogController extends Controller
     private const CATALOG_MAP = [
         'lead-sources' => LeadSource::class,
         'lead-statuses' => LeadStatus::class,
+        'invoice-statuses' => InvoiceStatus::class,
         'loss-reasons' => LossReason::class,
         'activity-types' => ActivityType::class,
         'pipeline-stages' => PipelineStage::class,
@@ -221,6 +223,7 @@ class CatalogController extends Controller
             return match ($kind) {
                 'lead-sources' => 'Orígenes de prospectos',
                 'lead-statuses' => 'Estados de prospectos',
+                'invoice-statuses' => 'Estados de factura',
                 'loss-reasons' => 'Motivos de pérdida',
                 'activity-types' => 'Tipos de actividad',
                 'pipeline-stages' => 'Etapas del pipeline',
@@ -239,6 +242,7 @@ class CatalogController extends Controller
             return match ($kind) {
                 'lead-sources'       => 'bi-broadcast',
                 'lead-statuses'      => 'bi-flag',
+                'invoice-statuses'   => 'bi-receipt',
                 'loss-reasons'       => 'bi-x-octagon',
                 'activity-types'     => 'bi-calendar-event',
                 'pipeline-stages'    => 'bi-kanban',
@@ -257,6 +261,7 @@ class CatalogController extends Controller
             return match ($kind) {
                 'lead-sources'       => 'Origen del primer contacto (web, referido, campaña, etc.).',
                 'lead-statuses'      => 'Estados del ciclo de vida de un prospecto.',
+                'invoice-statuses'   => 'Estados de facturas de clientes usados por la tarjeta Pagos.',
                 'loss-reasons'       => 'Motivos para marcar oportunidades como perdidas.',
                 'activity-types'     => 'Tipos de actividad agendable en el calendario.',
                 'pipeline-stages'    => 'Etapas del embudo de oportunidades.',

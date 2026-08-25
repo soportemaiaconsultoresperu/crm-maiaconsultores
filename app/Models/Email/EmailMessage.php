@@ -30,14 +30,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class EmailMessage extends Model
 {
-    /** @use HasFactory<\Database\Factories\EmailMessageFactory> */
     use HasFactory;
 
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_PROCESSING = 'processing';
     public const STATUS_QUEUED = 'queued';
     public const STATUS_SENT = 'sent';
     public const STATUS_DELIVERED = 'delivered';
     public const STATUS_BOUNCED = 'bounced';
     public const STATUS_FAILED = 'failed';
+    public const STATUS_SEND_UNCONFIRMED = 'send_unconfirmed';
     public const STATUS_RECEIVED = 'received';
 
     public const DIRECTION_OUTBOUND = 'outbound';
@@ -50,6 +52,7 @@ class EmailMessage extends Model
         'account_id',
         'direction',
         'provider_message_id',
+        'idempotency_key',
         'thread_id',
         'in_reply_to',
         'from_email',

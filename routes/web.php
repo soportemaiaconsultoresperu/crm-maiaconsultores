@@ -1,10 +1,12 @@
 <?php
 
+use App\Http\Controllers\Account\GoogleIntegrationController;
 use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CustomerInvoiceController;
 use App\Http\Controllers\CustomerProductController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LeadController;
@@ -13,6 +15,8 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OpportunityController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\QuotationController;
+use App\Http\Controllers\SupportDashboardController;
+use App\Http\Controllers\SupportTicketController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -37,6 +41,23 @@ Route::get('/', [DashboardController::class, 'index'])
             ->name('home');
         Route::get('dashboard', [DashboardController::class, 'index'])
             ->name('dashboard');
+
+        Route::controller(GoogleIntegrationController::class)
+            ->prefix('account/integrations')
+            ->name('account.integrations.')
+            ->group(function (): void {
+                Route::get('/', 'index')->name('index');
+                Route::post('google/{service}/connect', 'connect')
+                    ->name('google.connect')
+                    ->whereIn('service', ['gmail', 'calendar']);
+                Route::get('google/callback', 'callback')->name('google.callback');
+                Route::post('google/calendar/initial-sync', 'syncCalendar')
+                    ->name('google.calendar.initial-sync');
+                Route::patch('google/{service}/disable', 'disable')
+                    ->name('google.disable')
+                    ->whereIn('service', ['gmail', 'calendar']);
+                Route::delete('google', 'disconnect')->name('google.disconnect');
+            });
 
     /*
      * B02 — Prospectos. Record-level authorization goes through
@@ -139,6 +160,7 @@ Route::get('/', [DashboardController::class, 'index'])
          * DocumentService::canDownload / canDelete.
          */
         Route::controller(\App\Http\Controllers\DocumentController::class)->group(function (): void {
+            Route::get('documents', 'index')->name('documents.index');
             Route::post('leads/{lead}/documents', 'storeForLead')
                 ->name('leads.documents.store');
             Route::post('customers/{customer}/documents', 'storeForCustomer')
@@ -159,6 +181,47 @@ Route::get('/', [DashboardController::class, 'index'])
         });
         });
     });
+
+Route::middleware(['auth', 'active'])->controller(CustomerInvoiceController::class)->group(function (): void {
+    Route::post('customers/{customer}/payment-modality', 'updatePaymentModality')->name('customers.payment-modality.update');
+    Route::post('customers/{customer}/invoices', 'store')->name('customers.invoices.store');
+    Route::put('customer-invoices/{invoice}', 'update')->name('customer-invoices.update');
+    Route::post('customer-invoices/{invoice}/mark-paid', 'markPaid')->name('customer-invoices.mark-paid');
+    Route::post('customer-invoices/{invoice}/retire', 'retire')->name('customer-invoices.retire');
+});
+
+Route::middleware(['auth', 'active'])->group(function (): void {
+    Route::get('support', [SupportDashboardController::class, 'index'])->name('support.dashboard');
+    Route::get('support/export', [SupportDashboardController::class, 'export'])->name('support.export');
+
+    Route::controller(SupportTicketController::class)->group(function (): void {
+Route::get('support/tickets', 'index')->name('support.tickets.index');
+Route::get('support/tickets/create', 'create')->name('support.tickets.create');
+Route::post('support/tickets', 'store')->name('support.tickets.store');
+Route::get('support/tickets/{ticket}', 'show')->name('support.tickets.show');
+Route::post('support/tickets/{ticket}/assign', 'assign')->name('support.tickets.assign');
+Route::post('support/tickets/{ticket}/start', 'start')->name('support.tickets.start');
+Route::post('support/tickets/{ticket}/resolve', 'resolve')->name('support.tickets.resolve');
+Route::post('support/tickets/{ticket}/close', 'close')->name('support.tickets.close');
+Route::post('support/tickets/{ticket}/reopen', 'reopen')->name('support.tickets.reopen');
+Route::post('support/tickets/{ticket}/cancel', 'cancel')->name('support.tickets.cancel');
+Route::post('support/tickets/{ticket}/notes', 'addInternalNote')->name('support.tickets.notes.store');
+Route::post('support/tickets/{ticket}/responses', 'addCustomerResponse')->name('support.tickets.responses.store');
+Route::post('support/tickets/{ticket}/schedule', 'schedule')->name('support.tickets.schedule');
+Route::post('support/tickets/{ticket}/activities/{activity}/reschedule', 'reschedule')->name('support.tickets.reschedule');
+Route::post('support/tickets/{ticket}/incident', 'saveIncident')->name('support.tickets.incident.store');
+Route::post('support/tickets/{ticket}/observations', 'createObservation')->name('support.tickets.observations.store');
+Route::post('support/tickets/{ticket}/observations/{observation}/transition', 'transitionObservation')->name('support.tickets.observations.transition');
+Route::post('support/tickets/{ticket}/sessions/{session}/participants', 'addParticipant')->name('support.tickets.sessions.participants.store');
+    });
+
+    Route::controller(\App\Http\Controllers\DocumentController::class)->group(function (): void {
+Route::post('support/tickets/{ticket}/documents', 'storeForSupportTicket')->name('support.tickets.documents.store');
+Route::post('support/tickets/{ticket}/observations/{observation}/documents', 'storeForSupportObservation')->name('support.tickets.observations.documents.store');
+Route::post('support/tickets/{ticket}/incidents/{incident}/documents', 'storeForSupportIncident')->name('support.tickets.incidents.documents.store');
+Route::post('support/tickets/{ticket}/sessions/{session}/documents', 'storeForSupportSession')->name('support.tickets.sessions.documents.store');
+    });
+});
 
 /*
  * B04 — Oportunidades (RF-OPP-001..010). El pipeline Kanban es
@@ -319,6 +382,8 @@ Route::middleware(['auth', 'active'])->controller(QuotationController::class)->g
 
     Route::post('quotations/{quotation}/duplicate', 'duplicate')->name('quotations.duplicate');
     Route::post('quotations/{quotation}/send', 'send')->name('quotations.send');
+    Route::get('quotations/{quotation}/gmail-confirm', 'gmailConfirm')->name('quotations.gmail-confirm');
+    Route::post('quotations/{quotation}/gmail-send', 'gmailSend')->name('quotations.gmail-send');
     Route::get('quotations/{quotation}/accept-confirm', 'acceptConfirm')->name('quotations.accept-confirm');
     Route::post('quotations/{quotation}/accept', 'accept')->name('quotations.accept');
     Route::post('quotations/{quotation}/reject', 'reject')->name('quotations.reject');
@@ -401,19 +466,19 @@ Route::middleware(['auth', 'active'])->controller(\App\Http\Controllers\ReportCo
         Route::controller(\App\Http\Controllers\CatalogController::class)->group(function (): void {
             Route::get('catalogs', 'landing')->name('catalogs.landing');
             Route::get('catalogs/{kind}', 'index')
-                ->where('kind', 'lead-sources|lead-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
+                ->where('kind', 'lead-sources|lead-statuses|invoice-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
                 ->name('catalogs.index');
             Route::post('catalogs/{kind}', 'store')
-                ->where('kind', 'lead-sources|lead-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
+                ->where('kind', 'lead-sources|lead-statuses|invoice-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
                 ->name('catalogs.store');
             Route::post('catalogs/{kind}/{row}', 'update')
-                ->where('kind', 'lead-sources|lead-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
+                ->where('kind', 'lead-sources|lead-statuses|invoice-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
                 ->name('catalogs.update');
             Route::post('catalogs/{kind}/{row}/deactivate', 'deactivate')
-                ->where('kind', 'lead-sources|lead-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
+                ->where('kind', 'lead-sources|lead-statuses|invoice-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
                 ->name('catalogs.deactivate');
             Route::post('catalogs/{kind}/{row}/activate', 'activate')
-                ->where('kind', 'lead-sources|lead-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
+                ->where('kind', 'lead-sources|lead-statuses|invoice-statuses|loss-reasons|activity-types|pipeline-stages|product-categories|currencies|taxes')
                 ->name('catalogs.activate');
         });
 
@@ -426,6 +491,18 @@ Route::middleware(['auth', 'active'])->controller(\App\Http\Controllers\ReportCo
             Route::post('settings/logo/remove', 'removeLogo')->name('settings.logo.remove');
             Route::get('settings/logo/preview', 'previewLogo')->name('settings.logo.preview');
         });
+
+        Route::middleware('can:demo-data.manage')
+            ->controller(\App\Http\Controllers\Admin\DemoDataController::class)
+            ->prefix('demo-data')
+            ->name('demo-data.')
+            ->group(function (): void {
+                Route::get('/', 'index')->name('index');
+                Route::post('load', 'load')->name('load');
+                Route::post('load-modules', 'loadModules')->name('load-modules');
+                Route::post('{batch}/reset', 'reset')->name('reset');
+                Route::delete('{batch}', 'destroy')->name('destroy');
+            });
 
 // Audit viewer (RF-USR-007, ADR-008).
             Route::controller(\App\Http\Controllers\AuditController::class)->group(function (): void {

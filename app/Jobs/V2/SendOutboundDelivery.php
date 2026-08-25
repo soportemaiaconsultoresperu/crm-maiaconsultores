@@ -52,7 +52,12 @@ class SendOutboundDelivery implements ShouldQueue
             return;
         }
 
-        if (! in_array($delivery->status, [\App\Models\Notification\OutboundDelivery::STATUS_QUEUED, \App\Models\Notification\OutboundDelivery::STATUS_SENDING], true)) {
+            if (! in_array($delivery->status, [\App\Models\Notification\OutboundDelivery::STATUS_QUEUED, \App\Models\Notification\OutboundDelivery::STATUS_SENDING], true)) {
+            return;
+        }
+
+        if (app(\App\Services\DemoData\DemoDataGuard::class)->isOutboundDeliveryDemo($delivery)) {
+            $service->markSkipped($this->deliveryId, 'demo data guard blocked outbound job');
             return;
         }
 

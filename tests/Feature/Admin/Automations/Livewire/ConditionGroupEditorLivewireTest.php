@@ -87,7 +87,7 @@ class ConditionGroupEditorLivewireTest extends TestCase
             ->assertSet('conditions.2.field', 'source_id')
             ->assertSet('conditions.2.operator', ConditionOperator::IS_NOT_NULL)
             ->assertSet('conditions.2.value', null)
-            ->assertSet('conditions.2.value_type', 'string')
+            ->assertSet('conditions.2.value_type', 'int')
             ->assertSet('conditions.2.position', 3);
     }
 

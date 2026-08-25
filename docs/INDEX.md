@@ -9,6 +9,7 @@ Tabla de contenidos de la documentación del proyecto CRM Maia Consultores. Cada
 | [REQUISITOS.md](REQUISITOS.md) | Requisitos | Matriz de RF y RNF con ID estable, estado y prueba asociada (verde = implementado). |
 | [DECISIONES.md](DECISIONES.md) | Decisiones | ADRs (ADR-001 .. ADR-016) — las decisiones técnicas fundacionales del proyecto. |
 | [SEGURIDAD.md](SEGURIDAD.md) | Seguridad | Autenticación, autorización, protecciones web, hallazgos corregidos en B04/B08. |
+| [DESPLIEGUE_PRODUCCION_UBUNTU.md](DESPLIEGUE_PRODUCCION_UBUNTU.md) | Despliegue de producción | Guía segura y operativa para Ubuntu 24.04 con Docker, Caddy, TLS, copias de seguridad y actualizaciones. |
 | [PRUEBAS.md](PRUEBAS.md) | Pruebas | Estado de la suite, archivos por módulo, reglas y criterio de "módulo terminado". |
 | [AVANCE.md](AVANCE.md) | Avance | Bitácora por bloque (B00 .. B09) con evidencia real (comandos, números, hallazgos). |
 
@@ -16,6 +17,7 @@ Tabla de contenidos de la documentación del proyecto CRM Maia Consultores. Cada
 
 - **Empezar por**: [README.md](../README.md) → [ARQUITECTURA.md](ARQUITECTURA.md) → [BASE_DATOS.md](BASE_DATOS.md).
 - **Trazar un requisito**: buscalo en [REQUISITOS.md](REQUISITOS.md) → encontrar el ADR relacionado en [DECISIONES.md](DECISIONES.md) → ver cuándo se implementó en [AVANCE.md](AVANCE.md) → ver su prueba en [PRUEBAS.md](PRUEBAS.md).
+- **Desplegar en producción**: seguí [DESPLIEGUE_PRODUCCION_UBUNTU.md](DESPLIEGUE_PRODUCCION_UBUNTU.md) para Ubuntu 24.04, Docker, Caddy, TLS y operación básica.
 - **Auditoría de seguridad**: [SEGURIDAD.md](SEGURIDAD.md) lista los hallazgos detectados y corregidos, con el test de regresión que los protege.
 
 ## Estado del proyecto (resumen)

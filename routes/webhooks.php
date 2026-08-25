@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\GoogleCalendarWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -9,20 +10,22 @@ use Illuminate\Support\Facades\Route;
 | V2 Webhook endpoints (B11 — infrastructure stub)
 |--------------------------------------------------------------------------
 |
-| Every webhook request goes through the `signed.webhook` middleware
-| alias (see App\Http\Middleware\VerifyWebhookSignature) which validates
-| the per-provider signature header, the timestamp window and the
-| payload size before any controller sees the request.
+| Generic webhook stubs go through the `signed.webhook` middleware alias
+| (see App\Http\Middleware\VerifyWebhookSignature), which validates the
+| per-provider signature header, timestamp window and payload size before
+| those controllers see the request.
 |
-| The stub below is intentionally minimal: it acknowledges the delivery
-| with 200 OK so we can exercise the middleware end-to-end in tests and
-| in CI. Provider-specific endpoints (meta, google, outlook) will be
-| added in B13..B17 once the corresponding adapters land.
+| Google Calendar push notifications use channel headers/tokens instead
+| of that body-HMAC middleware, so their route is registered separately
+| below and validated by GoogleCalendarWebhookController.
 |
-| NO auth middleware here on purpose: webhooks are public, the signature
-| IS the auth.
+| NO auth middleware here on purpose: webhooks are public; provider-specific
+| verification is the auth.
 |
 */
+
+Route::post('webhooks/google/calendar', GoogleCalendarWebhookController::class)
+    ->name('webhooks.google-calendar');
 
 Route::middleware('signed.webhook')->prefix('webhooks')->group(function (): void {
     Route::post('/{provider}', function (string $provider): \Illuminate\Http\JsonResponse {

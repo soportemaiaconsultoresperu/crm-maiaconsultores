@@ -1,25 +1,30 @@
 <div class="row g-2">
     <div class="col-md-4">
-        <label class="form-label small mb-1 d-block">Recipient strategy</label>
-        <div class="btn-group btn-group-sm" role="group" aria-label="Recipient strategy">
+        <label class="form-label small mb-1 d-block">Cómo elegir responsable</label>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Cómo elegir responsable">
             <input type="radio" id="assign-owner-{{ $actionIndex }}-current"
+                name="actions[{{ $actionIndex }}][recipient_strategy]"
                 class="btn-check" value="current" wire:model="recipient_strategy">
             <label for="assign-owner-{{ $actionIndex }}-current" class="btn btn-outline-primary">Actual</label>
             <input type="radio" id="assign-owner-{{ $actionIndex }}-user"
+                name="actions[{{ $actionIndex }}][recipient_strategy]"
                 class="btn-check" value="user" wire:model="recipient_strategy">
             <label for="assign-owner-{{ $actionIndex }}-user" class="btn btn-outline-primary">Usuario</label>
             <input type="radio" id="assign-owner-{{ $actionIndex }}-team"
+                name="actions[{{ $actionIndex }}][recipient_strategy]"
                 class="btn-check" value="team" wire:model="recipient_strategy">
             <label for="assign-owner-{{ $actionIndex }}-team" class="btn btn-outline-primary">Equipo</label>
             <input type="radio" id="assign-owner-{{ $actionIndex }}-round-robin"
+                name="actions[{{ $actionIndex }}][recipient_strategy]"
                 class="btn-check" value="round_robin" wire:model="recipient_strategy">
-            <label for="assign-owner-{{ $actionIndex }}-round-robin" class="btn btn-outline-primary">Round robin</label>
+            <label for="assign-owner-{{ $actionIndex }}-round-robin" class="btn btn-outline-primary">Repartir por turno</label>
         </div>
     </div>
     @if ($recipient_strategy === 'user')
         <div class="col-md-4">
-            <label for="assign-owner-{{ $actionIndex }}-user-id" class="form-label small mb-1">Usuario</label>
+            <label for="assign-owner-{{ $actionIndex }}-user-id" class="form-label small mb-1">Responsable específico</label>
             <select id="assign-owner-{{ $actionIndex }}-user-id"
+                name="actions[{{ $actionIndex }}][payload_json][user_id]"
                 class="form-select form-select-sm"
                 wire:model="user_id">
                 <option value="">— Seleccionar —</option>
@@ -31,8 +36,9 @@
     @endif
     @if (in_array($recipient_strategy, ['team', 'round_robin'], true))
         <div class="col-md-4">
-            <label for="assign-owner-{{ $actionIndex }}-team-id" class="form-label small mb-1">Equipo</label>
+            <label for="assign-owner-{{ $actionIndex }}-team-id" class="form-label small mb-1">Equipo responsable</label>
             <select id="assign-owner-{{ $actionIndex }}-team-id"
+                name="actions[{{ $actionIndex }}][payload_json][team_id]"
                 class="form-select form-select-sm"
                 wire:model="team_id">
                 <option value="">— Seleccionar —</option>
@@ -42,10 +48,14 @@
             </select>
         </div>
     @endif
-    <div class="col-md-1 ms-auto d-flex align-items-end">
+    <div class="col-md-2 ms-auto d-flex align-items-end">
         <button type="button" class="btn btn-sm btn-outline-primary w-100"
-            wire:click="emit" aria-label="Aplicar cambios">
-            <i class="bi bi-check2" aria-hidden="true"></i>
+            wire:click="emit"
+            wire:loading.attr="disabled"
+            wire:target="emit"
+            aria-label="Aplicar cambios de responsable">
+            <span wire:loading.remove wire:target="emit"><i class="bi bi-check2 me-1" aria-hidden="true"></i> Aplicar</span>
+            <span wire:loading wire:target="emit"><span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Aplicando…</span>
         </button>
     </div>
 </div>

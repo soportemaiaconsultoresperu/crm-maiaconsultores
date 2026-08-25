@@ -1,13 +1,13 @@
 {{-- B12-UI — PR 4 / Stage 4 — webhook widget (B14 STUB). --}}
 <div>
     <div class="alert alert-warning" role="alert">
-        <strong>Pendiente (B14) — esta acción fallará con NotImplementedException hasta que se entregue B14.</strong>
-        <div class="small mt-1">El form se activará en B14.</div>
+        <strong>Acción no disponible para producción.</strong>
+        <div class="small mt-1">La configuración se conserva en la regla, pero el envío automático a otros sistemas queda pendiente de habilitación técnica. No se ejecutará en producción.</div>
     </div>
 
     @if ($this->allowedDestinations === [])
         <div class="alert alert-warning">
-            Configure INTEGRATIONS_WEBHOOK_ALLOWED en su archivo .env para habilitar acciones webhook.
+            Todavía no hay destinos autorizados para enviar datos a otros sistemas.
         </div>
     @else
         <div class="row g-2">
@@ -21,7 +21,7 @@
                         <option value="{{ $dest }}">{{ $dest }}</option>
                     @endforeach
                 </select>
-                <div class="form-text">Lista leída de <code>integrations.webhooks.allowed_destinations</code>.</div>
+                <div class="form-text">Sólo se podrán usar destinos aprobados por administración.</div>
             </div>
             <div class="col-md-3">
                 <label for="webhook-{{ $actionIndex }}-method" class="form-label small mb-1">Método</label>
@@ -33,13 +33,12 @@
                 </select>
             </div>
             <div class="col-md-3 d-flex align-items-end">
-                <button type="button" class="btn btn-sm btn-outline-secondary w-100"
-                    wire:click="emit" aria-label="Aplicar (B14 stub)">
-                    <i class="bi bi-check2 me-1" aria-hidden="true"></i> Aplicar
-                </button>
+                <span class="badge text-bg-secondary w-100 py-2" aria-label="Webhook no disponible para producción">
+                    No disponible
+                </span>
             </div>
             <div class="col-12">
-                <label for="webhook-{{ $actionIndex }}-body" class="form-label small mb-1">Body</label>
+                <label for="webhook-{{ $actionIndex }}-body" class="form-label small mb-1">Datos a enviar</label>
                 <textarea id="webhook-{{ $actionIndex }}-body" rows="3"
                     class="form-control form-control-sm font-monospace"
                     wire:model="body" disabled></textarea>

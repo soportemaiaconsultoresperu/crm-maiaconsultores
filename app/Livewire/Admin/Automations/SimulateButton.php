@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace App\Livewire\Admin\Automations;
 
-use Illuminate\Support\Facades\Http;
+use App\Models\AutomationAction;
+use App\Models\AutomationRule;
+use App\Services\Automation\ActionRegistry;
+use App\Services\Automation\Exceptions\NotImplementedException;
+use App\Services\Automation\Exceptions\WebhookNotAuthorizedException;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
 
 /**
@@ -15,10 +20,9 @@ use Livewire\Component;
  * and renders the returned response_json in a monospace modal; on error
  * surfaces error_class + error_message in a red <x-alert type="error">.
  *
- * This component owns the modal state and orchestrates the HTTP call. The
- * actual route handler is wired in PR 5/6 (per design §2 routes list);
- * in PR 4 we ship the component skeleton that delegates to the configured
- * route (or to a fake callable when the route is unregistered).
+ * This component owns the modal state and runs the action simulation directly.
+ * It intentionally avoids a server-to-itself HTTP call because the local PHP
+ * dev server can deadlock/timeout on nested requests.
  *
  * @see \Tests\Feature\Admin\Automations\Livewire\SimulateButtonLivewireTest
  */
@@ -63,7 +67,7 @@ class SimulateButton extends Component
      * For PR 4 we accept an optional $data array from the calling test
      * (the parent's wire:click + a small JS shim is responsible for
      * forwarding the controller response). When called without args we
-     * POST to the live endpoint. PR 5/6 wires the controller body.
+     * resolve the saved action and simulate it in-process.
      *
      * @param  array<string, mixed>|null  $data  Optional override payload
      *                                          (used by tests; the real wire:click
@@ -89,31 +93,51 @@ class SimulateButton extends Component
             return;
         }
 
-        // Real network path. POST to the configured route.
+        // Real path: simulate in-process. A server-to-itself Http::post()
+        // times out on single-worker local servers (for example artisan serve),
+        // so this mirrors AutomationController::simulate without nesting HTTP.
         try {
-            $payload = json_decode($this->payloadText, true) ?: [];
+            Gate::authorize('automations.view');
+            Gate::authorize('automations.test');
 
-            /** @var \Illuminate\Http\Client\Response $response */
-            $response = Http::post(
-                route('admin.automations.actions.simulate', [
-                    'automation' => $this->ruleId,
-                    'action' => $this->actionId ?? 0,
-                ], false),
-                ['payload' => $payload],
-            );
+            $automation = AutomationRule::query()->findOrFail($this->ruleId);
+            $action = AutomationAction::query()->findOrFail($this->actionId ?? 0);
 
-            if ($response->successful()) {
-                $body = $response->json();
-                $this->responseJson = is_array($body) ? $body : [];
-                $this->errorClass = null;
-                $this->errorMessage = null;
-            } else {
-                $body = $response->json();
-                $this->responseJson = null;
-                $this->errorClass = (string) ($body['error_class'] ?? 'HttpException');
-                $this->errorMessage = (string) ($body['error_message'] ?? $response->reason());
+            if ((int) $action->rule_id !== (int) $automation->id) {
+                abort(404);
             }
 
+            if ($action->type === 'webhook') {
+                $payload = (array) $action->payload_json;
+                $url = (string) ($payload['url'] ?? '');
+                $allowed = (array) config('integrations.webhooks.allowed_destinations', []);
+
+                $okUrl = $url !== ''
+                    && $allowed !== []
+                    && in_array($url, $allowed, true);
+
+                if (! $okUrl) {
+                    throw new WebhookNotAuthorizedException(
+                        "WebhookAction: destination {$url} is not in the allowed list."
+                    );
+                }
+            }
+
+            if ($action->type === 'send_whatsapp_template') {
+                throw new NotImplementedException(
+                    'WhatsApp provider is not yet implemented; expected in B14.'
+                );
+            }
+
+            $instance = app(ActionRegistry::class)->resolveForAction($action);
+            $result = $instance->simulate((array) ($action->payload_json ?? []));
+
+            $this->responseJson = [
+                'ok' => true,
+                'response_json' => $result,
+            ];
+            $this->errorClass = null;
+            $this->errorMessage = null;
             $this->isOpen = true;
         } catch (\Throwable $e) {
             $this->responseJson = null;

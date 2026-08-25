@@ -5,6 +5,11 @@ declare(strict_types=1);
 namespace App\Livewire\Admin\Automations;
 
 use App\Enums\ConditionOperator;
+use App\Models\ActivityType;
+use App\Models\LeadSource;
+use App\Models\LeadStatus;
+use App\Models\PipelineStage;
+use App\Models\User;
 use Livewire\Component;
 
 /**
@@ -59,6 +64,49 @@ class ConditionGroupEditor extends Component
     public bool $isCollapsed = false;
 
     /**
+     * Cached catalog choices used by the "Valor a buscar" selector.
+     * Loaded once per Livewire component lifecycle, not from the Blade render,
+     * so adding a condition stays responsive.
+     *
+     * @var array<string, array<string, string>>
+     */
+    public array $catalogValueOptions = [];
+
+    /**
+     * Tracks whether catalog choices were already attempted. This prevents
+     * repeated DB work on every Livewire render when a catalog is empty.
+     */
+    public bool $catalogValueOptionsLoaded = false;
+
+    /**
+     * Recommended value_type per business field. The user can still override
+     * it in the UI; this only keeps the default sensible after changing the
+     * "Qué dato revisar" selector.
+     *
+     * @var array<string, string>
+     */
+    private const FIELD_VALUE_TYPES = [
+        'source_id' => 'int',
+        'status_id' => 'int',
+        'owner_id' => 'int',
+        'stage_id' => 'int',
+        'lead_id' => 'int',
+        'customer_id' => 'int',
+        'opportunity_id' => 'int',
+        'type_id' => 'int',
+        'days_overdue' => 'int',
+        'interest_level' => 'enum',
+        'person_type' => 'enum',
+        'priority' => 'enum',
+        'currency_code' => 'enum',
+        'status' => 'enum',
+        'subject_type' => 'enum',
+        'entered_at' => 'date',
+        'expires_at' => 'date',
+        'scheduled_at' => 'datetime',
+    ];
+
+    /**
      * Hydrate the component from the parent's props.
      *
      * @param  list<array{field:string,operator:string,value:mixed,value_type:string,position:int}>  $group
@@ -68,6 +116,8 @@ class ConditionGroupEditor extends Component
         $this->conditions = $group;
         $this->groupIndex = $groupIndex;
         $this->logicalOperator = $logicalOperator;
+        $this->catalogValueOptions = $this->loadCatalogValueOptions();
+        $this->catalogValueOptionsLoaded = true;
     }
 
     /**
@@ -81,7 +131,7 @@ class ConditionGroupEditor extends Component
             'field' => 'source_id',
             'operator' => ConditionOperator::IS_NOT_NULL,
             'value' => null,
-            'value_type' => 'string',
+            'value_type' => 'int',
             'position' => count($this->conditions) + 1,
         ];
     }
@@ -98,6 +148,28 @@ class ConditionGroupEditor extends Component
 
         array_splice($this->conditions, $index, 1);
         $this->renumberPositions();
+    }
+
+    /**
+     * Keep the technical value type aligned with the selected business field.
+     * This preserves the submitted payload shape while making the UI defaults
+     * match the selected option.
+     */
+    public function updated(string $propertyName): void
+    {
+        if (! preg_match('/^conditions\.(\d+)\.field$/', $propertyName, $matches)) {
+            return;
+        }
+
+        $index = (int) $matches[1];
+        $field = (string) ($this->conditions[$index]['field'] ?? '');
+
+        if ($field === '' || ! isset(self::FIELD_VALUE_TYPES[$field])) {
+            return;
+        }
+
+        $this->conditions[$index]['value_type'] = self::FIELD_VALUE_TYPES[$field];
+        $this->conditions[$index]['value'] = null;
     }
 
     /**
@@ -121,7 +193,49 @@ class ConditionGroupEditor extends Component
 
     public function render()
     {
-        return view('livewire.admin.automations.condition-group-editor');
+        if (! $this->catalogValueOptionsLoaded) {
+            $this->catalogValueOptions = $this->loadCatalogValueOptions();
+            $this->catalogValueOptionsLoaded = true;
+        }
+
+        return view('livewire.admin.automations.condition-group-editor', [
+            'catalogValueOptions' => $this->catalogValueOptions,
+        ]);
+    }
+
+    /**
+     * Load catalog options defensively. If the database is unavailable, the UI
+     * falls back to text inputs instead of making condition editing fail.
+     *
+     * @return array<string, array<string, string>>
+     */
+    private function loadCatalogValueOptions(): array
+    {
+        try {
+            return [
+                'source_id' => $this->pluckCatalog(LeadSource::query()->where('is_active', true)->orderBy('sort')->orderBy('name')->pluck('name', 'id')->all()),
+                'status_id' => $this->pluckCatalog(LeadStatus::query()->where('is_active', true)->orderBy('sort')->orderBy('name')->pluck('name', 'id')->all()),
+                'stage_id' => $this->pluckCatalog(PipelineStage::query()->where('is_active', true)->orderBy('sort')->orderBy('name')->pluck('name', 'id')->all()),
+                'owner_id' => $this->pluckCatalog(User::query()->where('is_active', true)->orderBy('name')->pluck('name', 'id')->all()),
+                'type_id' => $this->pluckCatalog(ActivityType::query()->where('is_active', true)->orderBy('sort')->orderBy('name')->pluck('name', 'id')->all()),
+            ];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @param  array<int|string, mixed>  $values
+     * @return array<string, string>
+     */
+    private function pluckCatalog(array $values): array
+    {
+        $options = [];
+        foreach ($values as $id => $name) {
+            $options[(string) $id] = (string) $name;
+        }
+
+        return $options;
     }
 
     /**
@@ -131,7 +245,7 @@ class ConditionGroupEditor extends Component
      */
     private function renumberPositions(): void
     {
-        foreach ($this->conditions as $i => $condition) {
+        foreach (array_keys($this->conditions) as $i) {
             $this->conditions[$i]['position'] = $i + 1;
         }
     }

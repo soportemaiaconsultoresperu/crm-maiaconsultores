@@ -16,9 +16,12 @@
 
     @include('reports.partials._table', [
         'title' => 'Resultados',
+        'kind' => $kind,
         'headings' => $headings,
         'rows' => $rows,
         'filters' => $filters,
+        'filterKeys' => $filterKeys ?? [],
+        'filterOptions' => $filterOptions ?? [],
         'emptyMessage' => 'No hay datos para los filtros aplicados.',
     ])
 @endsection

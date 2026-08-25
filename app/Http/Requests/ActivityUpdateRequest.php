@@ -15,6 +15,13 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class ActivityUpdateRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        if (! $this->filled('subject_id') && ($fallback = $this->selectedPaneSubjectId()) !== null) {
+            $this->merge(['subject_id' => $fallback]);
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -23,6 +30,9 @@ class ActivityUpdateRequest extends FormRequest
         return [
             'subject_type' => ['nullable', 'in:'.implode(',', Activity::SUBJECT_TYPES)],
             'subject_id' => ['nullable', 'integer', 'min:1'],
+            'subject_id_lead' => ['nullable', 'integer', 'min:1'],
+            'subject_id_customer' => ['nullable', 'integer', 'min:1'],
+            'subject_id_opportunity' => ['nullable', 'integer', 'min:1'],
             'type_id' => ['nullable', 'integer', 'exists:activity_types,id'],
             'owner_id' => ['nullable', 'integer', 'exists:users,id'],
             'title' => ['nullable', 'string', 'max:200'],
@@ -81,5 +91,17 @@ class ActivityUpdateRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    private function selectedPaneSubjectId(): ?string
+    {
+        $subjectType = $this->input('subject_type');
+        if (! is_string($subjectType) || ! in_array($subjectType, ['lead', 'customer', 'opportunity'], true)) {
+            return null;
+        }
+
+        $value = $this->input('subject_id_'.$subjectType);
+
+        return filled($value) ? (string) $value : null;
     }
 }

@@ -20,7 +20,7 @@ class CodeGeneratorService
     /**
      * Entities that can be coded by this service.
      */
-    private const ENTITIES = ['lead', 'customer', 'opportunity', 'quotation', 'product'];
+    private const ENTITIES = ['lead', 'customer', 'opportunity', 'quotation', 'product', 'support_ticket'];
 
     /**
      * Default prefixes when no setting overrides them (ADR-002).
@@ -31,6 +31,7 @@ class CodeGeneratorService
         'opportunity' => 'OPP',
         'quotation' => 'COT',
         'product' => 'PROD',
+        'support_ticket' => 'SUP',
     ];
 
     /**

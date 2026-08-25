@@ -18,9 +18,10 @@
 
 <form method="POST"
       action="{{ $isEdit ? route('opportunities.update', $opportunity) : route('opportunities.store') }}"
-      @if ($isEdit) @method('PUT') @endif
-      data-testid="opportunity-form">
+      data-testid="opportunity-form"
+      data-swal-loading>
     @csrf
+    @if ($isEdit) @method('PUT') @endif
 
     <div class="card">
         <div class="card-header"><h3 class="card-title mb-0">{{ $isEdit ? 'Editar oportunidad '.$opportunity->code : 'Nueva oportunidad' }}</h3></div>

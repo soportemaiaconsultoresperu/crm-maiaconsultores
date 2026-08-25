@@ -7,6 +7,7 @@ use App\Http\Requests\CustomerStoreRequest;
 use App\Http\Requests\CustomerUpdateRequest;
 use App\Models\Activity;
 use App\Models\Customer;
+use App\Models\InvoiceStatus;
 use App\Models\Setting;
 use App\Models\Ubigeo;
 use App\Models\User;
@@ -130,8 +131,22 @@ class CustomerController extends Controller
     {
         Gate::authorize('view', $customer);
 
+        $canViewPayments = Gate::allows('customer-payments.view');
+        $canManagePayments = Gate::allows('create', [\App\Models\CustomerInvoice::class, $customer]);
+
+        $relations = [
+            'owner',
+            'ubigeo',
+            'convertedFromLead',
+            'contacts' => fn ($q) => $q->orderByDesc('is_primary')->orderBy('first_name'),
+        ];
+
+        if ($canViewPayments) {
+            $relations['invoices'] = fn ($q) => $q->with('status')->orderByDesc('due_date')->orderByDesc('id');
+        }
+
         return view('customers.show', [
-            'customer' => $customer->load(['owner', 'ubigeo', 'convertedFromLead', 'contacts' => fn ($q) => $q->orderByDesc('is_primary')->orderBy('first_name')]),
+            'customer' => $customer->load($relations),
             'history' => $this->customers->history($customer),
             'activities' => $customer->activities()
                 ->with(['owner', 'type', 'subject'])
@@ -143,6 +158,11 @@ class CustomerController extends Controller
                 ->where('scheduled_at', '>', now())
                 ->orderBy('scheduled_at')
                 ->first(),
+            'canViewPayments' => $canViewPayments,
+            'canManagePayments' => $canManagePayments,
+            'invoiceStatuses' => $canManagePayments
+                ? InvoiceStatus::query()->where('is_active', true)->orderBy('sort')->orderBy('name')->get()
+                : collect(),
         ]);
     }
 

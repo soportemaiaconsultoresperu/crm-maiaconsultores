@@ -5,29 +5,16 @@ declare(strict_types=1);
 namespace App\Services\Email;
 
 use App\Contracts\Email\EmailProvider;
+use App\Models\Email\EmailAttachment;
 use App\Models\Email\EmailMessage;
+use App\Models\Email\EmailParticipant;
 use App\Models\IntegrationAccount;
-use App\Services\Email\Exceptions\NotImplementedException;
+use App\Services\Google\GoogleOAuthService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
-/**
- * B13 Pasada B — Gmail provider stub.
- *
- * The real implementation lands in B13 Pasada C when
- * `INTEGRATIONS_GMAIL_CLIENT_ID` and related credentials are issued (A6
- * pending — D-23+ B13 alignment). Until then every method other than
- * `verifyWebhookSignature` returns the documented
- * `NotImplementedException` envelope so the rest of the application can
- * rely on it uniformly.
- *
- * Inbound (decision 10b): real implementation would call
- * `https://gmail.googleapis.com/gmail/v1/users/me/messages` with the OAuth
- * token. Today this returns `[]`.
- *
- * Webhook verification: HMAC-SHA256 over the raw body, keyed by
- * `INTEGRATIONS_GMAIL_WEBHOOK_SECRET`, compared to the `X-Goog-Signature`
- * header value.
- */
 class GmailProvider implements EmailProvider
 {
     public function __construct(
@@ -36,20 +23,55 @@ class GmailProvider implements EmailProvider
     }
 
     /**
-     * @return array{ok: bool, provider_message_id?: string, error_class?: string, error_message?: string}
+     * @return array{ok: bool, provider_message_id?: string, thread_id?: string, indeterminate?: bool, retryable?: bool, error_class?: string, error_message?: string}
      */
     public function send(EmailMessage $message): array
     {
-        if (! $this->isConfigured()) {
-            return $this->notConfiguredEnvelope();
+        if ($this->account === null) {
+            return $this->failure('NoBoundAccount', 'Gmail send requires a Google integration account.');
         }
 
-        // Real path would call:
-        //   POST https://gmail.googleapis.com/gmail/v1/users/me/messages/send
-        // with `Authorization: Bearer <oauth_token>` and a base64url-encoded
-        // raw RFC 2822 message body. Deferred to B13 Pasada C.
+        $config = (array) ($this->account->config_json ?? []);
+        $services = (array) ($config['services'] ?? []);
+        $scopes = array_values(array_filter((array) ($this->account->scopes ?? []), 'is_string'));
 
-        return $this->notConfiguredEnvelope();
+        if (($services['gmail'] ?? false) !== true
+            || ! in_array('https://www.googleapis.com/auth/gmail.send', $scopes, true)) {
+            return $this->failure('GmailNotAuthorized', 'Conectá Gmail para enviar esta cotización desde el sistema.');
+        }
+
+        try {
+            $accessToken = app(GoogleOAuthService::class)->accessTokenFor($this->account);
+            $response = Http::withToken($accessToken)
+                ->acceptJson()
+                ->post('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', [
+                    'raw' => $this->base64UrlEncode($this->buildMime($message)),
+                ]);
+        } catch (ConnectionException $exception) {
+            return [
+                'ok' => false,
+                'indeterminate' => true,
+                'error_class' => $exception::class,
+                'error_message' => 'No se pudo confirmar si Gmail aceptó el mensaje.',
+            ];
+        }
+
+        if (! $response->successful()) {
+            return [
+                'ok' => false,
+                'retryable' => $response->status() === 429 || $response->serverError(),
+                'error_class' => 'GmailApiError',
+                'error_message' => 'Gmail rechazó el envío con estado HTTP '.$response->status().'.',
+            ];
+        }
+
+        $payload = $response->json();
+
+        return [
+            'ok' => true,
+            'provider_message_id' => (string) ($payload['id'] ?? $message->provider_message_id),
+            'thread_id' => isset($payload['threadId']) ? (string) $payload['threadId'] : null,
+        ];
     }
 
     /**
@@ -61,16 +83,10 @@ class GmailProvider implements EmailProvider
         return [];
     }
 
-    /**
-     * Compare the X-Goog-Signature header against HMAC-SHA256(raw_body,
-     * INTEGRATIONS_GMAIL_WEBHOOK_SECRET). Constant-time compare.
-     */
     public function verifyWebhookSignature(Request $request): bool
     {
         $secret = (string) (env('INTEGRATIONS_GMAIL_WEBHOOK_SECRET') ?? '');
-
         if ($secret === '') {
-            // No secret configured → fail closed (reject the webhook).
             return false;
         }
 
@@ -79,28 +95,86 @@ class GmailProvider implements EmailProvider
             return false;
         }
 
-        $rawBody = (string) $request->getContent();
-        $expected = hash_hmac('sha256', $rawBody, $secret);
-
-        return hash_equals($expected, $provided);
+        return hash_equals(hash_hmac('sha256', (string) $request->getContent(), $secret), $provided);
     }
 
-    private function isConfigured(): bool
+    private function buildMime(EmailMessage $message): string
     {
-        $clientId = (string) (env('INTEGRATIONS_GMAIL_CLIENT_ID') ?? '');
+        $message->loadMissing(['participants', 'attachments']);
+        $boundary = '=_crm_maia_'.bin2hex(random_bytes(12));
+        $to = $this->emailsFor($message, EmailParticipant::KIND_TO);
+        $cc = $this->emailsFor($message, EmailParticipant::KIND_CC);
+        $bcc = $this->emailsFor($message, EmailParticipant::KIND_BCC);
+        $from = $message->from_name
+            ? sprintf('%s <%s>', $this->encodeHeader($message->from_name), $message->from_email)
+            : $message->from_email;
 
-        return $clientId !== '';
-    }
-
-    /**
-     * @return array{ok: false, error_class: string, error_message: string}
-     */
-    private function notConfiguredEnvelope(): array
-    {
-        return [
-            'ok' => false,
-            'error_class' => NotImplementedException::class,
-            'error_message' => 'Gmail OAuth credentials not configured (A6 pending). Configure INTEGRATIONS_GMAIL_* to enable.',
+        $headers = [
+            'From: '.$from,
+            'To: '.implode(', ', $to),
+            'Subject: '.$this->encodeHeader((string) $message->subject),
+            'MIME-Version: 1.0',
+            'Content-Type: multipart/mixed; boundary="'.$boundary.'"',
         ];
+        if ($cc !== []) {
+            $headers[] = 'Cc: '.implode(', ', $cc);
+        }
+        if ($bcc !== []) {
+            $headers[] = 'Bcc: '.implode(', ', $bcc);
+        }
+
+        $body = implode("\r\n", $headers)."\r\n\r\n";
+        $body .= '--'.$boundary."\r\n";
+        $body .= "Content-Type: text/plain; charset=UTF-8\r\n";
+        $body .= "Content-Transfer-Encoding: base64\r\n\r\n";
+        $body .= chunk_split(base64_encode($this->flatten($message->body_text)), 76, "\r\n")."\r\n";
+
+        foreach ($message->attachments as $attachment) {
+            /** @var EmailAttachment $attachment */
+            $contents = Storage::disk('local')->get($attachment->storage_path);
+            $body .= '--'.$boundary."\r\n";
+            $body .= 'Content-Type: '.$attachment->mime.'; name="'.$attachment->filename."\"\r\n";
+            $body .= "Content-Transfer-Encoding: base64\r\n";
+            $body .= 'Content-Disposition: attachment; filename="'.$attachment->filename."\"\r\n\r\n";
+            $body .= chunk_split(base64_encode($contents), 76, "\r\n")."\r\n";
+        }
+
+        return $body.'--'.$boundary."--\r\n";
+    }
+
+    /** @return list<string> */
+    private function emailsFor(EmailMessage $message, string $kind): array
+    {
+        return $message->participants
+            ->where('kind', $kind)
+            ->pluck('email')
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function flatten(mixed $value): string
+    {
+        if (is_array($value)) {
+            return implode("\n", array_map('strval', $value));
+        }
+
+        return (string) $value;
+    }
+
+    private function encodeHeader(string $value): string
+    {
+        return '=?UTF-8?B?'.base64_encode($value).'?=';
+    }
+
+    private function base64UrlEncode(string $value): string
+    {
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+    }
+
+    /** @return array{ok: false, error_class: string, error_message: string} */
+    private function failure(string $class, string $message): array
+    {
+        return ['ok' => false, 'error_class' => $class, 'error_message' => $message];
     }
 }

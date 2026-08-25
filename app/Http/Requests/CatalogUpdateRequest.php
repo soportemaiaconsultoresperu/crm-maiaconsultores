@@ -6,6 +6,7 @@ use App\Models\ActivityType;
 use App\Models\Currency;
 use App\Models\LeadSource;
 use App\Models\LeadStatus;
+use App\Models\InvoiceStatus;
 use App\Models\LossReason;
 use App\Models\PipelineStage;
 use App\Models\ProductCategory;
@@ -100,6 +101,7 @@ private function resolvedModel(): string
         $allowed = [
             'lead-sources' => LeadSource::class,
             'lead-statuses' => LeadStatus::class,
+            'invoice-statuses' => InvoiceStatus::class,
             'loss-reasons' => LossReason::class,
             'activity-types' => ActivityType::class,
             'pipeline-stages' => PipelineStage::class,

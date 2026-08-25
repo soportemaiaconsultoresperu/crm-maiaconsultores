@@ -4,12 +4,13 @@
 @section('page-title', 'Calendario (día)')
 
 @section('content')
-    @include('calendar.partials._nav', ['view' => $view, 'anchor' => $anchor, 'prevAnchor' => $prevAnchor, 'nextAnchor' => $nextAnchor, 'filters' => $filters, 'owners' => $owners, 'types' => $types])
+    <div data-calendar-page>
+        @include('calendar.partials._nav', ['view' => $view, 'anchor' => $anchor, 'prevAnchor' => $prevAnchor, 'nextAnchor' => $nextAnchor, 'filters' => $filters, 'owners' => $owners, 'types' => $types])
 
-    <div class="card" data-testid="calendar-day">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card" data-testid="calendar-day">
+            <div class="card-header d-flex justify-content-between align-items-center">
             <h3 class="card-title mb-0">{{ $anchor->format('l, d \\d\\e F \\d\\e Y') }}</h3>
-            <span class="badge text-bg-light">{{ $events->count() }} actividad(es)</span>
+            <span class="badge text-bg-light">{{ $events->count() }} evento(s)</span>
         </div>
         <div class="card-body p-0">
             @php
@@ -26,10 +27,10 @@
                             <div class="text-secondary small" style="min-width: 4rem;">{{ $hourKey }}:00</div>
                             <div class="flex-grow-1">
                                 @forelse ($hourEvents as $event)
-                                    <a href="{{ route('activities.show', $event) }}" class="d-block mb-1 calendar-event calendar-event-{{ $event->status }}">
+                                    <a href="{{ $event->url }}" class="d-block mb-1 calendar-event calendar-event-{{ $event->status }} calendar-event-{{ $event->kind }}">
                                         <strong>{{ $event->scheduled_at->format('H:i') }}</strong>
                                         — {{ $event->title }}
-                                        <span class="text-secondary">({{ $event->type?->name ?? '—' }})</span>
+                                        <span class="text-secondary">({{ $event->typeLabel }})</span>
                                     </a>
                                 @empty
                                     <span class="text-secondary small">—</span>
@@ -39,6 +40,7 @@
                     </li>
                 @endfor
             </ul>
+            </div>
         </div>
     </div>
 @endsection

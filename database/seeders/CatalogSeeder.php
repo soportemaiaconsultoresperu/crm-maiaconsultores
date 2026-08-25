@@ -6,6 +6,7 @@ use App\Models\ActivityType;
 use App\Models\Currency;
 use App\Models\LeadSource;
 use App\Models\LeadStatus;
+use App\Models\InvoiceStatus;
 use App\Models\LossReason;
 use App\Models\PipelineStage;
 use App\Models\ProductCategory;
@@ -34,6 +35,18 @@ class CatalogSeeder extends Seeder
                     'decimals' => $currency['decimals'],
                     'is_active' => true,
                 ]
+            );
+        }
+
+        foreach ([
+            ['name' => 'Pagado', 'slug' => InvoiceStatus::SLUG_PAID, 'sort' => 1],
+            ['name' => 'Vencida', 'slug' => InvoiceStatus::SLUG_OVERDUE, 'sort' => 2],
+            ['name' => 'En proceso', 'slug' => InvoiceStatus::SLUG_IN_PROCESS, 'sort' => 3],
+            ['name' => 'Nota de crédito', 'slug' => InvoiceStatus::SLUG_CREDIT_NOTE, 'sort' => 4],
+        ] as $status) {
+            InvoiceStatus::query()->updateOrCreate(
+                ['slug' => $status['slug']],
+                ['name' => $status['name'], 'sort' => $status['sort'], 'is_active' => true]
             );
         }
 

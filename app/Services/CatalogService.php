@@ -7,6 +7,7 @@ use App\Models\ActivityType;
 use App\Models\Currency;
 use App\Models\LeadSource;
 use App\Models\LeadStatus;
+use App\Models\InvoiceStatus;
 use App\Models\LossReason;
 use App\Models\PipelineStage;
 use App\Models\ProductCategory;
@@ -47,6 +48,7 @@ class CatalogService
     private array $uniqueKeys = [
         LeadSource::class => 'slug',
         LeadStatus::class => 'slug',
+        InvoiceStatus::class => 'slug',
         LossReason::class => 'slug',
         ActivityType::class => 'slug',
         PipelineStage::class => 'slug',
@@ -65,6 +67,7 @@ class CatalogService
     public const ALLOWED_MODELS = [
         LeadSource::class,
         LeadStatus::class,
+        InvoiceStatus::class,
         LossReason::class,
         ActivityType::class,
         PipelineStage::class,

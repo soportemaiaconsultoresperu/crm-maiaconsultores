@@ -22,8 +22,10 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RolesAndPermissionsSeeder::class,
             AdditionalPermissionsSeeder::class,
+            SupportPermissionsSeeder::class,
             AdminUserSeeder::class,
             CatalogSeeder::class,
+            SupportCatalogSeeder::class,
             UbigeoSeeder::class,
             SettingsSeeder::class,
             CodeSequencesSeeder::class,

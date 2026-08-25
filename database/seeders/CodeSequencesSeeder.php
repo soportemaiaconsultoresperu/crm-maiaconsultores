@@ -24,6 +24,8 @@ class CodeSequencesSeeder extends Seeder
             ['key' => 'seq.quotation.pad_length', 'value' => '5', 'type' => 'integer', 'group' => 'sequences'],
             ['key' => 'seq.product.prefix', 'value' => 'PROD', 'type' => 'string', 'group' => 'sequences'],
             ['key' => 'seq.product.pad_length', 'value' => '5', 'type' => 'integer', 'group' => 'sequences'],
+            ['key' => 'seq.support_ticket.prefix', 'value' => 'SUP', 'type' => 'string', 'group' => 'sequences'],
+            ['key' => 'seq.support_ticket.pad_length', 'value' => '5', 'type' => 'integer', 'group' => 'sequences'],
             ['key' => 'seq.pad_length', 'value' => '5', 'type' => 'integer', 'group' => 'sequences'],
         ];
 

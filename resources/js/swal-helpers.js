@@ -112,7 +112,18 @@ function commitInputAndSubmit(trigger, form, result) {
     }
 
     if (typeof form.requestSubmit === "function") {
-        form.requestSubmit(trigger);
+        const canUseTriggerAsSubmitter =
+            trigger instanceof HTMLElement &&
+            trigger.form === form &&
+            (trigger.matches('button[type="submit"], input[type="submit"]') ||
+                (trigger.tagName === "BUTTON" &&
+                    !trigger.hasAttribute("type")));
+
+        if (canUseTriggerAsSubmitter) {
+            form.requestSubmit(trigger);
+        } else {
+            form.requestSubmit();
+        }
     } else {
         form.submit();
     }

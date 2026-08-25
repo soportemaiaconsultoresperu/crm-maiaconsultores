@@ -9,7 +9,12 @@ use App\Models\Lead;
 use App\Models\Opportunity;
 use App\Models\Quotation;
 use App\Models\Activity;
+use App\Models\SupportIncidentDetail;
+use App\Models\SupportObservation;
+use App\Models\SupportSessionDetail;
+use App\Models\SupportTicket;
 use App\Services\DocumentService;
+use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -34,6 +39,34 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class DocumentController extends Controller
 {
+    /**
+     * Standalone documents module. Embedded panels remain the primary upload
+     * surface; this index makes the sidebar module useful by listing the latest
+     * documents the actor is allowed to see or manage.
+     */
+    public function index(Request $request, DocumentService $service): View
+    {
+        $user = $request->user();
+
+        abort_unless(
+            $user->can('documents.download') || $user->can('documents.view.any') || $user->can('documents.upload'),
+            403,
+        );
+
+        $documents = Document::query()
+            ->with(['uploader', 'docable'])
+            ->orderByDesc('uploaded_at')
+            ->orderByDesc('id')
+            ->limit(200)
+            ->get()
+            ->filter(fn (Document $document): bool => $user->can('documents.view.any')
+                || $service->canDownload($document, $user)
+                || (int) $document->uploaded_by === (int) $user->id)
+            ->values();
+
+        return view('documents.index', ['documents' => $documents]);
+    }
+
     /**
      * Polymorphic upload endpoint. The subject type is determined from the
      * controller action invoked by the route, so each `storeFor*` method
@@ -104,6 +137,41 @@ class DocumentController extends Controller
         return redirect()
             ->route('activities.show', $activity)
             ->with('status', "Documento \"{$document->name}\" subido correctamente.");
+    }
+
+    public function storeForSupportTicket(DocumentUploadRequest $request, SupportTicket $ticket, DocumentService $service): RedirectResponse
+    {
+        Gate::authorize('view', $ticket);
+        Gate::authorize('create', Document::class);
+        $document = $service->upload($ticket, $request->file('file'), $request->user());
+        return redirect()->route('support.tickets.show', $ticket)->with('status', "Documento \"{$document->name}\" subido correctamente.");
+    }
+
+    public function storeForSupportObservation(DocumentUploadRequest $request, SupportTicket $ticket, SupportObservation $observation, DocumentService $service): RedirectResponse
+    {
+        Gate::authorize('view', $ticket);
+        Gate::authorize('create', Document::class);
+        abort_unless((int) $observation->ticket_id === (int) $ticket->id, 404);
+        $document = $service->upload($observation, $request->file('file'), $request->user());
+        return redirect()->route('support.tickets.show', $ticket)->with('status', "Documento \"{$document->name}\" subido correctamente.");
+    }
+
+    public function storeForSupportIncident(DocumentUploadRequest $request, SupportTicket $ticket, SupportIncidentDetail $incident, DocumentService $service): RedirectResponse
+    {
+        Gate::authorize('view', $ticket);
+        Gate::authorize('create', Document::class);
+        abort_unless((int) $incident->ticket_id === (int) $ticket->id, 404);
+        $document = $service->upload($incident, $request->file('file'), $request->user());
+        return redirect()->route('support.tickets.show', $ticket)->with('status', "Documento \"{$document->name}\" subido correctamente.");
+    }
+
+    public function storeForSupportSession(DocumentUploadRequest $request, SupportTicket $ticket, SupportSessionDetail $session, DocumentService $service): RedirectResponse
+    {
+        Gate::authorize('view', $ticket);
+        Gate::authorize('create', Document::class);
+        abort_unless((int) $session->ticket_id === (int) $ticket->id, 404);
+        $document = $service->upload($session, $request->file('file'), $request->user());
+        return redirect()->route('support.tickets.show', $ticket)->with('status', "Documento \"{$document->name}\" subido correctamente.");
     }
 
     /**

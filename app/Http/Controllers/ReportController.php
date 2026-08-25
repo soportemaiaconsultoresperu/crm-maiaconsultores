@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Exports\ArrayExport;
+use App\Models\Currency;
+use App\Models\LeadSource;
+use App\Models\User;
 use App\Services\ReportsService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
@@ -35,6 +38,21 @@ class ReportController extends Controller
      *
      * @var array<string, array{title:string, description:string}>
      */
+    private const FILTERS_BY_KIND = [
+        'prospectos-origen' => ['from', 'to', 'owner_id'],
+        'prospectos-vendedor' => ['from', 'to', 'source_id'],
+        'conversion-prospectos' => ['from', 'to', 'owner_id'],
+        'oportunidades-etapa' => ['from', 'to', 'owner_id', 'status'],
+        'valor-embudo' => ['from', 'to', 'owner_id', 'currency'],
+        'ventas-ganadas-perdidas' => ['from', 'to', 'owner_id'],
+        'motivos-perdida' => ['from', 'to', 'owner_id'],
+        'actividades-vendedor' => ['from', 'to', 'owner_id'],
+        'actividades-vencidas' => ['from', 'to'],
+        'cotizaciones' => ['from', 'to', 'owner_id', 'currency'],
+        'cotizaciones-aceptadas-rechazadas' => ['from', 'to', 'owner_id'],
+        'rendimiento-comercial' => ['from', 'to'],
+    ];
+
     private const CATALOG = [
         'prospectos-origen' => [
             'title' => 'Prospectos por origen',
@@ -371,6 +389,8 @@ class ReportController extends Controller
             );
         }
 
+        $filterKeys = self::FILTERS_BY_KIND[$kind] ?? [];
+
         return view('reports.show', [
             'title' => $meta['title'],
             'description' => $meta['description'],
@@ -378,8 +398,57 @@ class ReportController extends Controller
             'headings' => $headings,
             'rows' => $tabularRows,
             'filters' => $filters,
+            'filterKeys' => $filterKeys,
+            'filterOptions' => $this->filterOptions($filterKeys),
             'exportUrl' => route('reports.show', array_filter(array_merge(['kind' => $kind, 'export' => 'xlsx'], $filters))),
         ]);
+    }
+
+
+    /**
+     * Options for the report filter form. Keep this UI-only: each concrete
+     * report still allow-lists its accepted query keys before calling the
+     * service layer.
+     *
+     * @param  list<string>  $filterKeys
+     * @return array<string, mixed>
+     */
+    private function filterOptions(array $filterKeys): array
+    {
+        $options = [
+            'status' => [
+                'open' => 'Abiertas',
+                'won' => 'Ganadas',
+                'lost' => 'Perdidas',
+            ],
+        ];
+
+        if (in_array('owner_id', $filterKeys, true)) {
+            $options['owners'] = User::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->pluck('name', 'id')
+                ->all();
+        }
+
+        if (in_array('source_id', $filterKeys, true)) {
+            $options['sources'] = LeadSource::query()
+                ->where('is_active', true)
+                ->orderBy('sort')
+                ->orderBy('name')
+                ->pluck('name', 'id')
+                ->all();
+        }
+
+        if (in_array('currency', $filterKeys, true)) {
+            $options['currencies'] = Currency::query()
+                ->where('is_active', true)
+                ->orderBy('code')
+                ->pluck('code', 'code')
+                ->all();
+        }
+
+        return $options;
     }
 
     /**

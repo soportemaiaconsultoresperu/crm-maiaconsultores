@@ -50,6 +50,7 @@ class CustomerFactory extends Factory
             'converted_from_lead_id' => null,
             'converted_at' => null,
             'observations' => null,
+            'payment_modality' => null,
         ];
     }
 

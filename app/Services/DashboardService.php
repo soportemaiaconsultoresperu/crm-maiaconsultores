@@ -6,6 +6,7 @@ use App\Models\Activity;
 use App\Models\ActivityType;
 use App\Models\Customer;
 use App\Models\Lead;
+use App\Models\LeadSource;
 use App\Models\LeadStatus;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
@@ -47,6 +48,8 @@ class DashboardService
             'proximas_reuniones' => $this->proximasReuniones($viewer),
             'conversiones_por_etapa' => $this->conversionesPorEtapa($viewer),
             'rendimiento_por_vendedor' => $this->rendimientoPorVendedor($viewer),
+            'actividad_por_dia' => $this->actividadPorDia($viewer),
+            'prospectos_por_origen' => $this->prospectosPorOrigen($viewer),
         ];
     }
 
@@ -237,6 +240,70 @@ class DashboardService
     }
 
     /**
+     * Last seven days of commercial activity as counts only. This powers the
+     * dependency-free line chart without mixing monetary currencies.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function actividadPorDia(User $viewer): array
+    {
+        $days = [];
+        $start = now()->subDays(6)->startOfDay();
+        $end = now()->endOfDay();
+        $leadCounts = $this->countsByDay($this->scopedLeads($viewer), 'entered_at', $start, $end);
+        $opportunityCounts = $this->countsByDay($this->scopedOpportunities($viewer), 'created_at', $start, $end);
+        $activityCounts = $this->countsByDay($this->scopedActivities($viewer), 'scheduled_at', $start, $end);
+
+        for ($offset = 0; $offset < 7; $offset++) {
+            $day = $start->copy()->addDays($offset);
+            $key = $day->toDateString();
+            $leadsCount = $leadCounts[$key] ?? 0;
+            $opportunitiesCount = $opportunityCounts[$key] ?? 0;
+            $activitiesCount = $activityCounts[$key] ?? 0;
+
+            $days[] = [
+                'date' => $key,
+                'label' => $day->translatedFormat('d M'),
+                'leads_count' => $leadsCount,
+                'opportunities_count' => $opportunitiesCount,
+                'activities_count' => $activitiesCount,
+                'total_count' => $leadsCount + $opportunitiesCount + $activitiesCount,
+            ];
+        }
+
+        return $days;
+    }
+
+    /**
+     * Top lead sources for the current month as counts only. Source labels are
+     * kept separate from any monetary amount to preserve multimoneda safety.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function prospectosPorOrigen(User $viewer): array
+    {
+        $start = now()->startOfMonth();
+        $end = now()->endOfMonth();
+
+        return LeadSource::query()
+            ->where('is_active', true)
+            ->withCount(['leads as leads_count' => function (Builder $q) use ($viewer, $start, $end): void {
+                $this->scope->appliesTo($q, $viewer);
+                $q->whereBetween('entered_at', [$start, $end]);
+            }])
+            ->orderByDesc('leads_count')
+            ->orderBy('name')
+            ->limit(6)
+            ->get()
+            ->map(fn (LeadSource $source): array => [
+                'source_id' => $source->id,
+                'name' => $source->name,
+                'count' => (int) $source->leads_count,
+            ])
+            ->all();
+    }
+
+    /**
      * Per-salesperson won count + won amount by currency for the current
      * month (RF-DASH-003). The amount stays grouped by currency (ADR-004).
      *
@@ -271,6 +338,22 @@ class DashboardService
                 'won_amount' => (float) $row->won_amount,
             ];
         })->all();
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function countsByDay(Builder $query, string $column, $start, $end): array
+    {
+        $dateExpression = "DATE({$column})";
+
+        return $query
+            ->whereBetween($column, [$start, $end])
+            ->selectRaw("{$dateExpression} as day, COUNT(*) as aggregate_count")
+            ->groupBy(DB::raw($dateExpression))
+            ->pluck('aggregate_count', 'day')
+            ->mapWithKeys(fn ($count, $day): array => [(string) $day => (int) $count])
+            ->all();
     }
 
     /**

@@ -7,6 +7,7 @@ namespace App\Livewire\Admin\Automations;
 use App\Models\AutomationRule;
 use App\Providers\AutomationServiceProvider;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
@@ -164,6 +165,24 @@ class RuleForm extends Component
 
         array_splice($this->actions, $index, 1);
         $this->renumberActions();
+    }
+
+    /**
+     * Keep the standard form payload in sync when an action widget applies a
+     * typed payload. The visible widget inputs also submit normal `name="..."`
+     * fields, but this listener keeps the Livewire state and rendered hidden
+     * fallback values current for admins who use the widget Apply buttons.
+     *
+     * @param  array<string, mixed>  $payload_json
+     */
+    #[On('action-payload-updated')]
+    public function handleActionPayloadUpdated(int $index, array $payload_json): void
+    {
+        if (! isset($this->actions[$index])) {
+            return;
+        }
+
+        $this->actions[$index]['payload_json'] = $payload_json;
     }
 
     /**
@@ -409,14 +428,14 @@ class RuleForm extends Component
 
     private function renumberGroups(): void
     {
-        foreach ($this->groups as $i => $group) {
+        foreach (array_keys($this->groups) as $i) {
             $this->groups[$i]['position'] = $i + 1;
         }
     }
 
     private function renumberActions(): void
     {
-        foreach ($this->actions as $i => $action) {
+        foreach (array_keys($this->actions) as $i) {
             $this->actions[$i]['position'] = $i + 1;
         }
     }

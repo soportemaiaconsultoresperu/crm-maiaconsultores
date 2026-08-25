@@ -1,0 +1,11 @@
+[allowlist]
+paths = [
+  '''^\.pi-subagents/''',
+  '''^\.pi/''',
+  '''^vendor/''',
+  '''^node_modules/'''
+]
+regexes = [
+  '''abc123def456abc123def456abc123def456abc123def456abc123def456abcd''',
+  '''NuevaClaveSegura-2026'''
+]

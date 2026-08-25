@@ -10,7 +10,6 @@ use App\Models\Quotation;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -235,6 +234,8 @@ class ReportsService
         $query = $this->scopedOpportunities($viewer)
             ->whereHas('stage', fn (Builder $q) => $q->where('stage_type', 'open'));
         $this->applyDateRange($query, $filters, 'expected_close_at', 'created_at');
+        $this->applyOwnerFilter($query, $filters, 'owner_id');
+        $this->applyCurrencyFilter($query, $filters);
 
         $rows = $query
             ->select(
@@ -452,6 +453,7 @@ class ReportsService
         $query = $this->scopedQuotations($viewer);
         $this->applyDateRange($query, $filters, 'issued_at');
         $this->applyOwnerFilter($query, $filters, 'owner_id');
+        $this->applyCurrencyFilter($query, $filters);
 
         $rows = $query
             ->select(
@@ -654,6 +656,13 @@ class ReportsService
     {
         if (! empty($filters[$column])) {
             $query->where($column, $filters[$column]);
+        }
+    }
+
+    private function applyCurrencyFilter(Builder $query, array $filters): void
+    {
+        if (! empty($filters['currency'])) {
+            $query->where('currency_code', strtoupper((string) $filters['currency']));
         }
     }
 

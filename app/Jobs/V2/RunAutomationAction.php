@@ -65,6 +65,15 @@ class RunAutomationAction implements ShouldQueue
             return;
         }
 
+        if (app(\App\Services\DemoData\DemoDataGuard::class)->isAutomationStepDemo($step)) {
+            $step->status = AutomationStepStatus::SKIPPED;
+            $step->error_class = 'DemoDataGuardBlocked';
+            $step->error_message = 'Demo data guard blocked automation job.';
+            $step->finished_at = now();
+            $step->save();
+            return;
+        }
+
         $step->status = AutomationStepStatus::RUNNING;
         $step->started_at = now();
         $step->attempt = max(1, $this->attempts());

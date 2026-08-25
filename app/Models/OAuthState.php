@@ -16,6 +16,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class OAuthState extends Model
 {
+    protected $table = 'oauth_states';
+
     /** @var list<string> */
     protected $fillable = [
         'provider',
@@ -23,6 +25,7 @@ class OAuthState extends Model
         'redirect_after',
         'payload_json',
         'expires_at',
+        'consumed_at',
     ];
 
     protected function casts(): array
@@ -30,6 +33,7 @@ class OAuthState extends Model
         return [
             'payload_json' => 'array',
             'expires_at' => 'datetime',
+            'consumed_at' => 'datetime',
         ];
     }
 
@@ -46,6 +50,14 @@ class OAuthState extends Model
     }
 
     /**
+     * Has this state token already been consumed by a callback?
+     */
+    public function isConsumed(): bool
+    {
+        return $this->consumed_at !== null;
+    }
+
+    /**
      * Scope to still-valid state tokens (i.e. not past their expiry).
      *
      * @param  Builder<OAuthState>  $query
@@ -55,5 +67,15 @@ class OAuthState extends Model
         return $query->where(function (Builder $q): void {
             $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
         });
+    }
+
+    /**
+     * Scope to state tokens that have not been consumed yet.
+     *
+     * @param  Builder<OAuthState>  $query
+     */
+    public function scopeUnconsumed(Builder $query): Builder
+    {
+        return $query->whereNull('consumed_at');
     }
 }

@@ -4,17 +4,62 @@
 @section('page-title', 'Automatizaciones')
 
 @section('content')
-    <p class="text-muted">
-        Listado de reglas registradas en el motor de automatizaciones (B12).
-        @if ($trashView ?? false)
-            Estás viendo la <strong>papelera</strong> — sólo se listan reglas con
-            <code>deleted_at</code> no nulo. Las acciones en estas filas sólo
-            aplican a <em>restaurar</em>; las reglas siguen siendo administrables
-            después de la restauración.
-        @else
-            La UI completa de creación y edición entra con el bloque B12-UI.
-        @endif
-    </p>
+    @php
+        $triggerLabels = [
+            'LeadCreated' => 'Se crea un prospecto',
+            'LeadAssigned' => 'Se asigna un prospecto',
+            'LeadStatusChanged' => 'Cambia el estado de un prospecto',
+            'LeadDeactivated' => 'Se desactiva un prospecto',
+            'LeadConverted' => 'Un prospecto se convierte en cliente',
+            'OpportunityCreated' => 'Se crea una oportunidad',
+            'OpportunityStageChanged' => 'Cambia la etapa de una oportunidad',
+            'OpportunityWon' => 'Una oportunidad se marca como ganada',
+            'OpportunityLost' => 'Una oportunidad se marca como perdida',
+            'QuotationCreated' => 'Se crea una cotización',
+            'QuotationSent' => 'Se envía una cotización',
+            'QuotationAccepted' => 'Una cotización es aceptada',
+            'ActivityCompleted' => 'Se completa una actividad',
+            'ActivityOverdue' => 'Una actividad queda vencida',
+            'QuotationWillExpire' => 'Una cotización está por vencer',
+            'CustomerIdle' => 'Un cliente queda sin seguimiento',
+            'ContactPrimaryChanged' => 'Cambia el contacto principal',
+            'ContactDeactivated' => 'Se desactiva un contacto',
+            'CustomerDeactivated' => 'Se desactiva un cliente',
+        ];
+        $modeLabels = [
+            'test' => 'Prueba segura',
+            'live' => 'Producción',
+        ];
+        $humanizeAutomationKey = static function (?string $value): string {
+            $base = class_basename($value ?: '');
+            $base = str_replace(['_', '-'], ' ', $base);
+
+            return trim(preg_replace('/(?<!^)[A-Z]/', ' $0', $base)) ?: 'Evento no definido';
+        };
+    @endphp
+
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <div>
+            <p class="text-uppercase text-secondary small mb-1">Reglas automáticas</p>
+            <p class="text-muted mb-1">
+                Administrá automatizaciones con lenguaje de negocio: <strong>CUANDO</strong> ocurre un evento,
+                <strong>SI</strong> cumple condiciones, <strong>ENTONCES</strong> el CRM realiza acciones.
+                @if ($trashView ?? false)
+                    Estás viendo la <strong>papelera</strong>; desde acá podés restaurar reglas eliminadas.
+                @else
+                    Usá “Prueba segura” para validar una regla antes de pasarla a producción.
+                @endif
+            </p>
+        </div>
+        @can('automations.manage')
+            @unless ($trashView ?? false)
+                <a href="{{ route('admin.automations.create') }}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle me-1" aria-hidden="true"></i>
+                    Nueva automatización
+                </a>
+            @endunless
+        @endcan
+    </div>
 
     {{-- Tabs: Activas | Papelera (CRUD-07 / CRUD-08, UI-07) --}}
     @unless ($trashView ?? false)
@@ -23,7 +68,7 @@
                class="btn btn-sm btn-primary"
                aria-current="page">
                 <i class="bi bi-lightning-charge me-1" aria-hidden="true"></i>
-                Activas
+                En uso
             </a>
             <a href="{{ route('admin.automations.trash') }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-trash me-1" aria-hidden="true"></i>
@@ -34,7 +79,7 @@
         <div class="d-flex flex-wrap gap-2 mb-3">
             <a href="{{ route('admin.automations.index') }}" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-lightning-charge me-1" aria-hidden="true"></i>
-                Activas
+                En uso
             </a>
             <a href="{{ route('admin.automations.trash') }}"
                class="btn btn-sm btn-warning"
@@ -45,28 +90,38 @@
         </div>
     @endunless
 
-    <x-table title="{{ $trashView ?? false ? 'Reglas en papelera' : 'Reglas' }}">
+    <x-table title="{{ $trashView ?? false ? 'Automatizaciones en papelera' : 'Automatizaciones guardadas' }}">
         @slot('headers')
             <tr>
                 <th>ID</th>
                 <th>Nombre</th>
-                <th>Trigger</th>
-                <th>Modo</th>
-                <th>Activa</th>
-                <th>Ejecuciones</th>
+                <th>Se inicia cuando</th>
+                <th>Entorno</th>
+                <th>Estado de uso</th>
+                <th>Veces ejecutada</th>
                 <th class="text-end">Acciones</th>
             </tr>
         @endslot
 
         @slot('rows')
             @forelse ($rules as $rule)
+                @php
+                    $triggerBase = class_basename($rule->trigger_event);
+                    $triggerLabel = $triggerLabels[$triggerBase] ?? $humanizeAutomationKey($rule->trigger_event);
+                    $modeLabel = $modeLabels[$rule->mode] ?? $humanizeAutomationKey($rule->mode);
+                @endphp
                 <tr>
                     <td>{{ $rule->id }}</td>
-                    <td>{{ $rule->name }}</td>
-                    <td><code>{{ $rule->trigger_event }}</code></td>
+                    <td>
+                        <strong>{{ $rule->name }}</strong>
+                        @if ($rule->description)
+                            <div class="text-muted small">{{ $rule->description }}</div>
+                        @endif
+                    </td>
+                    <td>{{ $triggerLabel }}</td>
                     <td>
                         <span class="badge bg-{{ $rule->isLiveMode() ? 'success' : 'secondary' }}">
-                            {{ $rule->mode }}
+                            {{ $modeLabel }}
                         </span>
                     </td>
                     <td>
@@ -74,28 +129,28 @@
                             <span class="badge bg-secondary">En papelera</span>
                         @else
                             @can('automations.manage')
-                                {{-- CRUD-05 inline toggle (Stage 2A). The form
-                                     posts + method-spoofs PATCH to
-                                     admin.automations.toggle; the controller
-                                     flips is_active inside DB::transaction()
-                                     and returns a JSON envelope of
-                                     { ok, is_active, id }. --}}
                                 <form method="POST"
                                       action="{{ route('admin.automations.toggle', $rule) }}"
-                                      class="d-inline">
+                                      class="d-inline"
+                                      data-swal-loading>
                                     @csrf
                                     @method('PATCH')
                                     <button type="submit"
                                             class="btn btn-sm btn-{{ $rule->is_active ? 'success' : 'outline-secondary' }}"
-                                            title="{{ $rule->is_active ? 'Desactivar regla' : 'Activar regla' }}"
-                                            aria-label="{{ $rule->is_active ? 'Desactivar regla' : 'Activar regla' }}">
+                                            title="{{ $rule->is_active ? 'Pausar automatización' : 'Habilitar automatización' }}"
+                                            aria-label="{{ $rule->is_active ? 'Pausar automatización' : 'Habilitar automatización' }}"
+                                            data-swal-confirm
+                                            data-swal-title="{{ $rule->is_active ? 'Pausar automatización' : 'Habilitar automatización' }}"
+                                            data-swal-text="{{ $rule->is_active ? 'La regla quedará guardada, pero dejará de ejecutarse automáticamente.' : 'La regla volverá a ejecutarse cuando ocurra su evento de inicio.' }}"
+                                            data-swal-type="question"
+                                            data-swal-confirm-text="Sí, continuar">
                                         <i class="bi {{ $rule->is_active ? 'bi-toggle-on' : 'bi-toggle-off' }}" aria-hidden="true"></i>
-                                        {{ $rule->is_active ? 'Sí' : 'No' }}
+                                        {{ $rule->is_active ? 'Habilitada' : 'Pausada' }}
                                     </button>
                                 </form>
                             @else
                                 <span class="badge bg-{{ $rule->is_active ? 'success' : 'secondary' }}">
-                                    {{ $rule->is_active ? 'Sí' : 'No' }}
+                                    {{ $rule->is_active ? 'Habilitada' : 'Pausada' }}
                                 </span>
                             @endcan
                         @endif
@@ -103,15 +158,20 @@
                     <td>{{ $rule->executions_count ?? 0 }}</td>
                     <td class="text-end text-nowrap">
                         @if ($trashView ?? false)
-                            {{-- CRUD-08 restore (Stage 2B) --}}
                             @can('automations.manage')
                                 <form method="POST"
                                       action="{{ route('admin.automations.restore', ['id' => $rule->id]) }}"
-                                      class="d-inline">
+                                      class="d-inline"
+                                      data-swal-loading>
                                     @csrf
                                     <button type="submit"
                                             class="btn btn-sm btn-outline-success"
-                                            title="Restaurar regla">
+                                            title="Restaurar automatización"
+                                            data-swal-confirm
+                                            data-swal-title="Restaurar automatización"
+                                            data-swal-text="La automatización volverá al listado de reglas disponibles."
+                                            data-swal-type="question"
+                                            data-swal-confirm-text="Sí, restaurar">
                                         <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>
                                         Restaurar
                                     </button>
@@ -119,19 +179,41 @@
                             @endcan
                         @else
                             <a href="{{ route('admin.automations.show', $rule) }}" class="btn btn-sm btn-outline-primary">
-                                Ver historial
+                                Ver detalle
                             </a>
-                            {{-- CRUD-07 soft-delete (Stage 2B) --}}
                             @can('automations.manage')
+                                <a href="{{ route('admin.automations.edit', $rule) }}" class="btn btn-sm btn-outline-secondary">
+                                    Editar
+                                </a>
+                                <form method="POST"
+                                      action="{{ route('admin.automations.clone', $rule) }}"
+                                      class="d-inline"
+                                      data-swal-loading>
+                                    @csrf
+                                        <button type="submit"
+                                                class="btn btn-sm btn-outline-secondary"
+                                                data-swal-confirm
+                                                data-swal-title="Duplicar automatización"
+                                                data-swal-text="Se creará una copia para que puedas ajustarla sin modificar la original."
+                                                data-swal-type="question"
+                                                data-swal-confirm-text="Sí, duplicar">
+                                            Duplicar
+                                        </button>
+                                </form>
                                 <form method="POST"
                                       action="{{ route('admin.automations.destroy', $rule) }}"
-                                      class="d-inline">
+                                      class="d-inline"
+                                      data-swal-loading>
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit"
                                             class="btn btn-sm btn-outline-danger"
-                                            onclick="return confirm('¿Enviar la regla «{{ $rule->name }}» a la papelera?')"
-                                            title="Enviar a papelera">
+                                            title="Enviar a papelera"
+                                            data-swal-confirm
+                                            data-swal-title="Enviar a papelera"
+                                            data-swal-text="La automatización «{{ $rule->name }}» dejará de estar disponible hasta que la restaures."
+                                            data-swal-type="warning"
+                                            data-swal-confirm-text="Sí, enviar">
                                         <i class="bi bi-trash me-1" aria-hidden="true"></i>
                                         Papelera
                                     </button>
@@ -144,9 +226,9 @@
                 <tr>
                     <td colspan="7" class="text-center text-muted">
                         @if ($trashView ?? false)
-                            No hay reglas en la papelera.
+                            No hay automatizaciones en la papelera.
                         @else
-                            No hay reglas registradas todavía.
+                            Todavía no hay automatizaciones. Creá la primera con la receta CUANDO / SI / ENTONCES.
                         @endif
                     </td>
                 </tr>

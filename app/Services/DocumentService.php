@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -235,6 +234,19 @@ class DocumentService
             return false;
         }
 
+        $supportTicket = match (true) {
+            $subject instanceof \App\Models\SupportTicket => $subject,
+            $subject instanceof \App\Models\SupportTicketUpdate => $subject->ticket,
+            $subject instanceof \App\Models\SupportObservation => $subject->ticket,
+            $subject instanceof \App\Models\SupportIncidentDetail => $subject->ticket,
+            $subject instanceof \App\Models\SupportSessionDetail => $subject->ticket,
+            default => null,
+        };
+
+        if ($supportTicket instanceof \App\Models\SupportTicket) {
+            return app(\App\Services\SupportTicketScopeService::class)->canView($actor, $supportTicket);
+        }
+
         $ownerId = $subject->owner_id
             ?? $subject->customer?->owner_id
             ?? null;
@@ -288,6 +300,11 @@ class DocumentService
             \App\Models\Opportunity::class,
             \App\Models\Quotation::class,
             \App\Models\Activity::class,
+            \App\Models\SupportTicket::class,
+            \App\Models\SupportTicketUpdate::class,
+            \App\Models\SupportObservation::class,
+            \App\Models\SupportIncidentDetail::class,
+            \App\Models\SupportSessionDetail::class,
         ];
 
         if (! in_array($docable::class, $allowed, true)) {
@@ -381,6 +398,11 @@ class DocumentService
             \App\Models\Opportunity::class => 'opportunities',
             \App\Models\Quotation::class => 'quotations',
             \App\Models\Activity::class => 'activities',
+            \App\Models\SupportTicket::class => 'support/tickets',
+            \App\Models\SupportTicketUpdate::class => 'support/updates',
+            \App\Models\SupportObservation::class => 'support/observations',
+            \App\Models\SupportIncidentDetail::class => 'support/incidents',
+            \App\Models\SupportSessionDetail::class => 'support/sessions',
             default => 'misc',
         };
 

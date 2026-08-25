@@ -14,6 +14,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\ActivityService;
 use App\Services\DataScopeService;
+use App\Services\GoogleCalendarActivitySyncService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -36,6 +37,7 @@ class ActivityController extends Controller
     public function __construct(
         private readonly ActivityService $activities,
         private readonly DataScopeService $scope,
+        private readonly GoogleCalendarActivitySyncService $calendarSync,
     ) {}
 
     /**
@@ -202,6 +204,8 @@ class ActivityController extends Controller
                 ->log("Actividad \"{$activity->title}\" desactivada: {$validated['reason']}");
         });
 
+        $this->calendarSync->queueActivity($activity);
+
         return redirect()
             ->route('activities.index')
             ->with('status', "Actividad \"{$activity->title}\" desactivada.");
@@ -363,15 +367,28 @@ class ActivityController extends Controller
      */
     private function formContext(User $user, ?Activity $activity = null): array
     {
+        $leads = $this->scope->appliesTo(Lead::query(), $user)
+            ->orderByDesc('id')->limit(300)->get();
+        $customers = $this->scope->appliesTo(Customer::query(), $user)
+            ->orderBy('legal_name')->limit(300)->get();
+        $opportunities = $this->scope->appliesTo(Opportunity::query(), $user)
+            ->orderByDesc('id')->limit(300)->get();
+
+        $subject = $activity?->subject;
+        if ($subject instanceof Lead && ! $leads->contains('id', $subject->id)) {
+            $leads->prepend($subject);
+        } elseif ($subject instanceof Customer && ! $customers->contains('id', $subject->id)) {
+            $customers->prepend($subject);
+        } elseif ($subject instanceof Opportunity && ! $opportunities->contains('id', $subject->id)) {
+            $opportunities->prepend($subject);
+        }
+
         return [
             'types' => ActivityType::query()->where('is_active', true)->orderBy('sort')->get(),
             'owners' => $this->ownerOptions($user),
-            'leads' => $this->scope->appliesTo(Lead::query(), $user)
-                ->orderByDesc('id')->limit(300)->get(),
-            'customers' => $this->scope->appliesTo(Customer::query(), $user)
-                ->orderBy('legal_name')->limit(300)->get(),
-            'opportunities' => $this->scope->appliesTo(Opportunity::query(), $user)
-                ->orderByDesc('id')->limit(300)->get(),
+            'leads' => $leads,
+            'customers' => $customers,
+            'opportunities' => $opportunities,
             'statuses' => $this->statusOptions(),
             'priorities' => ['baja' => 'Baja', 'media' => 'Media', 'alta' => 'Alta'],
             'subjectTypes' => $this->subjectTypeOptions(),
@@ -402,36 +419,6 @@ class ActivityController extends Controller
             'customer' => 'Cliente',
             'opportunity' => 'Oportunidad',
         ];
-    }
-
-    /**
-     * Resolve the (subject_type, subject_id) pair from the route binding
-     * for inline POST endpoints. Returns null when no subject route binding
-     * is present.
-     *
-     * @return array{0: string, 1: int}|null
-     */
-    private function resolveSubjectFromRoute(Request $request): ?array
-    {
-        if ($request->route('lead') !== null) {
-            $lead = $request->route('lead');
-
-            return ['lead', (int) $lead->getKey()];
-        }
-
-        if ($request->route('customer') !== null) {
-            $customer = $request->route('customer');
-
-            return ['customer', (int) $customer->getKey()];
-        }
-
-        if ($request->route('opportunity') !== null) {
-            $opportunity = $request->route('opportunity');
-
-            return ['opportunity', (int) $opportunity->getKey()];
-        }
-
-        return null;
     }
 
     /**

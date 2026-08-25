@@ -101,18 +101,41 @@ class CustomerHttpTest extends TestCase
         $this->assertSame($this->salespersonOne->id, $customer->owner_id);
     }
 
-    public function test_show_renders_contact_table_and_quotations_card(): void
+    public function test_show_renders_existing_cards_and_gates_payments_card(): void
     {
-        $customer = Customer::factory()->forOwner($this->salespersonOne)->create();
+        $customer = Customer::factory()->forOwner($this->salespersonOne)->create([
+            'payment_modality' => 'Transferencia',
+        ]);
 
         $this->actingAs($this->salespersonOne)
             ->get("/customers/{$customer->id}")
             ->assertOk()
             ->assertSee($customer->code)
+            ->assertSee('Datos del cliente')
+            ->assertSee('Contactos')
+            ->assertSee('Historial comercial')
+            ->assertSee('Actividades')
+            ->assertSee('Documentos')
+            ->assertSee('Productos')
             ->assertSee('Oportunidades')
             ->assertSee('B04')
             ->assertSee('Cotizaciones')
-            ->assertSee('Nueva cotización');
+            ->assertSee('Nueva cotización')
+            ->assertDontSee('Pagos')
+            ->assertDontSee('Transferencia');
+
+        $this->actingAs($this->admin)
+            ->get("/customers/{$customer->id}")
+            ->assertOk()
+            ->assertSee('Pagos')
+            ->assertSee('Transferencia')
+            ->assertSee('Datos del cliente')
+            ->assertSee('Contactos')
+            ->assertSee('Historial comercial')
+            ->assertSee('Actividades')
+            ->assertSee('Cotizaciones')
+            ->assertSee('Documentos')
+            ->assertSee('Productos');
     }
 
     public function test_contact_create_from_customer_show_becomes_primary(): void

@@ -1,0 +1,18 @@
+{
+    email {$CADDY_EMAIL}
+}
+
+crm.maiaconsultores.com {
+    root * /srv
+    encode zstd gzip
+
+    # Resolve routes against Caddy's immutable public files, then send PHP to
+    # the matching path in the PHP-FPM container.
+    try_files {path} {path}/ /index.php?{query}
+    php_fastcgi app:9000 {
+        env SCRIPT_FILENAME /var/www/html/public{path}
+    }
+
+    # Caddy obtains and renews Let's Encrypt certificates automatically.
+    file_server
+}

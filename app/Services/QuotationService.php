@@ -187,18 +187,44 @@ class QuotationService
     }
 
     /**
-     * Move a draft quotation to "sent". issued_at is preserved when
-     * already set, otherwise set to today.
+     * Backwards-compatible manual send marker. It does not call any external provider.
      */
     public function send(Quotation $quotation, User $actor): Quotation
     {
+        return $this->markAsSentManually($quotation, $actor);
+    }
+
+    public function markAsSentManually(Quotation $quotation, User $actor): Quotation
+    {
+        return $this->markSent($quotation, $actor, 'quotation-sent-manual', 'Cotización '.$quotation->number.' marcada como enviada manualmente', [
+            'channel' => 'manual',
+        ]);
+    }
+
+    public function markAsSentFromGmail(Quotation $quotation, User $actor, \App\Models\Email\EmailMessage $message): Quotation
+    {
+        return $this->markSent($quotation, $actor, 'quotation-sent-gmail', 'Cotización '.$quotation->number.' enviada por Gmail', [
+            'channel' => 'gmail',
+            'email_message_id' => $message->getKey(),
+            'provider_message_id' => $message->provider_message_id,
+            'thread_id' => $message->thread_id,
+        ]);
+    }
+
+    /** @param array<string, mixed> $properties */
+    private function markSent(Quotation $quotation, User $actor, string $event, string $description, array $properties): Quotation
+    {
+        if ($quotation->status === 'sent') {
+            return $quotation->refresh();
+        }
+
         if ($quotation->status !== 'draft') {
             throw new InvalidOperationException(
                 "La cotización {$quotation->number} no está en borrador y no puede enviarse."
             );
         }
 
-        return DB::transaction(function () use ($quotation, $actor): Quotation {
+        $sent = DB::transaction(function () use ($quotation, $actor, $event, $description, $properties): Quotation {
             $quotation->status = 'sent';
             $quotation->issued_at ??= now()->toDateString();
             $quotation->updated_by = $actor->id;
@@ -207,20 +233,16 @@ class QuotationService
             activity()
                 ->performedOn($quotation)
                 ->causedBy($actor)
-                ->event('quotation-sent')
-                ->withProperties(['number' => $quotation->number])
-->log("Cotización {$quotation->number} enviada");
+                ->event($event)
+                ->withProperties(array_merge(['number' => $quotation->number], $properties))
+                ->log($description);
 
             return $quotation->refresh();
         });
 
-        $quotation->refresh();
+        event(new QuotationSent($sent, $actor));
 
-        // V2 (B12): automation engine emission after the transaction
-        // commits. Never inside DB::transaction.
-        event(new QuotationSent($quotation, $actor));
-
-        return $quotation;
+        return $sent;
     }
 
     /**

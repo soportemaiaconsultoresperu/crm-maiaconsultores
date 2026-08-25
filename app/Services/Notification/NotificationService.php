@@ -8,6 +8,7 @@ use App\Jobs\V2\SendOutboundDelivery;
 use App\Models\Notification\NotificationPreference;
 use App\Models\Notification\OutboundDelivery;
 use App\Models\User;
+use App\Services\DemoData\DemoDataGuard;
 use App\Services\SettingsService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -46,7 +47,10 @@ class NotificationService
             return $existing;
         }
 
-        $delivery = DB::transaction(function () use ($attributes, $idempotencyKey): OutboundDelivery {
+        $isDemo = isset($attributes['related_entity_type'], $attributes['related_entity_id'])
+            && app(DemoDataGuard::class)->isDemo((string) $attributes['related_entity_type'], (int) $attributes['related_entity_id']);
+
+        $delivery = DB::transaction(function () use ($attributes, $idempotencyKey, $isDemo): OutboundDelivery {
             $delivery = new OutboundDelivery();
             $delivery->fill([
                 'channel' => $attributes['channel'],
@@ -55,10 +59,10 @@ class NotificationService
                 'related_entity_type' => $attributes['related_entity_type'] ?? null,
                 'related_entity_id' => $attributes['related_entity_id'] ?? null,
                 'account_id' => $attributes['account_id'] ?? null,
-                'status' => OutboundDelivery::STATUS_QUEUED,
+                'status' => $isDemo ? OutboundDelivery::STATUS_SKIPPED : OutboundDelivery::STATUS_QUEUED,
                 'attempts' => 0,
                 'next_attempt_at' => null,
-                'last_error' => null,
+                'last_error' => $isDemo ? 'skipped: demo data guard blocked outbound dispatch' : null,
                 'last_response_code' => null,
                 'idempotency_key' => $idempotencyKey,
             ]);
@@ -67,7 +71,9 @@ class NotificationService
             return $delivery;
         });
 
-        SendOutboundDelivery::dispatch($delivery->id);
+        if (! $isDemo) {
+            SendOutboundDelivery::dispatch($delivery->id);
+        }
 
         return $delivery;
     }

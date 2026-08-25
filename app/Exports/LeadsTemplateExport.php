@@ -41,17 +41,21 @@ class LeadsTemplateExport
         'Tipo de persona'                => 'A',
         'Nombre'                         => 'B',
         'Apellidos'                      => 'C',
-        'Razón social'                   => 'D',
-        'Cargo'                          => 'E',
-        'Tipo de documento'              => 'F',
-        'Número de documento'            => 'G',
-        'Teléfono'                       => 'H',
-        'WhatsApp'                       => 'I',
-        'Correo electrónico'             => 'J',
-        'Dirección'                      => 'K',
-        'Código de distrito (ubigeo)'    => 'L',
-        'Nivel de interés'               => 'M',
-        'Observaciones'                  => 'N',
+        'Empresa'                        => 'D',
+        'Razón social'                   => 'E',
+        'Nombre comercial'               => 'F',
+        'Cargo'                          => 'G',
+        'Tipo de documento'              => 'H',
+        'Número de documento'            => 'I',
+        'Teléfono'                       => 'J',
+        'WhatsApp'                       => 'K',
+        'Correo electrónico'             => 'L',
+        'Sitio web'                      => 'M',
+        'Dirección'                      => 'N',
+        'Código de distrito (ubigeo)'    => 'O',
+        'Sector'                         => 'P',
+        'Nivel de interés'               => 'Q',
+        'Observaciones'                  => 'R',
     ];
 
     /**
@@ -66,9 +70,9 @@ class LeadsTemplateExport
 
     /** Column widths in Excel character units (matches PhpSpreadsheet defaults). */
     private const COLUMN_WIDTHS = [
-        'A' => 18, 'B' => 28, 'C' => 24, 'D' => 32, 'E' => 22,
-        'F' => 14, 'G' => 16, 'H' => 18, 'I' => 18, 'J' => 30,
-        'K' => 36, 'L' => 14, 'M' => 18, 'N' => 40,
+        'A' => 18, 'B' => 26, 'C' => 22, 'D' => 30, 'E' => 34, 'F' => 28,
+        'G' => 22, 'H' => 16, 'I' => 18, 'J' => 18, 'K' => 18, 'L' => 30,
+        'M' => 28, 'N' => 38, 'O' => 16, 'P' => 22, 'Q' => 18, 'R' => 44,
     ];
 
     /** Sample row so the operator sees the expected format. */
@@ -77,14 +81,18 @@ class LeadsTemplateExport
         'María',
         'Gonzales',
         '',
+        '',
+        '',
         'Gerente de compras',
         'dni',
         '45678901',
         '+51987654321',
         '+51987654321',
         'maria.gonzales@example.com',
+        'https://example.com',
         'Av. La Marina 123, Lima',
         '150101',
+        'Consultoría',
         'alto',
         'Contacto referido por el Sr. Pérez.',
     ];
@@ -128,7 +136,7 @@ class LeadsTemplateExport
             ],
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['argb' => 'FF0D6EFD'], // brand primary blue
+                'startColor' => ['argb' => 'FF2563EB'], // CRM Maia primary blue
             ],
             'alignment' => [
                 'horizontal' => Alignment::HORIZONTAL_CENTER,
@@ -136,7 +144,7 @@ class LeadsTemplateExport
                 'wrapText' => true,
             ],
             'borders' => [
-                'bottom' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['argb' => 'FF0D6EFD']],
+                'bottom' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['argb' => 'FF7C3AED']],
             ],
         ]);
         $sheet->getRowDimension(1)->setRowHeight(32);
@@ -151,7 +159,7 @@ class LeadsTemplateExport
             ],
             'fill' => [
                 'fillType' => Fill::FILL_SOLID,
-                'startColor' => ['argb' => 'FFF8F9FA'],
+                'startColor' => ['argb' => 'FFF8FAFC'],
             ],
         ]);
 
@@ -192,12 +200,12 @@ class LeadsTemplateExport
         $sheet->freezePane('A2');
 
         // Subtle banding for readability (every other row).
-        $sheet->getStyle('A3:N' . $lastDataRow)
+        $sheet->getStyle('A3:R' . $lastDataRow)
             ->getFill()
             ->setFillType(Fill::FILL_SOLID)
             ->getStartColor()
             ->setARGB('FFFFFFFF');
-        $sheet->getStyle('A3:N' . $lastDataRow)
+        $sheet->getStyle('A3:R' . $lastDataRow)
             ->getBorders()
             ->getAllBorders()
             ->setBorderStyle(Border::BORDER_HAIR)
@@ -254,19 +262,23 @@ class LeadsTemplateExport
         // Column docs.
         $docs = [
             ['person_type',    'Tipo de persona. Obligatorio.',                                          'natural | juridica'],
-            ['first_name',     'Nombres (natural) o razón social abreviada (juridica). Obligatorio solo cuando person_type=natural.', 'Texto libre'],
-            ['last_name',      'Apellidos. Obligatorio solo cuando person_type=natural. Para jurídica se ignora.', 'Texto libre'],
-            ['company_name',   'Empresa. Obligatorio solo cuando person_type=juridica (la razón social va acá).', 'Texto libre'],
-            ['position',       'Cargo del contacto dentro de la empresa.',                              'Texto libre (opcional)'],
-            ['doc_type',       'Tipo de documento. Recomendado.',                                       'dni | ruc | ce | pasaporte | otro'],
-            ['doc_number',     'Número de documento. Recomendado; al menos uno entre este, email, phone, whatsapp.', 'DNI 8 dígitos | RUC 11 dígitos'],
-            ['phone',          'Teléfono. Recomendado.',                                                'Texto libre'],
-            ['whatsapp',       'WhatsApp. Recomendado.',                                               'Texto libre'],
-            ['email',          'Correo electrónico. Recomendado.',                                     'email válido'],
-            ['address',        'Dirección libre.',                                                     'Texto libre'],
-            ['ubigeo_code',    'Código de distrito (ubigeo) de 6 dígitos. Opcional; validar contra la tabla.', '6 dígitos exactos'],
-            ['interest_level', 'Nivel de interés declarado.',                                          'bajo | medio | alto'],
-            ['observations',   'Observaciones libres.',                                                'Texto libre'],
+            ['first_name',     'Nombres. Obligatorio cuando person_type=natural.',                       'Texto libre'],
+            ['last_name',      'Apellidos. Para jurídica puede quedar vacío.',                           'Texto libre'],
+            ['company_name',   'Empresa. Recomendado y clave para prospectos jurídicos.',                'Texto libre'],
+            ['legal_name',     'Razón social legal del prospecto jurídico.',                             'Texto libre'],
+            ['trade_name',     'Nombre comercial o marca visible.',                                      'Texto libre'],
+            ['position',       'Cargo del contacto dentro de la empresa.',                               'Texto libre'],
+            ['doc_type',       'Tipo de documento. Recomendado.',                                        'dni | ruc | ce | pasaporte | otro'],
+            ['doc_number',     'Número de documento. Al menos uno entre documento, email, phone o WhatsApp.', 'DNI 8 dígitos | RUC 11 dígitos'],
+            ['phone',          'Teléfono principal.',                                                    'Texto libre'],
+            ['whatsapp',       'WhatsApp comercial.',                                                    'Texto libre'],
+            ['email',          'Correo electrónico.',                                                    'email válido'],
+            ['website',        'Sitio web corporativo.',                                                 'URL válida con http:// o https://'],
+            ['address',        'Dirección libre.',                                                       'Texto libre'],
+            ['ubigeo_code',    'Código de distrito (ubigeo) de 6 dígitos.',                              '6 dígitos exactos'],
+            ['sector',         'Sector, rubro o industria.',                                             'Texto libre'],
+            ['interest_level', 'Nivel de interés declarado.',                                            'bajo | medio | alto'],
+            ['observations',   'Observaciones libres.',                                                  'Texto libre'],
         ];
 
         $row = $headerRow + 1;

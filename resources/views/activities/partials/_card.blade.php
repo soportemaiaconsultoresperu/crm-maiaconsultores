@@ -24,12 +24,7 @@
             default => null,
         };
 
-        $subjectLabel = match (true) {
-            $subject instanceof \App\Models\Lead => "Prospecto {$subject->code}",
-            $subject instanceof \App\Models\Customer => "Cliente {$subject->code}",
-            $subject instanceof \App\Models\Opportunity => "Oportunidad {$subject->code}",
-            default => '#'.$subject->getKey(),
-        };
+        $subjectLabel = \App\Models\Activity::subjectDisplayLabel($subject);
     }
 @endphp
 

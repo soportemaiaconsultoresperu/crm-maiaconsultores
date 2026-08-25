@@ -59,6 +59,8 @@ class RolesAndPermissionsSeeder extends Seeder
         $supervisorPermissions[] = 'activities.complete';
         $supervisorPermissions[] = 'activities.delete';
         $supervisorPermissions[] = 'calendar.view';
+        $supervisorPermissions[] = 'customer-payments.view';
+        $supervisorPermissions[] = 'customer-payments.manage';
 $supervisorPermissions[] = 'documents.view.team';
         $supervisorPermissions[] = 'documents.download';
         $supervisorPermissions[] = 'documents.upload';
@@ -137,12 +139,16 @@ $names = array_merge($names, [
             'documents.delete',
             // Calendar.
             'calendar.view',
+            // Customer financial information.
+            'customer-payments.view',
+            'customer-payments.manage',
             // Reports / settings / users / teams / audit.
             'reports.view',
             'settings.manage',
             'users.manage',
             'teams.manage',
             'audit.view',
+            'demo-data.manage',
         ]);
 
         $names = array_values(array_unique($names));

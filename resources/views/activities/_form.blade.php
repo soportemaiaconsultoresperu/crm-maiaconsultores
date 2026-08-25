@@ -16,7 +16,10 @@
 --}}
 @php
     $isEdit = $activity !== null;
-    $defaultSubjectType = old('subject_type', $activity?->subject_type ?? 'lead');
+    $storedSubjectType = $activity?->subject_type
+        ? \App\Models\Activity::subjectKey($activity->subject_type)
+        : 'lead';
+    $defaultSubjectType = old('subject_type', $storedSubjectType);
     $defaultSubjectId = old('subject_id', $activity?->subject_id);
     $defaultStatus = old('status', $activity?->status ?? 'pending');
     $defaultPriority = old('priority', $activity?->priority ?? 'media');
@@ -27,10 +30,12 @@
 
 <form method="POST"
       action="{{ $isEdit ? route('activities.update', $activity) : route('activities.store') }}"
-      @if ($isEdit) @method('PUT') @endif
       data-testid="activity-form"
       data-swal-loading>
     @csrf
+    @if ($isEdit)
+        @method('PUT')
+    @endif
 
     <div class="card">
         <div class="card-header"><h3 class="card-title mb-0">{{ $isEdit ? 'Editar actividad' : 'Nueva actividad' }}</h3></div>
@@ -70,31 +75,34 @@
                 </div>
 
                 <div class="col-md-12" data-subject-pane="lead" @if ($defaultSubjectType !== 'lead') hidden @endif>
-                    <x-select name="subject_id_lead" label="Prospecto" :required="$defaultSubjectType === 'lead'"
-                              data-subject-select="lead" placeholder="Seleccione un prospecto">
+                        <x-select name="subject_id_lead" label="Prospecto" :required="$defaultSubjectType === 'lead'"
+                                  data-subject-select="lead" placeholder="Seleccione un prospecto" :disabled="$defaultSubjectType !== 'lead'">
+
                         @foreach ($leads as $lead)
                             <option value="{{ $lead->id }}" @selected((int) $defaultSubjectId === (int) $lead->id && $defaultSubjectType === 'lead')>
-                                {{ trim(($lead->first_name.' '.$lead->last_name).($lead->company_name ? ' — '.$lead->company_name : '')).' ('.$lead->code.')' }}
+                                {{ \App\Models\Activity::subjectDisplayLabel($lead) }}
                             </option>
                         @endforeach
                     </x-select>
                 </div>
                 <div class="col-md-12" data-subject-pane="customer" @if ($defaultSubjectType !== 'customer') hidden @endif>
-                    <x-select name="subject_id_customer" label="Cliente" :required="$defaultSubjectType === 'customer'"
-                              data-subject-select="customer" placeholder="Seleccione un cliente">
+                        <x-select name="subject_id_customer" label="Cliente" :required="$defaultSubjectType === 'customer'"
+                                  data-subject-select="customer" placeholder="Seleccione un cliente" :disabled="$defaultSubjectType !== 'customer'">
+
                         @foreach ($customers as $customer)
                             <option value="{{ $customer->id }}" @selected((int) $defaultSubjectId === (int) $customer->id && $defaultSubjectType === 'customer')>
-                                {{ $customer->legal_name.' ('.$customer->code.')' }}
+                                {{ \App\Models\Activity::subjectDisplayLabel($customer) }}
                             </option>
                         @endforeach
                     </x-select>
                 </div>
                 <div class="col-md-12" data-subject-pane="opportunity" @if ($defaultSubjectType !== 'opportunity') hidden @endif>
-                    <x-select name="subject_id_opportunity" label="Oportunidad" :required="$defaultSubjectType === 'opportunity'"
-                              data-subject-select="opportunity" placeholder="Seleccione una oportunidad">
+                        <x-select name="subject_id_opportunity" label="Oportunidad" :required="$defaultSubjectType === 'opportunity'"
+                                  data-subject-select="opportunity" placeholder="Seleccione una oportunidad" :disabled="$defaultSubjectType !== 'opportunity'">
+
                         @foreach ($opportunities as $opportunity)
                             <option value="{{ $opportunity->id }}" @selected((int) $defaultSubjectId === (int) $opportunity->id && $defaultSubjectType === 'opportunity')>
-                                {{ $opportunity->title.' ('.$opportunity->code.')' }}
+                                {{ \App\Models\Activity::subjectDisplayLabel($opportunity) }}
                             </option>
                         @endforeach
                     </x-select>
@@ -103,7 +111,8 @@
                 <x-validation-error name="subject_id"/>
 
                 <div class="col-md-4">
-                    <x-text-input name="scheduled_at" type="datetime-local" label="Fecha programada" :value="$defaultScheduledAt" :required="true"/>
+                    <x-text-input name="scheduled_at" type="datetime-local" label="Fecha programada" :value="$defaultScheduledAt" :required="true"
+                                      help="Se sincroniza con Google Calendar usando la zona horaria del responsable o del sistema."/>
                 </div>
                 <div class="col-md-4">
                     <x-text-input name="reminder_at" type="datetime-local" label="Recordatorio (opcional)" :value="$defaultReminderAt"/>
@@ -144,41 +153,49 @@
                     return;
                 }
 
-                function showPane(key) {
+                function syncActiveSubject(key) {
+                    typeInput.value = key;
+
+                    var activeSelect = null;
                     document.querySelectorAll('[data-subject-pane]').forEach(function (pane) {
-                        if (pane.getAttribute('data-subject-pane') === key) {
-                            pane.hidden = false;
-                        } else {
-                            pane.hidden = true;
-                            var select = pane.querySelector('select[data-subject-select]');
-                            if (select !== null) {
-                                select.value = '';
+                        var isActive = pane.getAttribute('data-subject-pane') === key;
+                        var select = pane.querySelector('select[data-subject-select]');
+
+                        pane.hidden = ! isActive;
+                        if (select !== null) {
+                            select.disabled = ! isActive;
+                            select.required = isActive;
+
+                            if (isActive) {
+                                activeSelect = select;
                             }
                         }
                     });
+
+                    idInput.value = activeSelect !== null ? activeSelect.value : '';
                 }
 
                 typeRadios.forEach(function (radio) {
-                    radio.addEventListener('change', function () {
+                    if (radio.checked) {
                         typeInput.value = radio.value;
-                        idInput.value = '';
-                        showPane(radio.value);
+                    }
+
+                    radio.addEventListener('change', function () {
+                        if (radio.checked) {
+                            syncActiveSubject(radio.value);
+                        }
                     });
                 });
 
                 document.querySelectorAll('select[data-subject-select]').forEach(function (select) {
                     select.addEventListener('change', function () {
-                        idInput.value = select.value;
+                        if (! select.disabled && select.getAttribute('data-subject-select') === typeInput.value) {
+                            idInput.value = select.value;
+                        }
                     });
                 });
 
-                showPane(typeInput.value);
-                if (idInput.value === '' && typeInput.value !== '') {
-                    var pre = document.querySelector('select[data-subject-select="' + typeInput.value + '"]');
-                    if (pre !== null) {
-                        idInput.value = pre.value;
-                    }
-                }
+                syncActiveSubject(typeInput.value);
             })();
         </script>
     @endpush

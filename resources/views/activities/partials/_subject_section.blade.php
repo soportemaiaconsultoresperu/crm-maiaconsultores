@@ -12,12 +12,14 @@
     to the parent subject.
 --}}
 @php
-    $subjectLabel = match ($subjectType) {
-        'lead' => 'el prospecto',
-        'customer' => 'el cliente',
-        'opportunity' => 'la oportunidad',
-        default => 'el sujeto',
-    };
+        $subjectNoun = match ($subjectType) {
+            'lead' => 'el prospecto',
+            'customer' => 'el cliente',
+            'opportunity' => 'la oportunidad',
+            default => 'el sujeto',
+        };
+        $subjectLabel = \App\Models\Activity::subjectDisplayLabel($subject);
+
     $createUrl = match ($subjectType) {
         'lead' => route('leads.activities.store', $subject),
         'customer' => route('customers.activities.store', $subject),
@@ -55,14 +57,14 @@
             @endif
         @empty
             @include('layouts.partials.empty-state', [
-                'message' => 'Sin actividades registradas para '.$subjectLabel.'.',
+                'message' => 'Sin actividades registradas para '.$subjectNoun.'.',
             ])
         @endforelse
     </div>
 </div>
 
 @if ($createUrl && auth()->user()->can('create', \App\Models\Activity::class))
-    <x-modal id="activity-create-modal-{{ $subjectType }}-{{ $subject->getKey() }}" title="Nueva actividad para {{ $subjectLabel }} {{ $subject->code ?? '' }}">
+    <x-modal id="activity-create-modal-{{ $subjectType }}-{{ $subject->getKey() }}" title="Nueva actividad para {{ $subjectNoun }} {{ $subjectLabel }}">
         <form method="POST" action="{{ $createUrl }}" data-testid="activity-create-form" data-swal-loading>
             @csrf
             <input type="hidden" name="subject_type" value="{{ $subjectType }}">
@@ -82,9 +84,11 @@
                 <div class="col-md-12">
                     <x-text-input name="title" label="Título" :value="old('title')" :required="true"/>
                 </div>
-                <div class="col-md-6">
-                    <x-text-input name="scheduled_at" type="datetime-local" label="Fecha programada" :value="old('scheduled_at', now()->addDay()->format('Y-m-d\TH:i'))" :required="true"/>
-                </div>
+                    <div class="col-md-6">
+                        <x-text-input name="scheduled_at" type="datetime-local" label="Fecha programada" :value="old('scheduled_at', now()->addDay()->format('Y-m-d\TH:i'))" :required="true"
+                                      help="Se sincroniza con Google Calendar usando la zona horaria del responsable o del sistema."/>
+                    </div>
+
                 <div class="col-md-6">
                     <x-text-input name="reminder_at" type="datetime-local" label="Recordatorio" :value="old('reminder_at')"/>
                 </div>

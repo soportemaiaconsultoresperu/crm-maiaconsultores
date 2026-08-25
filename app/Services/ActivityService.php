@@ -54,7 +54,7 @@ class ActivityService
         $this->assertSubjectExists($data);
         $this->assertActiveType($data['type_id'] ?? null);
 
-        return DB::transaction(function () use ($data, $actor): Activity {
+        $activity = DB::transaction(function () use ($data, $actor): Activity {
             $ownerId = (int) ($data['owner_id'] ?? $actor->id);
 
             $payload = [
@@ -105,6 +105,10 @@ class ActivityService
 
             return $activity->refresh();
         });
+
+        $this->queueGoogleCalendarSync($activity);
+
+        return $activity;
     }
 
     /**
@@ -131,8 +135,30 @@ class ActivityService
         $ownerChanged = array_key_exists('owner_id', $data)
             && (int) $data['owner_id'] !== (int) $activity->owner_id;
 
+        if (array_key_exists('subject_type', $data) || array_key_exists('subject_id', $data)) {
+            $subjectData = [
+                'subject_type' => array_key_exists('subject_type', $data)
+                    ? (string) $data['subject_type']
+                    : Activity::subjectKey((string) $activity->subject_type),
+                'subject_id' => array_key_exists('subject_id', $data)
+                    ? (int) $data['subject_id']
+                    : (int) $activity->subject_id,
+            ];
+            $this->assertSubjectExists($subjectData);
+
+            $data['subject_type'] = Activity::morphClass($this->subjectKey($subjectData));
+            $data['subject_id'] = $subjectData['subject_id'];
+        }
+
         DB::transaction(function () use ($activity, $data, $actor): void {
-            unset($data['code'], $data['created_by'], $data['updated_by']);
+            unset(
+                $data['code'],
+                $data['created_by'],
+                $data['updated_by'],
+                $data['subject_id_lead'],
+                $data['subject_id_customer'],
+                $data['subject_id_opportunity'],
+            );
 
             $activity->fill($data);
             $activity->updated_by = $actor->id;
@@ -157,6 +183,8 @@ class ActivityService
                 );
             }
         }
+
+        $this->queueGoogleCalendarSync($activity);
 
         return $activity;
     }
@@ -212,7 +240,7 @@ class ActivityService
             $this->assertActiveType($data['next_type_id']);
         }
 
-        return DB::transaction(function () use ($activity, $data, $actor, $hasNext): Activity {
+        $completed = DB::transaction(function () use ($activity, $data, $actor, $hasNext): Activity {
             $activity->status = 'completed';
             $activity->result = $data['result'] ?? ($activity->result ?? 'Completada');
             if (array_key_exists('title', $data) && $data['title'] !== null) {
@@ -270,13 +298,11 @@ activity()
             return $activity->refresh();
         });
 
-        $activity->refresh();
-
         // V2 (B12): automation engine emission after the transaction
         // commits. Never inside DB::transaction.
-        event(new ActivityCompleted($activity, $actor));
+        event(new ActivityCompleted($completed, $actor));
 
-        return $activity;
+        return $completed;
     }
 
     /**
@@ -305,7 +331,10 @@ activity()
                 ->log("Actividad \"{$activity->title}\" cancelada: {$reason}");
         });
 
-        return $activity->refresh();
+        $activity->refresh();
+        $this->queueGoogleCalendarSync($activity);
+
+        return $activity;
     }
 
     /**
@@ -338,6 +367,7 @@ activity()
      * @param  array{
      *     subject_type?: string|null,
      *     owner_id?: int|null,
+     *     type_id?: int|null,
      *     status?: string|list<string>|null,
      * }  $filters
      *
@@ -362,6 +392,10 @@ activity()
             $query->where('owner_id', (int) $filters['owner_id']);
         }
 
+        if (! empty($filters['type_id'])) {
+            $query->where('type_id', (int) $filters['type_id']);
+        }
+
         if (! empty($filters['status'])) {
             $statuses = is_array($filters['status'])
                 ? $filters['status']
@@ -372,12 +406,11 @@ activity()
         return $query->get();
     }
 
-    /**
-     * Validate that the (subject_type, subject_id) pair points to an
-     * existing, supported record.
-     *
-     * @param  array<string, mixed>  $data
-     */
+    private function queueGoogleCalendarSync(Activity $activity): void
+    {
+        app(GoogleCalendarActivitySyncService::class)->queueActivity($activity);
+    }
+
     private function assertSubjectExists(array $data): void
     {
         $key = $this->subjectKey($data);
@@ -394,6 +427,7 @@ activity()
             'lead' => Lead::query()->whereKey($id)->exists(),
             'customer' => Customer::query()->whereKey($id)->exists(),
             'opportunity' => Opportunity::query()->whereKey($id)->exists(),
+            'support_ticket' => \App\Models\SupportTicket::query()->whereKey($id)->exists(),
             default => false,
         };
 
@@ -461,13 +495,6 @@ activity()
             return "{$activity->subject_type} #{$activity->subject_id}";
         }
 
-        return match (true) {
-            $subject instanceof Lead => "el prospecto {$subject->code}",
-            $subject instanceof Customer => "el cliente {$subject->code}",
-            $subject instanceof Opportunity => "la oportunidad {$subject->code}",
-            default => $subject->getKey() !== null
-                ? "registro #{$subject->getKey()}"
-                : 'registro relacionado',
-        };
+        return Activity::subjectDisplayLabel($subject);
     }
 }

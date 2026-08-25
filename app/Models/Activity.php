@@ -6,6 +6,7 @@ use App\Traits\HasAuditColumns;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Model;
@@ -29,7 +30,7 @@ class Activity extends Model
      *
      * @var list<string>
      */
-    public const SUBJECT_TYPES = ['lead', 'customer', 'opportunity'];
+    public const SUBJECT_TYPES = ['lead', 'customer', 'opportunity', 'support_ticket'];
 
     /**
      * @var list<string>
@@ -80,6 +81,7 @@ class Activity extends Model
             'lead' => Lead::class,
             'customer' => Customer::class,
             'opportunity' => Opportunity::class,
+            'support_ticket' => SupportTicket::class,
             default => throw new \InvalidArgumentException(
                 "Activity subject type \"{$type}\" is not supported."
             ),
@@ -101,10 +103,61 @@ class Activity extends Model
             Lead::class => 'lead',
             Customer::class => 'customer',
             Opportunity::class => 'opportunity',
+            SupportTicket::class => 'support_ticket',
             default => throw new \InvalidArgumentException(
                 "Unknown morph class \"{$morphClass}\" for activity subject."
             ),
         };
+    }
+
+    /**
+     * Human-readable label for an activity subject. UI and notifications use
+     * this single formatter so users see the person/company/title before the
+     * internal CRM code.
+     */
+    public static function subjectDisplayLabel(?Model $subject = null): string
+    {
+        if ($subject === null) {
+            return '—';
+        }
+
+        $label = match (true) {
+            $subject instanceof Lead => self::leadDisplayName($subject),
+            $subject instanceof Customer => self::customerDisplayName($subject),
+            $subject instanceof Opportunity => trim((string) $subject->title),
+            $subject instanceof SupportTicket => trim((string) ($subject->title ?? $subject->subject ?? '')),
+            default => '',
+        };
+
+        $code = trim((string) ($subject->code ?? ''));
+        if ($code !== '') {
+            return ($label !== '' ? $label : '#'.$subject->getKey()).' ('.$code.')';
+        }
+
+        return $label !== '' ? $label : '#'.$subject->getKey();
+    }
+
+    private static function leadDisplayName(Lead $lead): string
+    {
+        $person = trim(implode(' ', array_filter([
+            trim((string) $lead->first_name),
+            trim((string) $lead->last_name),
+        ], fn (string $part): bool => $part !== '')));
+
+        $company = trim((string) ($lead->company_name ?: $lead->trade_name ?: $lead->legal_name));
+
+        return trim(implode(' — ', array_filter([$person, $company], fn (string $part): bool => $part !== '')));
+    }
+
+    private static function customerDisplayName(Customer $customer): string
+    {
+        $business = trim((string) ($customer->trade_name ?: $customer->legal_name));
+        $person = trim(implode(' ', array_filter([
+            trim((string) $customer->first_name),
+            trim((string) $customer->last_name),
+        ], fn (string $part): bool => $part !== '')));
+
+        return $business !== '' ? $business : $person;
     }
 
     /**
@@ -121,6 +174,14 @@ class Activity extends Model
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_id');
+    }
+
+    /**
+     * @return HasMany<ActivityCalendarLink, $this>
+     */
+    public function calendarLinks(): HasMany
+    {
+        return $this->hasMany(ActivityCalendarLink::class);
     }
 
     /**

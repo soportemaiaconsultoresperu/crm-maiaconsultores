@@ -19,6 +19,10 @@
     use App\Models\Lead;
     use App\Models\Opportunity;
     use App\Models\Quotation;
+    use App\Models\SupportIncidentDetail;
+    use App\Models\SupportObservation;
+    use App\Models\SupportSessionDetail;
+    use App\Models\SupportTicket;
     use Illuminate\Database\Eloquent\Model;
     use Illuminate\Support\Collection;
 
@@ -35,6 +39,10 @@
         Opportunity::class=> route('opportunities.documents.store', $subject),
         Quotation::class  => route('quotations.documents.store', $subject),
         Activity::class   => route('activities.documents.store', $subject),
+        SupportTicket::class => route('support.tickets.documents.store', $subject),
+        SupportObservation::class => route('support.tickets.observations.documents.store', [$subject->ticket_id, $subject]),
+        SupportIncidentDetail::class => route('support.tickets.incidents.documents.store', [$subject->ticket_id, $subject]),
+        SupportSessionDetail::class => route('support.tickets.sessions.documents.store', [$subject->ticket_id, $subject]),
         default           => null,
     };
 
@@ -96,7 +104,7 @@
                                             <i class="bi bi-download me-1" aria-hidden="true"></i>
                                         Descargar</a>
                                     @endif
-                                    @if ($deletePerm && (int) $document->uploaded_by === (int) $user?->id || $user?->can('documents.view.any'))
+                                    @if (($deletePerm && (int) $document->uploaded_by === (int) $user?->id) || $user?->can('documents.view.any'))
                                         <x-swal-confirm
                                             :action="route('documents.destroy', $document)"
                                             method="DELETE"

@@ -41,12 +41,15 @@
             <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i> Imprimir PDF
         </a>
 
-        @can('update', $quotation)
+            @can('update', $quotation)
             @if ($canSend)
+                <a href="{{ route('quotations.gmail-confirm', $quotation) }}" class="btn btn-outline-primary" data-testid="btn-send-gmail">
+                    <i class="bi bi-envelope-paper me-1" aria-hidden="true"></i> Enviar por Gmail
+                </a>
                 <form method="POST" action="{{ route('quotations.send', $quotation) }}" class="d-inline">
                     @csrf
-                    <button type="submit" class="btn btn-outline-primary" data-testid="btn-send">
-                        <i class="bi bi-send me-1" aria-hidden="true"></i> Enviar
+                    <button type="submit" class="btn btn-outline-secondary" data-testid="btn-mark-sent-manual">
+                        <i class="bi bi-send-check me-1" aria-hidden="true"></i> Marcar como enviada
                     </button>
                 </form>
             @endif

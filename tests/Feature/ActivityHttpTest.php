@@ -76,8 +76,8 @@ class ActivityHttpTest extends TestCase
 
     public function test_index_renders_for_salesperson_with_own_activities(): void
     {
-        $mine = $this->service->create($this->validData(), $this->salespersonOne);
-        $other = $this->service->create(
+        $this->service->create($this->validData(), $this->salespersonOne);
+        $this->service->create(
             $this->validData(['subject_id' => Lead::factory()->forOwner($this->salespersonTwo)->create()->id]),
             $this->salespersonTwo,
         );
@@ -112,6 +112,62 @@ class ActivityHttpTest extends TestCase
         $this->assertNotNull($activity);
         $response->assertRedirect(route('activities.show', $activity));
         $response->assertSessionHas('status');
+    }
+
+    public function test_activity_views_render_human_readable_subject_labels(): void
+    {
+        $lead = Lead::factory()->forOwner($this->salespersonOne)->create([
+            'code' => 'LEA-001',
+            'first_name' => 'Juan',
+            'last_name' => 'Pérez',
+            'company_name' => 'Empresa Demo',
+        ]);
+        $activity = $this->service->create($this->validData([
+            'subject_id' => $lead->id,
+            'title' => 'Seguimiento con etiqueta humana',
+        ]), $this->salespersonOne);
+
+        $this->actingAs($this->salespersonOne)
+            ->get('/activities')
+            ->assertOk()
+            ->assertSee('Juan Pérez — Empresa Demo (LEA-001)');
+
+        $this->actingAs($this->salespersonOne)
+            ->get(route('activities.show', $activity))
+            ->assertOk()
+            ->assertSee('Juan Pérez — Empresa Demo (LEA-001)')
+            ->assertSee('activity-card', false);
+    }
+
+    public function test_store_derives_subject_id_from_visible_subject_select_fallback(): void
+    {
+        $lead = Lead::factory()->forOwner($this->salespersonOne)->create();
+        $customer = Customer::factory()->forOwner($this->salespersonOne)->create();
+        $opportunity = Opportunity::factory()->forOwner($this->salespersonOne)->create();
+
+        foreach ([
+            'lead' => [$lead, 'subject_id_lead', Lead::class],
+            'customer' => [$customer, 'subject_id_customer', Customer::class],
+            'opportunity' => [$opportunity, 'subject_id_opportunity', Opportunity::class],
+        ] as $type => [$subject, $field, $morphClass]) {
+            $title = 'Fallback '.$type;
+
+            $response = $this->actingAs($this->salespersonOne)
+                ->post('/activities', [
+                    'subject_type' => $type,
+                    $field => $subject->id,
+                    'type_id' => $this->typeId('llamada'),
+                    'title' => $title,
+                    'scheduled_at' => '2099-01-15T10:00',
+                    'priority' => 'media',
+                ]);
+
+            $activity = Activity::query()->where('title', $title)->first();
+            $this->assertNotNull($activity);
+            $response->assertRedirect(route('activities.show', $activity));
+            $this->assertSame($morphClass, $activity->subject_type);
+            $this->assertSame($subject->id, $activity->subject_id);
+        }
     }
 
     public function test_store_rejects_bad_date(): void
@@ -204,6 +260,58 @@ class ActivityHttpTest extends TestCase
         $this->actingAs($this->salespersonOne)
             ->get("/activities/{$activity->id}")
             ->assertForbidden();
+    }
+
+    public function test_edit_form_keeps_method_spoof_inside_form_and_selects_subject(): void
+    {
+        $lead = Lead::factory()->forOwner($this->salespersonOne)->create();
+        $activity = $this->service->create($this->validData(['subject_id' => $lead->id]), $this->salespersonOne);
+
+        $response = $this->actingAs($this->salespersonOne)
+            ->get(route('activities.edit', $activity));
+
+        $response->assertOk()
+            ->assertSee('data-testid="activity-form"', false)
+            ->assertSee('data-swal-loading', false)
+            ->assertSee('name="_method" value="PUT"', false)
+            ->assertSee('id="subject_type_lead" value="lead"', false);
+
+        $content = $response->getContent();
+        $this->assertLessThan(
+            strpos($content, 'name="_method" value="PUT"'),
+            strpos($content, 'data-swal-loading'),
+            'The PUT method spoof input must be rendered after the form opening tag attributes.'
+        );
+        $this->assertStringContainsString('id="subject_type_lead" value="lead"', $content);
+        $this->assertStringNotContainsString('value="App\\Models\\Lead"', $content);
+    }
+
+    public function test_update_persists_activity_changes_from_edit_form(): void
+    {
+        $lead = Lead::factory()->forOwner($this->salespersonOne)->create();
+        $activity = $this->service->create($this->validData(['subject_id' => $lead->id]), $this->salespersonOne);
+
+        $this->actingAs($this->salespersonOne)
+            ->from(route('activities.edit', $activity))
+            ->put(route('activities.update', $activity), [
+                'subject_type' => 'lead',
+                'subject_id' => $lead->id,
+                'type_id' => $this->typeId('reunion'),
+                'owner_id' => $this->salespersonOne->id,
+                'title' => 'Actividad actualizada',
+                'description' => 'Nueva descripción',
+                'scheduled_at' => '2099-06-01T12:30',
+                'status' => 'in_process',
+                'priority' => 'alta',
+            ])
+            ->assertRedirect(route('activities.show', $activity));
+
+        $activity->refresh();
+        $this->assertSame('Actividad actualizada', $activity->title);
+        $this->assertSame('Nueva descripción', $activity->description);
+        $this->assertSame('in_process', $activity->status);
+        $this->assertSame('alta', $activity->priority);
+        $this->assertSame($this->typeId('reunion'), $activity->type_id);
     }
 
     public function test_start_transitions_to_in_process(): void

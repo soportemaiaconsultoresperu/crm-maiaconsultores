@@ -18,28 +18,39 @@
                     <li class="nav-item">
                         <a class="nav-link {{ $view === $key ? 'active' : '' }}"
                            href="{{ $baseUrl }}?{{ http_build_query(array_merge($currentParams, ['view' => $key, 'anchor' => $todayAnchor])) }}"
+                           data-calendar-navigation
                            data-testid="tab-{{ $key }}">{{ $label }}</a>
                     </li>
                 @endforeach
             </ul>
 
+            <h2 class="h5 mb-0" data-testid="calendar-period" tabindex="-1">{{ $anchor->translatedFormat('F Y') }}</h2>
+
             <div class="btn-group" role="group" aria-label="Navegación del calendario">
                 <a href="{{ $baseUrl }}?{{ http_build_query(array_merge($currentParams, ['anchor' => $prevAnchor->format('Y-m-d')])) }}"
-                   class="btn btn-outline-secondary" data-testid="btn-prev">
+                   class="btn btn-outline-secondary" data-calendar-navigation data-testid="btn-prev"
+                   aria-label="Período anterior">
                     <i class="bi bi-chevron-left" aria-hidden="true"></i>
                 </a>
                 <a href="{{ $baseUrl }}?{{ http_build_query(array_merge($currentParams, ['anchor' => $todayAnchor])) }}"
-                   class="btn btn-outline-secondary" data-testid="btn-today">Hoy</a>
+                   class="btn btn-outline-secondary" data-calendar-navigation data-testid="btn-today">Hoy</a>
                 <a href="{{ $baseUrl }}?{{ http_build_query(array_merge($currentParams, ['anchor' => $nextAnchor->format('Y-m-d')])) }}"
-                   class="btn btn-outline-secondary" data-testid="btn-next">
+                   class="btn btn-outline-secondary" data-calendar-navigation data-testid="btn-next"
+                   aria-label="Período siguiente">
                     <i class="bi bi-chevron-right" aria-hidden="true"></i>
                 </a>
             </div>
         </div>
 
-        <form method="GET" action="{{ $baseUrl }}" class="row g-2 align-items-end" data-testid="calendar-filters">
+        <form method="GET" action="{{ $baseUrl }}" class="row g-2 align-items-end" data-calendar-navigation-form data-testid="calendar-filters">
             <input type="hidden" name="view" value="{{ $view }}">
-            <input type="hidden" name="anchor" value="{{ $anchor->format('Y-m-d') }}">
+            <div class="col-auto">
+                <label class="visually-hidden" for="calendar-anchor">Elegir fecha</label>
+                <input id="calendar-anchor" name="anchor" type="date" value="{{ $anchor->format('Y-m-d') }}"
+                       class="form-control form-control-sm" aria-label="Elegir fecha"
+                       data-calendar-date-picker data-testid="calendar-date-picker">
+                <noscript><button type="submit" class="btn btn-sm btn-outline-primary mt-1">Ir a la fecha</button></noscript>
+            </div>
 
             @if (! empty($owners) && (auth()->user()->can('activities.view.any') || auth()->user()->can('activities.view.team')))
                 <div class="col-auto">
@@ -78,7 +89,7 @@
             </div>
             <div class="col-auto d-flex gap-1">
                 <button type="submit" class="btn btn-sm btn-outline-primary">Filtrar</button>
-                <a href="{{ $baseUrl }}?view={{ $view }}&anchor={{ $anchor->format('Y-m-d') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>
+                <a href="{{ $baseUrl }}?view={{ $view }}&anchor={{ $anchor->format('Y-m-d') }}" class="btn btn-sm btn-outline-secondary" data-calendar-navigation>Limpiar</a>
             </div>
         </form>
     </div>

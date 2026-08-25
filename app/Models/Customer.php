@@ -54,6 +54,7 @@ protected $fillable = [
         'converted_from_lead_id',
         'converted_at',
         'observations',
+        'payment_modality',
     ];
 
     protected function casts(): array
@@ -155,6 +156,14 @@ protected $fillable = [
         return $this->belongsToMany(Product::class, 'customer_product')
             ->withPivot('notes', 'quantity', 'price_override', 'purchased_at', 'expires_at')
             ->withTimestamps();
+    }
+
+    /**
+     * @return HasMany<CustomerInvoice, $this>
+     */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(CustomerInvoice::class);
     }
 
     /**

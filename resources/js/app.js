@@ -15,6 +15,7 @@ import "admin-lte/dist/js/adminlte.min.js";
 import Swal from "sweetalert2";
 
 import "./swal-helpers.js";
+import "./calendar-navigation.js";
 
 // Re-export for any other module that wants to use SweetAlert directly.
 window.Swal = Swal;

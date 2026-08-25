@@ -4,9 +4,10 @@
 @section('page-title', 'Calendario')
 
 @section('content')
-    @include('calendar.partials._nav', ['view' => $view, 'anchor' => $anchor, 'prevAnchor' => $prevAnchor, 'nextAnchor' => $nextAnchor, 'filters' => $filters, 'owners' => $owners, 'types' => $types])
+    <div data-calendar-page>
+        @include('calendar.partials._nav', ['view' => $view, 'anchor' => $anchor, 'prevAnchor' => $prevAnchor, 'nextAnchor' => $nextAnchor, 'filters' => $filters, 'owners' => $owners, 'types' => $types])
 
-    <div class="card" data-testid="calendar-month">
+        <div class="card" data-testid="calendar-month">
         <div class="card-body p-0">
             <table class="table table-bordered mb-0 calendar-month-grid" data-testid="calendar-grid">
                 <thead class="table-light">
@@ -44,9 +45,10 @@
                                         </a>
                                     </div>
                                     @foreach ($dayEvents->take(3) as $event)
-                                        <a href="{{ route('activities.show', $event) }}" class="d-block text-truncate small calendar-event calendar-event-{{ $event->status }}"
+                                        <a href="{{ $event->url }}" class="d-block text-truncate small calendar-event calendar-event-{{ $event->status }} calendar-event-{{ $event->kind }}"
                                            data-testid="calendar-event">
                                             <span class="text-secondary">{{ $event->scheduled_at->format('H:i') }}</span>
+                                            <span class="badge text-bg-light">{{ $event->typeLabel }}</span>
                                             {{ $event->title }}
                                         </a>
                                     @endforeach
@@ -60,6 +62,7 @@
                     @endwhile
                 </tbody>
             </table>
+            </div>
         </div>
     </div>
 @endsection

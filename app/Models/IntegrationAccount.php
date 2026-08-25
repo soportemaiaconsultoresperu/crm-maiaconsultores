@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Integrations\Services\CredentialCipher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -27,14 +26,32 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class IntegrationAccount extends Model
 {
-    /** @use HasFactory<\Database\Factories\IntegrationAccountFactory> */
     use HasFactory, SoftDeletes;
+
+    protected static function booted(): void
+    {
+        static::saving(function (IntegrationAccount $account): void {
+            $account->google_active_owner_id = $account->provider === 'google'
+                && $account->is_active
+                && $account->owner_id !== null
+                && $account->deleted_at === null
+                    ? (int) $account->owner_id
+                    : null;
+        });
+
+        static::deleting(function (IntegrationAccount $account): void {
+            if (! $account->isForceDeleting() && $account->google_active_owner_id !== null) {
+                $account->forceFill(['google_active_owner_id' => null])->saveQuietly();
+            }
+        });
+    }
 
     /** @var list<string> */
     protected $fillable = [
         'provider',
         'label',
         'owner_id',
+        'google_active_owner_id',
         'is_shared',
         'team_id',
         'is_active',

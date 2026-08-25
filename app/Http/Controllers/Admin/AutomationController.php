@@ -18,6 +18,7 @@ use App\Services\Automation\Exceptions\WebhookNotAuthorizedException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -315,7 +316,7 @@ class AutomationController extends Controller
             return back()->with('success', 'Orden actualizado.');
         }
 
-    public function toggle(AutomationRule $automation): JsonResponse
+    public function toggle(Request $request, AutomationRule $automation): JsonResponse|RedirectResponse
     {
         // Defense in depth (PERM-03 / design §5): the route middleware
         // `can:automations.manage` already gates the request, but the
@@ -330,19 +331,23 @@ class AutomationController extends Controller
         // activity-log / metrics hook (design §13.4, §8.7) can be added
         // without restructuring.
         DB::transaction(function () use ($automation): void {
-        $automation->is_active = ! $automation->is_active;
-        $automation->save();
+            $automation->is_active = ! $automation->is_active;
+            $automation->save();
         });
 
-        // JSON envelope is consumed by the Stage 2B fetch() upgrade on
-        // the index (it currently submits via a regular form submit +
-        // full-page reload — the response is ignored). Keeping the
-        // shape stable now means Stage 2B won't need a controller change.
-        return response()->json([
-        'ok' => true,
-        'is_active' => (bool) $automation->is_active,
-        'id' => $automation->id,
-        ]);
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'is_active' => (bool) $automation->is_active,
+                'id' => $automation->id,
+            ]);
+        }
+
+        $message = $automation->is_active
+            ? 'Automatización activada.'
+            : 'Automatización desactivada.';
+
+        return back()->with('success', $message);
     }
 
     // ------------------------------------------------------------------

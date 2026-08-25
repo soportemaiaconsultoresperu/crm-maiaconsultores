@@ -161,7 +161,14 @@
                     </div>
                 </div>
 
-                @include('customers._products_card', ['customer' => $customer])
+                    @include('customers._payments_card', [
+                        'customer' => $customer,
+                        'canViewPayments' => $canViewPayments ?? false,
+                        'canManagePayments' => $canManagePayments ?? false,
+                        'invoiceStatuses' => $invoiceStatuses ?? collect(),
+                    ])
+
+                    @include('customers._products_card', ['customer' => $customer])
         </div>
 
         <div class="col-lg-7">

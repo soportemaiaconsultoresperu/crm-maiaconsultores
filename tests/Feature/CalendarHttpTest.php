@@ -167,7 +167,7 @@ class CalendarHttpTest extends TestCase
         $this->get('/calendar')->assertRedirect(route('login'));
     }
 
-    public function test_navigation_anchors_are_present(): void
+    public function test_navigation_displays_the_viewed_month_and_year(): void
     {
         $response = $this->actingAs($this->salespersonOne)
             ->get('/calendar?view=month&anchor=2099-06-15');
@@ -176,5 +176,31 @@ class CalendarHttpTest extends TestCase
         $response->assertSee('btn-prev', false);
         $response->assertSee('btn-today', false);
         $response->assertSee('btn-next', false);
+        $response->assertSee('calendar-period', false);
+        $response->assertSee('junio 2099');
+    }
+
+    public function test_date_picker_preserves_the_active_view_and_selected_date_without_javascript(): void
+    {
+        $response = $this->actingAs($this->salespersonOne)
+            ->get('/calendar?view=week&anchor=2099-06-15');
+
+        $response->assertOk();
+        $response->assertSee('data-testid="calendar-date-picker"', false);
+        $response->assertSee('type="date"', false);
+        $response->assertSee('name="anchor"', false);
+        $response->assertSee('value="2099-06-15"', false);
+        $response->assertSee('aria-label="Elegir fecha"', false);
+        $response->assertSee('name="view" value="week"', false);
+    }
+
+    public function test_list_navigation_moves_to_the_adjacent_month(): void
+    {
+        $response = $this->actingAs($this->salespersonOne)
+            ->get('/calendar?view=list&anchor=2099-06-15');
+
+        $response->assertOk();
+        $response->assertSee('view=list&amp;anchor=2099-05-01', false);
+        $response->assertSee('view=list&amp;anchor=2099-07-01', false);
     }
 }

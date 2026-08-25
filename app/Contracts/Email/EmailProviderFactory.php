@@ -18,6 +18,7 @@ use InvalidArgumentException;
  *
  *   - `provider` = `smtp`     → SmtpProvider
  *   - `provider` = `gmail`    → GmailProvider
+ *   - `provider` = `google`   → GmailProvider (Google Workspace OAuth row)
  *   - `provider` = `outlook`  → OutlookProvider
  *
  * Anything else raises {@see InvalidArgumentException}. Per-account overrides
@@ -41,7 +42,7 @@ class EmailProviderFactory
     {
         return match ($provider) {
             'smtp' => new SmtpProvider($account),
-            'gmail' => new GmailProvider($account),
+            'gmail', 'google' => new GmailProvider($account),
             'outlook' => new OutlookProvider($account),
             default => throw new InvalidArgumentException(
                 sprintf('Unknown email provider "%s".', $provider),

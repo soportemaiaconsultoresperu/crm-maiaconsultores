@@ -193,6 +193,15 @@ class RuleFormLivewireTest extends TestCase
             ->assertSet('actions.0.position', 1);
     }
 
+    public function test_action_payload_updated_event_syncs_parent_action_payload(): void
+    {
+        Livewire::test(RuleForm::class, ['ruleId' => null, 'mode' => 'create'])
+            ->call('handleActionPayloadUpdated', 0, ['tag_slug' => 'hot-lead'])
+            ->assertSet('actions.0.payload_json.tag_slug', 'hot-lead')
+            ->call('handleActionPayloadUpdated', 99, ['tag_slug' => 'ignored'])
+            ->assertCount('actions', 1);
+    }
+
     // ---------------------------------------------------------------------
     // SCN-RULE-FORM-E — getTriggersProperty returns the 19 canonical FQCNs
     // from AutomationServiceProvider::TRIGGER_EVENTS.

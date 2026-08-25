@@ -4,9 +4,10 @@
 @section('page-title', 'Calendario (lista)')
 
 @section('content')
-    @include('calendar.partials._nav', ['view' => $view, 'anchor' => $anchor, 'prevAnchor' => $prevAnchor, 'nextAnchor' => $nextAnchor, 'filters' => $filters, 'owners' => $owners, 'types' => $types])
+    <div data-calendar-page>
+        @include('calendar.partials._nav', ['view' => $view, 'anchor' => $anchor, 'prevAnchor' => $prevAnchor, 'nextAnchor' => $nextAnchor, 'filters' => $filters, 'owners' => $owners, 'types' => $types])
 
-    <x-table title="Actividades del rango" data-testid="calendar-list">
+        <x-table title="Eventos del rango" data-testid="calendar-list">
         @slot('headers')
             <tr>
                 <th>Fecha y hora</th>
@@ -21,24 +22,25 @@
 
         @slot('rows')
             @forelse ($events as $event)
-                <tr data-testid="calendar-list-row">
+                    <tr data-testid="calendar-list-row">
                     <td class="text-nowrap">{{ $event->scheduled_at->format('d/m/Y H:i') }}</td>
                     <td>{{ $event->title }}</td>
-                    <td>{{ $event->type?->name ?? '—' }}</td>
-                    <td>{{ $event->subject?->code ?? '—' }}</td>
+                    <td>{{ $event->typeLabel }}</td>
+                    <td>{{ $event->subjectLabel }}</td>
                     <td><x-badge-status :status="$event->status"/></td>
-                    <td>{{ $event->owner?->name ?? '—' }}</td>
+                    <td>{{ $event->ownerName ?? '—' }}</td>
                     <td class="text-end">
-                        <a href="{{ route('activities.show', $event) }}" class="btn btn-sm btn-outline-secondary">Ver</a>
+                        <a href="{{ $event->url }}" class="btn btn-sm btn-outline-secondary">Ver</a>
                     </td>
                 </tr>
             @empty
                 <tr>
                     <td colspan="7">
-                        @include('layouts.partials.empty-state', ['message' => 'No hay actividades en el rango seleccionado.'])
+                        @include('layouts.partials.empty-state', ['message' => 'No hay eventos en el rango seleccionado.'])
                     </td>
                 </tr>
             @endforelse
         @endslot
-    </x-table>
+        </x-table>
+    </div>
 @endsection

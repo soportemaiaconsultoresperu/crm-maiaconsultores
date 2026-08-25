@@ -32,14 +32,15 @@ interface EmailProvider
      * Send a single outbound email.
      *
      * MUST return one of the following envelopes:
-     *  - Success: `['ok' => true, 'provider_message_id' => '...']`
+     *  - Success: `['ok' => true, 'provider_message_id' => '...', 'thread_id' => '...']`
      *  - Failure: `['ok' => false, 'error_class' => ..., 'error_message' => ...]`
+     *  - Indeterminate: `['ok' => false, 'indeterminate' => true, 'error_class' => ..., 'error_message' => ...]`
      *
      * `provider_message_id` is the upstream-side identifier (SMTP message-id
      * header, Gmail API resource id, Outlook API message id) — persisted in
      * `email_messages.provider_message_id` for dedup / thread correlation.
      *
-     * @return array{ok: bool, provider_message_id?: string, error_class?: string, error_message?: string}
+     * @return array{ok: bool, provider_message_id?: string, thread_id?: string, indeterminate?: bool, retryable?: bool, error_class?: string, error_message?: string}
      */
     public function send(EmailMessage $message): array;
 

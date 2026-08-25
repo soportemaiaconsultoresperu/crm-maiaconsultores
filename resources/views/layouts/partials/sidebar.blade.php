@@ -50,11 +50,18 @@
                             <i class="nav-icon bi bi-megaphone" aria-hidden="true"></i><p>Campañas</p>
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a href="{{ route('calendar.index') }}" class="nav-link {{ request()->routeIs('calendar.*') ? 'active' : '' }}">
-                            <i class="nav-icon bi bi-calendar3" aria-hidden="true"></i><p>Calendario</p>
-                        </a>
-                    </li>
+                        <li class="nav-item">
+                            <a href="{{ route('calendar.index') }}" class="nav-link {{ request()->routeIs('calendar.*') ? 'active' : '' }}">
+                                <i class="nav-icon bi bi-calendar3" aria-hidden="true"></i><p>Calendario</p>
+                            </a>
+                        </li>
+                        @can('viewAny', \App\Models\SupportTicket::class)
+                            <li class="nav-item">
+                                <a href="{{ route('support.tickets.index') }}" class="nav-link {{ request()->routeIs('support.*') ? 'active' : '' }}">
+                                    <i class="nav-icon bi bi-headset" aria-hidden="true"></i><p>Soporte</p>
+                                </a>
+                            </li>
+                        @endcan
 <li class="nav-item">
                     <a href="{{ route('products.index') }}" class="nav-link {{ request()->routeIs('products.*') ? 'active' : '' }}"><i class="nav-icon bi bi-box-seam" aria-hidden="true"></i><p>Productos</p></a>
                 </li>
@@ -62,12 +69,18 @@
                     <a href="{{ route('quotations.index') }}" class="nav-link {{ request()->routeIs('quotations.*') ? 'active' : '' }}"><i class="nav-icon bi bi-file-earmark-text" aria-hidden="true"></i><p>Cotizaciones</p></a>
                 </li>
                 <li class="nav-item">
-                    <a href="#" class="nav-link"><i class="nav-icon bi bi-folder2-open" aria-hidden="true"></i><p>Documentos</p></a>
+                    <a href="{{ route('documents.index') }}" class="nav-link {{ request()->routeIs('documents.*') ? 'active' : '' }}"><i class="nav-icon bi bi-folder2-open" aria-hidden="true"></i><p>Documentos</p></a>
                 </li>
 <li class="nav-item">
                         <a href="{{ route('reports.index') }}" class="nav-link {{ request()->routeIs('reports.*') ? 'active' : '' }}"><i class="nav-icon bi bi-clipboard-data" aria-hidden="true"></i><p>Reportes</p></a>
                     </li>
-                    @php($adminPerms = ['users.view', 'teams.view', 'roles.view', 'catalogs.view', 'settings.view', 'audit.view', 'automations.view'])
+                    <li class="nav-header">Mi cuenta</li>
+                    <li class="nav-item">
+                        <a href="{{ route('account.integrations.index') }}" class="nav-link {{ request()->routeIs('account.integrations.*') ? 'active' : '' }}" data-testid="sidebar-account-integrations">
+                            <i class="nav-icon bi bi-plug" aria-hidden="true"></i><p>Integraciones</p>
+                        </a>
+                    </li>
+                    @php($adminPerms = ['users.view', 'teams.view', 'roles.view', 'catalogs.view', 'settings.view', 'audit.view', 'demo-data.manage'])
                     @if (collect($adminPerms)->contains(fn ($p) => auth()->user()?->can($p)))
                         <li class="nav-header">Administración</li>
 
@@ -107,9 +120,9 @@
                             </li>
                         @endcan
 
-                        @can('automations.view')
+                        @can('demo-data.manage')
                             <li class="nav-item">
-                                <a href="{{ route('admin.automations.index') }}" class="nav-link {{ request()->routeIs('admin.automations.*') ? 'active' : '' }}"><i class="nav-icon bi bi-lightning-charge" aria-hidden="true"></i><p>Automatizaciones</p></a>
+                                <a href="{{ route('admin.demo-data.index') }}" class="nav-link {{ request()->routeIs('admin.demo-data.*') ? 'active' : '' }}"><i class="nav-icon bi bi-database-check" aria-hidden="true"></i><p>Datos de demostración</p></a>
                             </li>
                         @endcan
                     @endif

@@ -2,10 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Activity;
 use App\Models\ActivityType;
 use App\Models\User;
-use App\Services\ActivityService;
+use App\Services\CalendarEventService;
 use App\Services\DataScopeService;
 use App\Support\DateRange;
 use Carbon\CarbonImmutable;
@@ -27,7 +26,7 @@ use Illuminate\Http\Request;
 class CalendarController extends Controller
 {
     public function __construct(
-        private readonly ActivityService $activities,
+        private readonly CalendarEventService $calendarEvents,
         private readonly DataScopeService $scope,
     ) {}
 
@@ -59,15 +58,7 @@ class CalendarController extends Controller
         }
 
         $range = DateRange::daysForCalendarView($view === 'list' ? 'month' : $view, $anchor);
-        $events = $this->activities->calendarEvents($request->user(), $range, $filters);
-
-        // Narrow the eager-loaded events to the type filter when it was
-        // supplied. ActivityService::calendarEvents does not accept type_id
-        // because the type catalog is a UI concern; the controller applies
-        // it post-fetch (the list is small per view).
-        if (isset($filters['type_id'])) {
-            $events = $events->where('type_id', (int) $filters['type_id'])->values();
-        }
+        $events = $this->calendarEvents->events($request->user(), $range, $filters);
 
         $user = $request->user();
 
@@ -125,8 +116,7 @@ class CalendarController extends Controller
      * - month: ±1 month, anchored on day 1.
      * - week: ±1 week, anchored on Monday.
      * - day: ±1 day.
-     * - list: keep the same anchor (the list view has no temporal nav of
-     *   its own; the prev/next links are disabled in the template).
+     * - list: ±1 month, matching its month-sized DateRange projection.
      */
     private function navigate(string $view, CarbonInterface $anchor, int $direction): CarbonImmutable
     {
@@ -134,7 +124,7 @@ class CalendarController extends Controller
             'month' => $anchor->startOfMonth()->addMonths($direction),
             'week' => $anchor->startOfWeek(CarbonInterface::MONDAY)->addWeeks($direction),
             'day' => $anchor->addDays($direction),
-            'list' => $anchor,
+            'list' => $anchor->startOfMonth()->addMonths($direction),
             default => $anchor,
         };
     }

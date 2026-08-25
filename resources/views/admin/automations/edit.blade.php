@@ -4,11 +4,14 @@
 @section('page-title', 'Editar regla')
 
 @section('content')
-    <p class="text-muted small">
-        Editando la regla <strong>{{ $rule->name }}</strong>. Modifica sólo los
-        campos que desees; los grupos, condiciones y acciones se reemplazan en
-        una transacción al guardar (CRUD-03).
-    </p>
+    <div class="automation-page-intro mb-3">
+        <p class="text-uppercase text-secondary small mb-1">Ajustar automatización</p>
+        <h2 class="h5 mb-1">Estás editando “{{ $rule->name }}”</h2>
+        <p class="text-muted small mb-0">
+            Revisá la receta de negocio: <strong>cuándo</strong> empieza, <strong>si</strong> cumple las condiciones y <strong>entonces</strong> qué acciones ejecuta el CRM.
+            Si vas a cambiar el comportamiento real, probala antes con <strong>Prueba segura</strong>.
+        </p>
+    </div>
 
     <x-validation-error name="general" />
 

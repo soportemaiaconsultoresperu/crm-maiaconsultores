@@ -91,6 +91,60 @@ class OpportunityHttpTest extends TestCase
             ->assertDontSee($outsiderOpportunity->code);
     }
 
+    public function test_opportunity_create_and_edit_forms_use_sweetalert_loading(): void
+    {
+        $this->actingAs($this->admin)
+            ->get('/opportunities/create')
+            ->assertOk()
+            ->assertSee('data-testid="opportunity-form"', false)
+            ->assertSee('data-swal-loading', false);
+
+        $opportunity = Opportunity::factory()->forOwner($this->salespersonOne)->create();
+        $content = $this->actingAs($this->admin)
+            ->get("/opportunities/{$opportunity->id}/edit")
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('data-testid="opportunity-form"', $content);
+        $this->assertStringContainsString('data-swal-loading', $content);
+        $this->assertStringContainsString('name="_method" value="PUT"', $content);
+    }
+
+    public function test_opportunity_detail_actions_use_sweetalert_confirmation_and_loading(): void
+    {
+        $opportunity = Opportunity::factory()->forOwner($this->salespersonOne)->create();
+
+        $content = $this->actingAs($this->admin)
+            ->get("/opportunities/{$opportunity->id}")
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('data-testid="win-form" data-swal-loading', $content);
+        $this->assertStringContainsString('data-swal-title="Marcar oportunidad ganada"', $content);
+        $this->assertStringContainsString('data-testid="lose-form" data-swal-loading', $content);
+        $this->assertStringContainsString('data-swal-title="Marcar oportunidad perdida"', $content);
+        $this->assertStringContainsString('data-testid="deactivate-form" data-swal-loading', $content);
+        $this->assertStringContainsString('data-swal-title="Desactivar oportunidad"', $content);
+        $this->assertSame(3, substr_count($content, 'data-swal-confirm'));
+    }
+
+    public function test_opportunity_kanban_fallback_move_uses_sweetalert_confirmation_and_loading(): void
+    {
+        $opportunity = Opportunity::factory()->forOwner($this->salespersonOne)->create();
+
+        $content = $this->actingAs($this->salespersonOne)
+            ->get('/opportunities-kanban')
+            ->assertOk()
+            ->assertSee($opportunity->code)
+            ->getContent();
+
+        $this->assertStringContainsString('data-testid="move-form-'.$opportunity->code.'" data-swal-loading', $content);
+        $this->assertStringContainsString('data-swal-title="Mover oportunidad"', $content);
+        $this->assertStringContainsString('data-swal-text="La oportunidad cambiará a la etapa seleccionada."', $content);
+        $this->assertStringContainsString("window.Swal.fire", $content);
+        $this->assertStringContainsString("alert(message);", $content);
+    }
+
     public function test_stage_post_moves_stage_and_writes_history(): void
     {
         $opportunity = Opportunity::factory()->forOwner($this->salespersonOne)->create();

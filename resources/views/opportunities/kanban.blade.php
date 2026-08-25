@@ -116,7 +116,7 @@
 
                                         {{-- Fallback sin JS (RF-OPP-004): mismo endpoint POST stage. --}}
                                         <form method="POST" action="{{ route('opportunities.stage', $opportunity) }}"
-                                              class="mt-2" data-testid="move-form-{{ $opportunity->code }}">
+                                              class="mt-2" data-testid="move-form-{{ $opportunity->code }}" data-swal-loading>
                                             @csrf
                                             <div class="input-group input-group-sm">
                                                 <select name="stage_id" class="form-select form-select-sm" aria-label="Mover a">
@@ -126,7 +126,11 @@
                                                         @endif
                                                     @endforeach
                                                 </select>
-                                                <button type="submit" class="btn btn-outline-secondary">Mover</button>
+                                                <button type="submit" class="btn btn-outline-secondary"
+                                                        data-swal-confirm
+                                                        data-swal-title="Mover oportunidad"
+                                                        data-swal-text="La oportunidad cambiará a la etapa seleccionada."
+                                                        data-swal-type="question">Mover</button>
                                             </div>
                                         </form>
                                     </div>
@@ -259,7 +263,17 @@
                     }).catch(function () {
                         source.insertBefore(card, nextSibling);
                         refreshTotals();
-                        alert('No se pudo mover la oportunidad. Inténtelo nuevamente o use el selector «Mover a».');
+
+                        var message = 'No se pudo mover la oportunidad. Inténtelo nuevamente o use el selector «Mover a».';
+                        if (window.Swal) {
+                            window.Swal.fire({
+                                title: 'Movimiento rechazado',
+                                text: message,
+                                icon: 'error',
+                            });
+                        } else {
+                            alert(message);
+                        }
                     });
                 });
             });

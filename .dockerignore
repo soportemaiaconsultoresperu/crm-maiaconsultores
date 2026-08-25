@@ -13,6 +13,3 @@ vendor
 tests
 docs
 *.md
-docker-compose.yml
-Dockerfile
-docker

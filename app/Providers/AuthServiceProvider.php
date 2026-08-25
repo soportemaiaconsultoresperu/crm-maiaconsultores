@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Models\CustomerInvoice;
+use App\Models\SupportTicket;
+use App\Policies\CustomerInvoicePolicy;
+use App\Policies\SupportTicketPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as BaseAuthServiceProvider;
 use Illuminate\Support\Facades\Gate;
 
@@ -39,7 +43,10 @@ class AuthServiceProvider extends BaseAuthServiceProvider
      *
      * @var array<class-string, class-string>
      */
-    protected $policies = [];
+    protected $policies = [
+        CustomerInvoice::class => CustomerInvoicePolicy::class,
+        SupportTicket::class => SupportTicketPolicy::class,
+    ];
 
     public function boot(): void
     {

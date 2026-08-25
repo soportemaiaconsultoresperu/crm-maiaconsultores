@@ -39,6 +39,8 @@ class SeedersTest extends TestCase
             'seq.customer.prefix',
             'seq.opportunity.prefix',
             'seq.quotation.prefix',
+            'seq.support_ticket.prefix',
+            'seq.support_ticket.pad_length',
             'seq.pad_length',
         ] as $key) {
             $this->assertTrue(
@@ -49,7 +51,9 @@ class SeedersTest extends TestCase
 
 // Roles / permissions / admin user.
         $this->assertSame(3, Role::count());
-        $this->assertSame(84, Permission::count(), 'Permissions include B06 additions (products.view.team/own + quotations.delete/reject/duplicate + products.export), B08 additions (users.* 6, teams.view, roles.view/manage, catalogs.view/manage, settings.view; settings.manage and teams.manage were idempotent duplicates from B01) and B09 additions (documents.upload, documents.delete). B12 automations.* permissions are registered at runtime by AutomationServiceProvider::boot() and are not seeded by V1 seeders, so the seeder-only count remains 84.');
+        $this->assertSame(129, Permission::count(), 'Permissions include the current branch baseline, AdditionalPermissionsSeeder, support lifecycle permissions, and customer-payments.view/manage.');
+        $this->assertTrue(Permission::where('name', 'customer-payments.view')->exists());
+        $this->assertTrue(Permission::where('name', 'customer-payments.manage')->exists());
         $this->assertSame(1, User::count(), 'Only the bootstrap admin user is seeded (no fake users)');
         $this->assertTrue(User::first()->hasRole('admin'));
     }
@@ -63,9 +67,9 @@ class SeedersTest extends TestCase
         $this->assertSame(3, Currency::count());
         $this->assertSame(4, Tax::count());
         $this->assertSame(2113, Ubigeo::count());
-$this->assertSame(13, Setting::count(), 'Settings must not duplicate on re-seed (B06 added seq.quotation.pad_length and seq.product.*)');
+$this->assertSame(23, Setting::count(), 'Settings must not duplicate on re-seed across current notification/company/sequence/support defaults.');
 $this->assertSame(3, Role::count());
-$this->assertSame(84, Permission::count());
+$this->assertSame(129, Permission::count());
         $this->assertSame(1, User::count(), 'Admin user is updated, never duplicated');
         $this->assertSame(1, User::first()->roles()->count(), 'Admin keeps exactly one role assignment');
     }

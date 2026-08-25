@@ -1,43 +1,19 @@
+x-app-env: &app-env
+  env_file:
+    # The committed defaults make `docker compose config` reproducible. A local
+    # .env.docker, when present, overrides them and is never committed.
+    - path: docker/env.docker.example
+      required: true
+    - path: .env.docker
+      required: false
+
 services:
-  # PHP-FPM application (RNF-OPS-001). Built from ./Dockerfile (prod stage).
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: prod
-    image: crm-maia-app
-    env_file:
-      - .env.docker
-    volumes:
-      - storage-data:/var/www/html/storage/app
-    depends_on:
-      mysql:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # nginx web server. Public files + FPM proxy.
-  nginx:
-    image: nginx:1.27-alpine
-    ports:
-      - "8080:80"
-    volumes:
-      - ./:/var/www/html:ro
-      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - app
-    restart: unless-stopped
-
-  # MySQL 8.0 (utf8mb4 / utf8mb4_unicode_ci, ADR-013).
   mysql:
     image: mysql:8.0
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
-    environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-crm_maia}
-      MYSQL_USER: ${MYSQL_USER:-crm_maia}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    <<: *app-env
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -47,38 +23,91 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # Queue worker (RNF-OPS-002 ready: Excel/PDF jobs in later blocks).
+  # Runs exactly once per deployment. It prepares a new database before any
+  # long-running Laravel process is allowed to start.
+  init:
+    image: crm-maia-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    <<: *app-env
+    volumes:
+      - storage-data:/var/www/html/storage/app
+    command: sh -c 'php artisan migrate --force && php artisan db:seed --force'
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: crm-maia-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    <<: *app-env
+    volumes:
+      - storage-data:/var/www/html/storage/app
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: caddy
+    image: crm-maia-caddy
+    environment:
+      # Require the variable to be defined while allowing the committed empty
+      # placeholder to support configuration-only validation.
+      CADDY_EMAIL: ${CADDY_EMAIL?CADDY_EMAIL must be defined}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - storage-data:/srv/storage/app:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped
+
   queue:
     image: crm-maia-app
     build:
       context: .
       dockerfile: Dockerfile
       target: prod
+    <<: *app-env
     command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
-    env_file:
-      - .env.docker
     volumes:
       - storage-data:/var/www/html/storage/app
     depends_on:
-      - app
+      init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
-  # Scheduler (activities:mark-overdue daily 02:00 America/Lima, RF-ACT-003).
   scheduler:
     image: crm-maia-app
     build:
       context: .
       dockerfile: Dockerfile
       target: prod
+    <<: *app-env
     command: php artisan schedule:work
-    env_file:
-      - .env.docker
     volumes:
       - storage-data:/var/www/html/storage/app
     depends_on:
-      - app
+      init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
   mysql-data:
   storage-data:
+  caddy-data:
+  caddy-config:

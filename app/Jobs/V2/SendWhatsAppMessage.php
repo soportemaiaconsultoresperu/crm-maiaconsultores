@@ -52,6 +52,11 @@ class SendWhatsAppMessage implements ShouldQueue
             return;
         }
 
+        if (app(\App\Services\DemoData\DemoDataGuard::class)->isWhatsAppMessageDemo($message)) {
+            $this->markFailed($message, 'DemoDataGuardBlocked', 'Demo data guard blocked outbound WhatsApp job.');
+            return;
+        }
+
         if (in_array($message->status, [
             WhatsAppMessage::STATUS_SENT,
             WhatsAppMessage::STATUS_DELIVERED,

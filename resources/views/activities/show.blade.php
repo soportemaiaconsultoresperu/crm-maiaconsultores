@@ -7,7 +7,6 @@
     @php
         $subjectRoute = null;
         $subjectLabel = '—';
-        $subjectMorphKey = null;
         if ($activity->subject) {
             $morph = $activity->subject->getMorphClass();
             $subjectRoute = $subjectRoute ?? match ($morph) {
@@ -16,18 +15,7 @@
                 'opportunity' => route('opportunities.show', $activity->subject),
                 default => null,
             };
-            $subjectMorphKey = match (true) {
-                $activity->subject instanceof \App\Models\Lead => 'lead',
-                $activity->subject instanceof \App\Models\Customer => 'customer',
-                $activity->subject instanceof \App\Models\Opportunity => 'opportunity',
-                default => null,
-            };
-            $subjectLabel = match (true) {
-                $activity->subject instanceof \App\Models\Lead => $activity->subject->code,
-                $activity->subject instanceof \App\Models\Customer => $activity->subject->code,
-                $activity->subject instanceof \App\Models\Opportunity => $activity->subject->code,
-                default => '#'.$activity->subject->getKey(),
-            };
+            $subjectLabel = \App\Models\Activity::subjectDisplayLabel($activity->subject);
         }
 
         $isTerminal = in_array($activity->status, ['completed', 'cancelled'], true);

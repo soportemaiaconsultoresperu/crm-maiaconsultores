@@ -1,12 +1,6 @@
 # syntax=docker/dockerfile:2
 
-# CRM Maia Consultores — PHP-FPM image (RNF-OPS-001).
-#
-# Stages:
-#   vendor — composer install (prod deps, cached by composer.lock)
-#   dev    — dev dependencies + xdebug available (off by default)
-#   prod   — final runtime image
-
+# CRM Maia Consultores production image.
 FROM php:8.3-fpm-alpine AS base
 
 RUN apk add --no-cache \
@@ -31,7 +25,6 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
-# --------------------------------------------------------------------------
 FROM base AS vendor
 
 COPY composer.json composer.lock ./
@@ -43,25 +36,20 @@ RUN composer install \
         --no-progress \
         --prefer-dist
 
-# --------------------------------------------------------------------------
-FROM base AS dev
+FROM node:20-alpine AS assets
 
-ENV XDEBUG_MODE=off
+WORKDIR /var/www/html
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
 
-RUN apk add --no-cache linux-headers $PHPIZE_DEPS \
-    && pecl install xdebug \
-    && docker-php-ext-enable xdebug \
-    && apk del $PHPIZE_DEPS
-
-# --------------------------------------------------------------------------
 FROM base AS prod
 
 COPY --from=vendor /var/www/html/vendor vendor/
-
 COPY . .
-COPY --from=vendor /usr/bin/composer /usr/bin/composer
-RUN composer dump-autoload --optimize --classmap-authoritative \
-    && composer run-script post-autoload-dump || true
+COPY --from=assets /var/www/html/public/build public/build
+RUN composer dump-autoload --optimize --classmap-authoritative
 
 RUN chown -R www-data:www-data storage bootstrap/cache \
     && find storage bootstrap/cache -type d -exec chmod 775 {} \;
@@ -71,3 +59,8 @@ USER www-data
 EXPOSE 9000
 
 CMD ["php-fpm"]
+
+FROM caddy:2.8-alpine AS caddy
+
+COPY docker/Caddyfile /etc/caddy/Caddyfile
+COPY --from=prod /var/www/html/public /srv

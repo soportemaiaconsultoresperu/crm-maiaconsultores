@@ -22,12 +22,24 @@
 
 <form method="POST"
       action="{{ $lead === null ? route('leads.store') : route('leads.update', $lead) }}"
+      class="lead-form"
       data-swal-loading>
     @if ($lead !== null) @method('PUT') @endif
     @csrf
 
+    <div class="card lead-form-hero mb-3">
+        <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
+            <div>
+                <p class="text-uppercase text-secondary small mb-1">Prospectos</p>
+                <h2 class="h4 mb-1">{{ $lead === null ? 'Registrar nuevo prospecto' : 'Actualizar prospecto '.$lead->code }}</h2>
+                <p class="text-secondary mb-0">Capturá datos comerciales, contacto, ubicación y seguimiento en un formulario ordenado.</p>
+            </div>
+            <span class="dashboard-kpi-icon text-bg-primary" aria-hidden="true"><i class="bi bi-person-vcard"></i></span>
+        </div>
+    </div>
+
     <div class="card">
-        <div class="card-header"><h3 class="card-title mb-0">Datos del prospecto</h3></div>
+        <div class="card-header"><h3 class="card-title lead-section-title mb-0"><i class="bi bi-person-lines-fill" aria-hidden="true"></i> Datos del prospecto</h3></div>
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-md-4">
@@ -146,6 +158,7 @@
         </div>
         <div class="card-footer d-flex gap-2">
             <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check2-circle me-1" aria-hidden="true"></i>
                 {{ $lead === null ? 'Crear prospecto' : 'Guardar cambios' }}
             </button>
             <a href="{{ $lead === null ? route('leads.index') : route('leads.show', $lead) }}" class="btn btn-outline-secondary">Cancelar</a>

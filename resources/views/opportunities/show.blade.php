@@ -254,7 +254,7 @@
 
     {{-- Modal: marcar ganada (RF-OPP-006) --}}
     <x-modal id="win-modal" title="Marcar como ganada">
-        <form method="POST" action="{{ route('opportunities.win', $opportunity) }}" data-testid="win-form">
+        <form method="POST" action="{{ route('opportunities.win', $opportunity) }}" data-testid="win-form" data-swal-loading>
             @csrf
             <div class="mb-3">
                 <x-text-input name="final_amount" type="number" label="Monto final" :value="old('final_amount', $opportunity->estimated_amount)" :required="true" step="0.01" min="0.01"/>
@@ -263,13 +263,17 @@
             <div class="mb-3">
                 <x-text-input name="closed_at" type="date" label="Fecha de cierre (opcional)" :value="old('closed_at', now()->toDateString())"/>
             </div>
-            <button type="submit" class="btn btn-success">Confirmar ganada</button>
+            <button type="submit" class="btn btn-success"
+                    data-swal-confirm
+                    data-swal-title="Marcar oportunidad ganada"
+                    data-swal-text="La oportunidad se cerrará como ganada con el monto final indicado."
+                    data-swal-type="question">Confirmar ganada</button>
         </form>
     </x-modal>
 
     {{-- Modal: marcar perdida (RF-OPP-007) --}}
     <x-modal id="lose-modal" title="Marcar como perdida">
-        <form method="POST" action="{{ route('opportunities.lose', $opportunity) }}" data-testid="lose-form">
+        <form method="POST" action="{{ route('opportunities.lose', $opportunity) }}" data-testid="lose-form" data-swal-loading>
             @csrf
             <div class="mb-3">
                 <x-select name="loss_reason_id" label="Motivo de pérdida" :required="true"
@@ -281,13 +285,17 @@
                 <textarea name="note" id="lose_note" rows="3" class="form-control @error('note') is-invalid @enderror">{{ old('note') }}</textarea>
                 <x-validation-error name="note"/>
             </div>
-            <button type="submit" class="btn btn-danger">Confirmar pérdida</button>
+            <button type="submit" class="btn btn-danger"
+                    data-swal-confirm
+                    data-swal-title="Marcar oportunidad perdida"
+                    data-swal-text="La oportunidad se cerrará como perdida con el motivo seleccionado."
+                    data-swal-type="warning">Confirmar pérdida</button>
         </form>
     </x-modal>
 
     {{-- Modal: desactivar --}}
     <x-modal id="deactivate-modal" title="Desactivar oportunidad">
-        <form method="POST" action="{{ route('opportunities.destroy', $opportunity) }}" data-testid="deactivate-form">
+        <form method="POST" action="{{ route('opportunities.destroy', $opportunity) }}" data-testid="deactivate-form" data-swal-loading>
             @csrf
             <div class="mb-3">
                 <label for="deactivate_reason" class="form-label mb-1">Motivo <span class="text-danger">*</span></label>
@@ -295,7 +303,11 @@
                           required>{{ old('reason') }}</textarea>
                 <x-validation-error name="reason"/>
             </div>
-            <button type="submit" class="btn btn-outline-danger">Desactivar</button>
+            <button type="submit" class="btn btn-outline-danger"
+                    data-swal-confirm
+                    data-swal-title="Desactivar oportunidad"
+                    data-swal-text="Se desactivará el registro de esta oportunidad."
+                    data-swal-type="warning">Desactivar</button>
         </form>
     </x-modal>
 @endsection

@@ -5,12 +5,17 @@ namespace Tests\Feature;
 use App\Models\Activity;
 use App\Models\ActivityType;
 use App\Models\Customer;
+use App\Models\CustomerInvoice;
+use App\Models\InvoiceStatus;
 use App\Models\Lead;
 use App\Models\Opportunity;
 use App\Models\User;
 use App\Services\ActivityService;
+use App\Services\CalendarEventService;
 use App\Support\DateRange;
+use Carbon\CarbonImmutable;
 use Database\Seeders\CatalogSeeder;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -28,6 +33,8 @@ class CalendarQueryTest extends TestCase
 
     private ActivityService $service;
 
+    private CalendarEventService $calendarEvents;
+
     private User $actor;
 
     private User $otherOwner;
@@ -36,11 +43,14 @@ class CalendarQueryTest extends TestCase
     {
         parent::setUp();
 
-        $this->seed(CatalogSeeder::class);
+        $this->seed([RolesAndPermissionsSeeder::class, CatalogSeeder::class]);
 
         $this->service = app(ActivityService::class);
+        $this->calendarEvents = app(CalendarEventService::class);
 
         $this->actor = User::factory()->create(['is_active' => true]);
+        $this->actor->assignRole('admin');
+        $this->actor->givePermissionTo(['calendar.view', 'customers.view.any', 'customer-payments.view']);
         $this->otherOwner = User::factory()->create(['is_active' => true]);
     }
 
@@ -151,6 +161,101 @@ class CalendarQueryTest extends TestCase
         $this->assertSame($pending->id, $events->first()->id);
     }
 
+    public function test_type_filter_is_applied_in_the_activity_database_query(): void
+    {
+        $lead = Lead::factory()->forOwner($this->actor)->create();
+        $selectedType = ActivityType::query()->where('slug', 'reunion')->firstOrFail();
+        $this->make($lead, now()->addHour());
+        $matching = $this->service->create([
+            'subject_type' => 'lead',
+            'subject_id' => $lead->id,
+            'type_id' => $selectedType->id,
+            'title' => 'Reunión filtrada',
+            'scheduled_at' => now()->addHour(),
+            'owner_id' => $this->actor->id,
+        ], $this->actor);
+
+        $queries = [];
+        DB::listen(function ($query) use (&$queries): void {
+            if (str_contains($query->sql, '"activities"')) {
+                $queries[] = $query;
+            }
+        });
+
+        $events = $this->service->calendarEvents(
+            $this->actor,
+            DateRange::daysForCalendarView('month', now()),
+            ['type_id' => $selectedType->id],
+        );
+
+        $this->assertCount(1, $events);
+        $this->assertSame($matching->id, $events->first()->id);
+        $this->assertNotEmpty($queries);
+        $this->assertContains($selectedType->id, $queries[0]->bindings);
+    }
+
+    public function test_calendar_event_service_preserves_activities_and_adds_invoice_event_items(): void
+    {
+        $lead = Lead::factory()->forOwner($this->actor)->create();
+        $customer = Customer::factory()->forOwner($this->actor)->create(['trade_name' => 'Cliente Calendar']);
+        $activity = $this->make($lead, CarbonImmutable::parse('2026-09-15 10:00:00'));
+        $invoice = $this->invoice($customer, InvoiceStatus::SLUG_IN_PROCESS, '2026-09-15', 'FAC-CAL-001');
+
+        $events = $this->calendarEvents->events(
+            $this->actor,
+            DateRange::daysForCalendarView('day', CarbonImmutable::parse('2026-09-15')),
+        );
+
+        $this->assertCount(2, $events);
+        $this->assertTrue($events->contains(fn ($event) => $event->kind === 'activity' && $event->id === $activity->id));
+        $this->assertTrue($events->contains(fn ($event) => $event->kind === 'invoice_due' && $event->title === 'Factura FAC-CAL-001 — Cliente Calendar'));
+        $this->assertTrue($events->contains(fn ($event) => $event->typeLabel === 'Factura' && str_contains($event->url, route('customers.show', $customer))));
+        $this->assertSame(InvoiceStatus::SLUG_IN_PROCESS, $invoice->refresh()->status->slug);
+    }
+
+    public function test_calendar_event_filters_apply_to_invoices_by_design(): void
+    {
+        $customer = Customer::factory()->forOwner($this->actor)->create();
+        $otherCustomer = Customer::factory()->forOwner($this->otherOwner)->create();
+        $type = ActivityType::query()->where('slug', 'llamada')->firstOrFail();
+        $this->invoice($customer, InvoiceStatus::SLUG_IN_PROCESS, '2026-09-15', 'FAC-OWNER-001');
+        $this->invoice($otherCustomer, InvoiceStatus::SLUG_IN_PROCESS, '2026-09-15', 'FAC-OWNER-002');
+
+        $range = DateRange::daysForCalendarView('day', CarbonImmutable::parse('2026-09-15'));
+
+        $typeFiltered = $this->calendarEvents->events($this->actor, $range, ['type_id' => $type->id]);
+        $this->assertFalse($typeFiltered->contains(fn ($event) => $event->kind === 'invoice_due'));
+
+        $ownerFiltered = $this->calendarEvents->events($this->actor, $range, ['owner_id' => $this->actor->id]);
+        $this->assertTrue($ownerFiltered->contains(fn ($event) => str_contains($event->title, 'FAC-OWNER-001')));
+        $this->assertFalse($ownerFiltered->contains(fn ($event) => str_contains($event->title, 'FAC-OWNER-002')));
+
+        $customerSubject = $this->calendarEvents->events($this->actor, $range, ['subject_type' => 'customer']);
+        $this->assertTrue($customerSubject->contains(fn ($event) => $event->kind === 'invoice_due'));
+
+        $leadSubject = $this->calendarEvents->events($this->actor, $range, ['subject_type' => 'lead']);
+        $this->assertFalse($leadSubject->contains(fn ($event) => $event->kind === 'invoice_due'));
+    }
+
+    public function test_calendar_user_without_financial_read_keeps_activity_events_but_not_invoice_events(): void
+    {
+        $calendarOnly = User::factory()->create(['is_active' => true]);
+        $calendarOnly->givePermissionTo(['calendar.view', 'customers.view.any']);
+        $customer = Customer::factory()->forOwner($calendarOnly)->create();
+        $lead = Lead::factory()->forOwner($calendarOnly)->create();
+
+        $this->make($lead, CarbonImmutable::parse('2026-09-15 09:00:00'), $calendarOnly);
+        $this->invoice($customer, InvoiceStatus::SLUG_IN_PROCESS, '2026-09-15', 'FAC-HIDDEN-001');
+
+        $events = $this->calendarEvents->events(
+            $calendarOnly,
+            DateRange::daysForCalendarView('day', CarbonImmutable::parse('2026-09-15')),
+        );
+
+        $this->assertTrue($events->contains(fn ($event) => $event->kind === 'activity'));
+        $this->assertFalse($events->contains(fn ($event) => $event->kind === 'invoice_due'));
+    }
+
     public function test_eager_loading_avoids_n_plus_one_on_subject_relations(): void
     {
         $lead = Lead::factory()->forOwner($this->actor)->create();
@@ -176,6 +281,18 @@ class CalendarQueryTest extends TestCase
         // morph class; here we only have Lead subjects so the total is 4.
         $this->assertSame(3, $events->count());
         $this->assertLessThanOrEqual(6, $queryCount, 'Expected ≤6 queries with eager loading (got '.$queryCount.')');
+    }
+
+    private function invoice(Customer $customer, string $statusSlug, string $dueDate, string $number): CustomerInvoice
+    {
+        return CustomerInvoice::factory()
+            ->forCustomer($customer)
+            ->forStatus(InvoiceStatus::query()->where('slug', $statusSlug)->firstOrFail())
+            ->create([
+                'invoice_number' => $number,
+                'due_date' => $dueDate,
+                'total_amount' => '500.00',
+            ]);
     }
 
     private function make($subject, $when, ?User $owner = null): Activity

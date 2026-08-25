@@ -97,12 +97,7 @@
                             'opportunity' => route('opportunities.show', $activity->subject),
                             default => null,
                         };
-                        $subjectLabel = match (true) {
-                            $activity->subject instanceof \App\Models\Lead => $activity->subject->code,
-                            $activity->subject instanceof \App\Models\Customer => $activity->subject->code,
-                            $activity->subject instanceof \App\Models\Opportunity => $activity->subject->code,
-                            default => '#'.$activity->subject->getKey(),
-                        };
+                        $subjectLabel = \App\Models\Activity::subjectDisplayLabel($activity->subject);
                     }
                 @endphp
                 <tr data-testid="activity-row">

@@ -235,6 +235,20 @@ class ActionEditorLivewireTest extends TestCase
         $this->assertSame('change_stage', $instance->getActionTypeProperty());
     }
 
+    public function test_widget_payload_decodes_json_string_payloads(): void
+    {
+        ['user' => $user, 'action' => $action] = $this->makeFixture('add_tag');
+        $action['payload_json'] = '{"tag_slug":"warm"}';
+
+        $component = Livewire::test(ActionEditor::class, [
+            'actionIndex' => 0,
+            'action' => $action,
+            'editorUserId' => $user->id,
+        ]);
+
+        $this->assertSame(['tag_slug' => 'warm'], $component->instance()->widgetPayload());
+    }
+
     // ---------------------------------------------------------------------
     // ACT-08 — retry_policy_json MUST NOT appear in the rendered DOM.
     // ---------------------------------------------------------------------

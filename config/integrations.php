@@ -45,6 +45,7 @@ return [
     'enabled' => [
         'email' => env('INTEGRATIONS_ENABLED_EMAIL', env('INTEGRATIONS_ENABLED_DEFAULT', false)),
         'whatsapp' => env('INTEGRATIONS_ENABLED_WHATSAPP', env('INTEGRATIONS_ENABLED_DEFAULT', false)),
+        'calendar' => env('INTEGRATIONS_ENABLED_CALENDAR', env('INTEGRATIONS_ENABLED_DEFAULT', false)),
         'google_calendar' => env('INTEGRATIONS_ENABLED_GOOGLE_CALENDAR', env('INTEGRATIONS_ENABLED_DEFAULT', false)),
         'outlook_calendar' => env('INTEGRATIONS_ENABLED_OUTLOOK_CALENDAR', env('INTEGRATIONS_ENABLED_DEFAULT', false)),
         'webforms' => env('INTEGRATIONS_ENABLED_WEBFORMS', env('INTEGRATIONS_ENABLED_DEFAULT', false)),
@@ -133,7 +134,7 @@ return [
         'calendar' => [
             'google' => [
                 'contract' => CalendarProvider::class,
-                'class' => env('INTEGRATIONS_CALENDAR_GOOGLE_CLASS'),
+                'class' => env('INTEGRATIONS_CALENDAR_GOOGLE_CLASS', \App\Integrations\Google\GoogleCalendarProvider::class),
             ],
             'outlook' => [
                 'contract' => CalendarProvider::class,
@@ -157,6 +158,31 @@ return [
         'meta' => env('INTEGRATIONS_WEBHOOK_VERIFIER_META', \App\Integrations\Verification\MetaSignatureVerifier::class),
         'google' => env('INTEGRATIONS_WEBHOOK_VERIFIER_GOOGLE'),
         'outlook' => env('INTEGRATIONS_WEBHOOK_VERIFIER_OUTLOOK'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Google OAuth 2.0 (Fase 1)
+    |--------------------------------------------------------------------------
+    |
+    | Secrets are read from the environment only. The redirect URI should
+    | match the Google Cloud OAuth client configuration exactly.
+    |
+    */
+    'google_oauth' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect_uri' => env('GOOGLE_REDIRECT_URI'),
+        'project_id' => env('GOOGLE_OAUTH_PROJECT_ID'),
+        'auth_uri' => env('GOOGLE_AUTH_URI', 'https://accounts.google.com/o/oauth2/v2/auth'),
+        'token_uri' => env('GOOGLE_TOKEN_URI', 'https://oauth2.googleapis.com/token'),
+        'userinfo_uri' => env('GOOGLE_USERINFO_URI', 'https://www.googleapis.com/oauth2/v3/userinfo'),
+        'revoke_uri' => env('GOOGLE_REVOKE_URI', 'https://oauth2.googleapis.com/revoke'),
+    ],
+
+    'google_calendar_watch' => [
+        'webhook_url' => env('GOOGLE_CALENDAR_WEBHOOK_URL'),
+        'ttl_minutes' => (int) env('GOOGLE_CALENDAR_WATCH_TTL_MINUTES', 8640),
     ],
 
     /*

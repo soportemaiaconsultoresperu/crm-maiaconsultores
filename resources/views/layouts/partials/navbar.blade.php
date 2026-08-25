@@ -1,12 +1,12 @@
 {{--
     Top navbar (AdminLTE 4 / Bootstrap 5, no jQuery — ADR-010).
-    User dropdown: Perfil (B08) and Cerrar sesión (POST logout).
+    User dropdown: Perfil, Integraciones and Cerrar sesión (POST logout).
 --}}
-<nav class="app-header navbar navbar-expand bg-body">
+<nav class="app-header navbar navbar-expand">
     <div class="container-fluid">
         <ul class="navbar-nav">
             <li class="nav-item">
-                <a class="nav-link" href="#" data-lte-toggle="push-menu" role="button"
+                <a class="nav-link" href="#" data-lte-toggle="sidebar" role="button"
                    aria-label="Alternar menú lateral">
                     <i class="bi bi-list fs-4" aria-hidden="true"></i>
                 </a>
@@ -33,7 +33,7 @@
                     </li>
                 @endauth
                 <li class="nav-item dropdown user-menu">
-                <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown">
+                <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                     <span class="d-none d-md-inline">{{ auth()->user()?->name }}</span>
                     <i class="bi bi-person-circle ms-1" aria-hidden="true"></i>
                 </a>
@@ -41,6 +41,11 @@
                     <li>
                         <a class="dropdown-item" href="#">
                             <i class="bi bi-person me-2" aria-hidden="true"></i>Perfil
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" href="{{ route('account.integrations.index') }}" data-testid="nav-account-integrations">
+                            <i class="bi bi-plug me-2" aria-hidden="true"></i>Integraciones
                         </a>
                     </li>
                     <li><hr class="dropdown-divider"></li>

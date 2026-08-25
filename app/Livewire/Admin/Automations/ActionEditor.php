@@ -126,7 +126,12 @@ class ActionEditor extends Component
      */
     public function widgetPayload(): array
     {
-        $payload = (array) ($this->action['payload_json'] ?? []);
+        $rawPayload = $this->action['payload_json'] ?? [];
+        if (is_string($rawPayload)) {
+            $decodedPayload = json_decode($rawPayload, true);
+            $rawPayload = is_array($decodedPayload) ? $decodedPayload : [];
+        }
+        $payload = is_array($rawPayload) ? $rawPayload : [];
 
         if (
             ! isset($payload['recipient_strategy'])

@@ -3,8 +3,16 @@
      response_json (monospace) or the caught error envelope. --}}
 <div wire:ignore.self>
     <button type="button" class="btn btn-sm btn-outline-secondary"
-        wire:click="simulate" aria-label="Simular ahora">
-        <i class="bi bi-play-circle me-1" aria-hidden="true"></i> Simular ahora
+        wire:click="simulate"
+        wire:loading.attr="disabled"
+        wire:target="simulate"
+        aria-label="Simular ahora">
+        <span wire:loading.remove wire:target="simulate">
+            <i class="bi bi-play-circle me-1" aria-hidden="true"></i> Simular ahora
+        </span>
+        <span wire:loading wire:target="simulate">
+            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Simulando…
+        </span>
     </button>
 
     @if ($isOpen)
@@ -27,9 +35,12 @@
                             <pre class="font-monospace small mb-0"><code>{{ json_encode($responseJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</code></pre>
                         @endif
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" wire:click="close">Cerrar</button>
-                    </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary"
+                                wire:click="close"
+                                wire:loading.attr="disabled"
+                                wire:target="close">Cerrar</button>
+                        </div>
                 </div>
             </div>
         </div>

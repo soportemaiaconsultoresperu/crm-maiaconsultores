@@ -82,9 +82,13 @@ class DashboardHttpTest extends TestCase
         $this->actingAs($this->admin)
             ->get('/dashboard')
             ->assertOk()
+            ->assertSee('Tendencia comercial')
+            ->assertSee('Cantidad')
+            ->assertSee('Prospectos por origen')
+            ->assertSee('Timeline comercial')
             ->assertSee('Próximas reuniones')
             ->assertSee('Rendimiento por vendedor')
-            ->assertSeeInOrder(['Dashboard', 'Próximas reuniones', 'Rendimiento por vendedor']);
+            ->assertSeeInOrder(['Dashboard', 'Tendencia comercial', 'Próximas reuniones', 'Rendimiento por vendedor']);
     }
 
     public function test_vendedor_only_counts_own_leads(): void
@@ -158,6 +162,7 @@ class DashboardHttpTest extends TestCase
             ->get('/dashboard')
             ->assertOk()
             ->assertSee('No hay reuniones próximas')
+            ->assertSee('Aún no hay prospectos registrados este mes')
             ->assertSee('Aún no hay ventas ganadas este mes');
     }
 
