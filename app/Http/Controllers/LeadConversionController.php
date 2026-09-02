@@ -38,7 +38,7 @@ class LeadConversionController extends Controller
         }
 
         return view('leads.convert', [
-            'lead' => $lead->load(['owner', 'status', 'ubigeo']),
+            'lead' => $lead->load(['owner', 'status', 'ubigeo', 'primaryContact']),
             'prefill' => $this->prefillFrom($lead),
         ]);
     }
@@ -64,13 +64,15 @@ class LeadConversionController extends Controller
             'contact.email' => ['nullable', 'email', 'max:150'],
         ]);
 
-        $contactData = collect($request->input('contact', []))
-            ->filter(fn ($value) => $value !== null && $value !== '')
-            ->all();
+            $contactData = $lead->person_type === 'juridica'
+                ? null
+                : collect($request->input('contact', []))
+                    ->filter(fn ($value) => $value !== null && $value !== '')
+                    ->all();
 
-        if (! empty($contactData) && (empty($contactData['first_name']) || empty($contactData['last_name']))) {
-            return back()->withInput()->with('error', 'Para crear un contacto inicial indique nombres y apellidos.');
-        }
+            if (! empty($contactData) && (empty($contactData['first_name']) || empty($contactData['last_name']))) {
+                return back()->withInput()->with('error', 'Para crear un contacto inicial indique nombres y apellidos.');
+            }
 
         try {
             $customer = $this->conversion->convert(
@@ -101,9 +103,9 @@ class LeadConversionController extends Controller
     {
         return [
             'person_type' => $lead->person_type,
-            'legal_name' => trim($lead->company_name
+'legal_name' => $lead->legal_name ?: trim($lead->company_name
                 ?? trim("{$lead->first_name} {$lead->last_name}")),
-            'trade_name' => null,
+            'trade_name' => $lead->trade_name,
             'doc_type' => $lead->doc_type,
             'doc_number' => $lead->doc_number,
             'phone' => $lead->phone,
@@ -112,12 +114,12 @@ class LeadConversionController extends Controller
             'fiscal_address' => $lead->address,
             'ubigeo_code' => $lead->ubigeo_code,
             'owner_id' => $lead->owner_id,
-            'contact_first_name' => $lead->first_name,
-            'contact_last_name' => $lead->last_name,
-            'contact_position' => $lead->position,
-            'contact_phone' => $lead->phone,
-            'contact_whatsapp' => $lead->whatsapp,
-            'contact_email' => $lead->email,
+'contact_first_name' => $lead->primaryContact?->first_name ?? $lead->first_name,
+            'contact_last_name' => $lead->primaryContact?->last_name ?? $lead->last_name,
+            'contact_position' => $lead->primaryContact?->position ?? $lead->position,
+            'contact_phone' => $lead->primaryContact?->phone ?? $lead->phone,
+            'contact_whatsapp' => $lead->primaryContact?->whatsapp ?? $lead->whatsapp,
+            'contact_email' => $lead->primaryContact?->email ?? $lead->email,
         ];
     }
 }

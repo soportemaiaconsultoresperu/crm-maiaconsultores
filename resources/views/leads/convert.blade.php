@@ -63,42 +63,47 @@
         </div>
 
         <div class="card mt-3">
-            <div class="card-header">
-                <h3 class="card-title mb-0">Contacto inicial <span class="fw-normal text-secondary">(opcional)</span></h3>
-            </div>
-            <div class="card-body">
-                <p class="text-secondary small mb-3">
-                    Si completa al menos nombres y apellidos, se creará como contacto principal del cliente.
-                </p>
+                <div class="card-header">
+                    <h3 class="card-title mb-0">
+                        {{ $lead->person_type === 'juridica' ? 'Contacto principal registrado' : 'Contacto inicial' }}
+                        @if ($lead->person_type !== 'juridica') <span class="fw-normal text-secondary">(opcional)</span> @endif
+                    </h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary small mb-3">
+                        {{ $lead->person_type === 'juridica'
+                            ? 'El contacto principal registrado con el prospecto se conservará al crear el cliente.'
+                            : 'Si completa al menos nombres y apellidos, se creará como contacto principal del cliente.' }}
+                    </p>
                 <div class="row g-3">
                     <div class="col-md-4">
-                        <x-text-input name="contact[first_name]" label="Nombres"
-                                     :value="old('contact.first_name', $prefill['contact_first_name'])"/>
+<x-text-input name="contact[first_name]" label="Nombres"
+                                     :value="old('contact.first_name', $prefill['contact_first_name'])" :disabled="$lead->person_type === 'juridica'"/>
                         <x-validation-error name="contact.first_name"/>
                     </div>
                     <div class="col-md-4">
-                        <x-text-input name="contact[last_name]" label="Apellidos"
-                                     :value="old('contact.last_name', $prefill['contact_last_name'])"/>
+<x-text-input name="contact[last_name]" label="Apellidos"
+                                     :value="old('contact.last_name', $prefill['contact_last_name'])" :disabled="$lead->person_type === 'juridica'"/>
                         <x-validation-error name="contact.last_name"/>
                     </div>
                     <div class="col-md-4">
-                        <x-text-input name="contact[position]" label="Cargo"
-                                     :value="old('contact.position', $prefill['contact_position'])"/>
+<x-text-input name="contact[position]" label="Cargo"
+                                     :value="old('contact.position', $prefill['contact_position'])" :disabled="$lead->person_type === 'juridica'"/>
                         <x-validation-error name="contact.position"/>
                     </div>
                     <div class="col-md-4">
-                        <x-text-input name="contact[phone]" label="Teléfono"
-                                     :value="old('contact.phone', $prefill['contact_phone'])"/>
+<x-text-input name="contact[phone]" label="Teléfono"
+                                     :value="old('contact.phone', $prefill['contact_phone'])" :disabled="$lead->person_type === 'juridica'"/>
                         <x-validation-error name="contact.phone"/>
                     </div>
                     <div class="col-md-4">
-                        <x-text-input name="contact[whatsapp]" label="WhatsApp"
-                                     :value="old('contact.whatsapp', $prefill['contact_whatsapp'])"/>
+<x-text-input name="contact[whatsapp]" label="WhatsApp"
+                                     :value="old('contact.whatsapp', $prefill['contact_whatsapp'])" :disabled="$lead->person_type === 'juridica'"/>
                         <x-validation-error name="contact.whatsapp"/>
                     </div>
                     <div class="col-md-4">
-                        <x-text-input name="contact[email]" type="email" label="Correo electrónico"
-                                     :value="old('contact.email', $prefill['contact_email'])"/>
+<x-text-input name="contact[email]" type="email" label="Correo electrónico"
+                                     :value="old('contact.email', $prefill['contact_email'])" :disabled="$lead->person_type === 'juridica'"/>
                         <x-validation-error name="contact.email"/>
                     </div>
                 </div>

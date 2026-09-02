@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Events\V2\LeadConverted;
 use App\Exceptions\ConversionException;
 use App\Models\Contact;
 use App\Models\Customer;
@@ -9,6 +10,7 @@ use App\Models\Lead;
 use App\Models\User;
 use App\Services\LeadConversionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Tests\TestCase;
 
 /**
@@ -106,8 +108,22 @@ class LeadConversionTest extends TestCase
         $this->assertSame($lead->code, $customerLog->properties['lead_code']);
     }
 
-    public function test_convert_with_contact_creates_primary_contact(): void
-    {
+        public function test_convert_dispatches_lead_converted_after_committing(): void
+        {
+            Event::fake([LeadConverted::class]);
+            $lead = Lead::factory()->forOwner($this->actor)->create();
+
+            $customer = $this->service->convert($lead, $this->customerData(), $this->actor);
+
+            Event::assertDispatched(LeadConverted::class, function (LeadConverted $event) use ($lead, $customer): bool {
+                return $event->lead->is($lead)
+                    && $event->customer->is($customer)
+                    && $event->lead->status->slug === 'convertido';
+            });
+        }
+
+        public function test_convert_with_contact_creates_primary_contact(): void
+        {
         $lead = Lead::factory()->forOwner($this->actor)->create();
 
         $customer = $this->service->convert(
@@ -125,6 +141,33 @@ class LeadConversionTest extends TestCase
         $this->assertTrue((bool) $contact->is_primary);
         $this->assertTrue((bool) $contact->is_active);
         $this->assertSame(1, $customer->contacts()->count());
+    }
+
+    public function test_convert_preserves_a_legal_prospects_primary_contact(): void
+    {
+        $lead = app(\App\Services\LeadService::class)->create([
+            'person_type' => 'juridica',
+            'legal_name' => 'Comercial Andina S.A.C.',
+            'doc_type' => 'ruc',
+            'doc_number' => '20512345678',
+            'source_id' => \App\Models\LeadSource::query()->where('slug', 'web')->value('id'),
+            'status_id' => \App\Models\LeadStatus::query()->where('slug', 'nuevo')->value('id'),
+            'owner_id' => $this->actor->id,
+            'primary_contact' => [
+                'first_name' => 'Rosa',
+                'last_name' => 'Quispe',
+                'position' => 'Gerente de Compras',
+                'whatsapp' => '999888777',
+            ],
+        ], $this->actor);
+
+        $customer = $this->service->convert($lead, $this->customerData(), $this->actor);
+
+        $contact = $customer->contacts()->sole();
+        $this->assertSame('Rosa', $contact->first_name);
+        $this->assertSame('Quispe', $contact->last_name);
+        $this->assertSame('999888777', $contact->whatsapp);
+        $this->assertTrue((bool) $contact->is_primary);
     }
 
     public function test_double_conversion_throws_and_leaves_data_intact(): void
