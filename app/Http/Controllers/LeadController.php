@@ -48,7 +48,7 @@ class LeadController extends Controller
         $user = $request->user();
 
         $query = $this->scope->appliesTo(Lead::query(), $user)
-            ->with(['owner', 'status', 'source']);
+            ->with(['owner', 'status', 'source', 'primaryContact']);
 
         if ($search = trim((string) $request->query('search'))) {
             $term = '%'.str_replace('%', '\%', $search).'%';
@@ -136,7 +136,7 @@ class LeadController extends Controller
         Gate::authorize('update', $lead);
 
         return view('leads.edit', [
-            'lead' => $lead->load(['owner', 'status', 'source', 'ubigeo']),
+            'lead' => $lead->load(['owner', 'status', 'source', 'ubigeo', 'primaryContact']),
             ...$this->formContext($request->user(), $lead),
         ]);
     }
@@ -173,7 +173,7 @@ class LeadController extends Controller
             Gate::authorize('view', $lead);
 
             return view('leads.show', [
-                'lead' => $lead->load(['owner', 'status', 'source', 'ubigeo']),
+                'lead' => $lead->load(['owner', 'status', 'source', 'ubigeo', 'primaryContact']),
                 'history' => $this->leads->history($lead),
                 'nextAction' => $this->leads->nextAction($lead),
                 'activities' => $lead->activities()

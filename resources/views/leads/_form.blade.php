@@ -46,41 +46,69 @@
                     <x-select name="person_type" label="Tipo de persona" :options="$personTypes" :value="$lead?->person_type ?? 'natural'" :required="true"/>
                 </div>
                 <div class="col-md-4">
-                    <x-select name="doc_type" label="Tipo de documento" :options="$docTypes" :value="$lead?->doc_type" placeholder="Seleccione"/>
+                    <x-select name="doc_type" label="Tipo de documento (opcional)" :options="$docTypes" :value="$lead?->doc_type" placeholder="Seleccione"/>
                 </div>
                 <div class="col-md-4">
-                    <x-text-input name="doc_number" label="Número de documento" :value="$lead?->doc_number" help="DNI: 8 dígitos, RUC: 11 dígitos."/>
+                    <x-text-input name="doc_number" label="Número de documento (opcional)" :value="$lead?->doc_number" help="DNI: 8 dígitos, RUC: 11 dígitos."/>
                 </div>
 
-{{-- first_name and last_name are hidden for juridica prospects (company_name covers it). --}}
                 <div class="col-md-4" id="first_name_field" data-show-when="natural">
-                    <x-text-input name="first_name" label="Nombres" :value="$lead?->first_name"/>
+                    <x-text-input name="first_name" label="Nombres" :value="$lead?->first_name" :required="true"/>
                 </div>
                 <div class="col-md-4" id="last_name_field" data-show-when="natural">
                     <x-text-input name="last_name" label="Apellidos" :value="$lead?->last_name"/>
                 </div>
-                <div class="col-md-4" id="company_name_field" data-show-when="juridica">
-                    <x-text-input name="company_name" label="Empresa" :value="$lead?->company_name"/>
-                </div>
                 <div class="col-md-4" id="legal_name_field" data-show-when="juridica">
-                    <x-text-input name="legal_name" label="Razón social" :value="$lead?->legal_name"/>
+                    <x-text-input name="legal_name" label="Razón social" :value="$lead?->legal_name" :required="true"/>
                 </div>
                 <div class="col-md-4" id="trade_name_field" data-show-when="juridica">
                     <x-text-input name="trade_name" label="Nombre comercial" :value="$lead?->trade_name"/>
                 </div>
 
-                <div class="col-md-4">
+                <div class="col-md-4" data-show-when="natural">
                     <x-text-input name="position" label="Cargo" :value="$lead?->position"/>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-4" data-show-when="natural">
                     <x-text-input name="phone" label="Teléfono" :value="$lead?->phone"/>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-4" data-show-when="natural">
                     <x-text-input name="whatsapp" label="WhatsApp" :value="$lead?->whatsapp"/>
                 </div>
 
-<div class="col-md-4">
+                <div class="col-md-4" data-show-when="natural">
                     <x-text-input name="email" type="email" label="Correo electrónico" :value="$lead?->email"/>
+                </div>
+
+                <div class="col-md-12" data-show-when="juridica">
+                    <hr>
+                    <h4 class="h6">Contacto principal</h4>
+                    <p class="text-secondary small">Registrá a la persona de contacto de la empresa. Nombres, apellidos y al menos un medio de contacto son obligatorios.</p>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <x-text-input name="primary_contact[first_name]" label="Nombres" :value="old('primary_contact.first_name', $lead?->primaryContact?->first_name)" :required="true"/>
+                            <x-validation-error name="primary_contact.first_name"/>
+                        </div>
+                        <div class="col-md-4">
+                            <x-text-input name="primary_contact[last_name]" label="Apellidos" :value="old('primary_contact.last_name', $lead?->primaryContact?->last_name)" :required="true"/>
+                            <x-validation-error name="primary_contact.last_name"/>
+                        </div>
+                        <div class="col-md-4">
+                            <x-text-input name="primary_contact[position]" label="Cargo" :value="old('primary_contact.position', $lead?->primaryContact?->position)"/>
+                            <x-validation-error name="primary_contact.position"/>
+                        </div>
+                        <div class="col-md-4">
+                            <x-text-input name="primary_contact[phone]" label="Teléfono" :value="old('primary_contact.phone', $lead?->primaryContact?->phone)"/>
+                            <x-validation-error name="primary_contact.phone"/>
+                        </div>
+                        <div class="col-md-4">
+                            <x-text-input name="primary_contact[whatsapp]" label="WhatsApp" :value="old('primary_contact.whatsapp', $lead?->primaryContact?->whatsapp)"/>
+                            <x-validation-error name="primary_contact.whatsapp"/>
+                        </div>
+                        <div class="col-md-4">
+                            <x-text-input name="primary_contact[email]" type="email" label="Correo electrónico" :value="old('primary_contact.email', $lead?->primaryContact?->email)"/>
+                            <x-validation-error name="primary_contact.email"/>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-md-4">
                     <x-text-input name="website" label="Sitio web" :value="$lead?->website" placeholder="https://..."/>
@@ -181,11 +209,8 @@
                 (function () {
                     'use strict';
 
-                    // person_type-driven field visibility: juridica hides first_name
-                    // and last_name (company_name covers them), natural hides them when
-                    // the operator chooses the opposite path. The `required` attribute is
-                    // preserved across toggles via a `data-was-required` marker so the
-                    // server-side validation matches the visible fields.
+                    // Person type controls identity and contact fields. A legal
+                    // prospect records its company identity plus a related person.
                     var personType = document.querySelector('select[name="person_type"]');
                     var conditionalFields = document.querySelectorAll('[data-show-when]');
 
@@ -194,25 +219,30 @@
                             return;
                         }
                         var value = personType.value;
+
                         conditionalFields.forEach(function (field) {
-                            var showWhen = field.getAttribute('data-show-when');
-                            var input = field.querySelector('input, select, textarea');
-                            var visible = (showWhen === value);
+                            var visible = field.getAttribute('data-show-when') === value;
                             field.style.display = visible ? '' : 'none';
-                            if (input !== null) {
+
+                            field.querySelectorAll('input, select, textarea').forEach(function (input) {
                                 if (visible) {
+                                    input.disabled = false;
                                     if (input.hasAttribute('data-was-required')) {
                                         input.setAttribute('required', '');
                                         input.removeAttribute('data-was-required');
                                     }
-                                } else {
-                                    if (input.hasAttribute('required')) {
-                                        input.setAttribute('data-was-required', '');
-                                        input.removeAttribute('required');
-                                    }
-                                    input.value = '';
+
+                                    return;
                                 }
-                            }
+
+                                if (input.hasAttribute('required')) {
+                                    input.setAttribute('data-was-required', '');
+                                    input.removeAttribute('required');
+                                }
+
+                                input.disabled = true;
+                                input.value = '';
+                            });
                         });
                     }
                     if (personType !== null) {

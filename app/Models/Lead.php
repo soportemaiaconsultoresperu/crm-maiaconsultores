@@ -7,6 +7,7 @@ use App\Traits\HasAuditColumns;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -118,6 +119,16 @@ use Spatie\Activitylog\Traits\LogsActivity;
     public function convertedCustomers(): HasMany
     {
         return $this->hasMany(Customer::class, 'converted_from_lead_id');
+    }
+
+    /**
+     * The primary human contact for a legal prospect before conversion.
+     *
+     * @return HasOne<LeadContact, $this>
+     */
+    public function primaryContact(): HasOne
+    {
+        return $this->hasOne(LeadContact::class);
     }
 
     /**

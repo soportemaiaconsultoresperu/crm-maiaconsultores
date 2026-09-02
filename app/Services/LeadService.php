@@ -42,6 +42,9 @@ class LeadService
 public function create(array $data, User $actor): Lead
     {
         $lead = DB::transaction(function () use ($data, $actor): Lead {
+                $primaryContact = $data['primary_contact'] ?? null;
+                unset($data['primary_contact']);
+
                 $data['code'] = $this->codes->next('lead');
 
                 $data = self::applyNormalizations($data);
@@ -63,6 +66,10 @@ public function create(array $data, User $actor): Lead
             $lead->updated_by = $actor->id;
             $lead->save();
 
+            if ($lead->person_type === 'juridica' && $primaryContact !== null) {
+$this->storePrimaryContact($lead, $primaryContact, $actor);
+            }
+
             return $lead->refresh();
         });
 
@@ -83,13 +90,20 @@ public function update(Lead $lead, array $data, User $actor): Lead
         $previousStatusId = $lead->status_id;
 
         DB::transaction(function () use ($lead, $data, $actor): void {
-            unset($data['code'], $data['created_by'], $data['updated_by']);
+            $primaryContact = $data['primary_contact'] ?? null;
+            unset($data['code'], $data['created_by'], $data['updated_by'], $data['primary_contact']);
 
             $lead->fill($data);
             self::applyNormalizations($lead->getAttributes(), $lead);
-            $lead->updated_by = $actor->id;
-            $lead->save();
-        });
+                $lead->updated_by = $actor->id;
+                $lead->save();
+
+                if ($lead->person_type === 'juridica' && $primaryContact !== null) {
+                    $this->storePrimaryContact($lead, $primaryContact, $actor);
+                } elseif ($lead->person_type === 'natural') {
+                    $lead->primaryContact()->delete();
+                }
+            });
 
         $lead->refresh();
 
@@ -102,8 +116,24 @@ public function update(Lead $lead, array $data, User $actor): Lead
         return $lead;
     }
 
-    /**
-     * Reassign the responsible salesperson with a dedicated audit entry
+        /**
+         * Persist the legal prospect's single related primary contact.
+         *
+         * @param array<string, mixed> $data
+         */
+        private function storePrimaryContact(Lead $lead, array $data, User $actor): void
+        {
+            $data['email_norm'] = self::normalizeEmail($data['email'] ?? null);
+
+            $contact = $lead->primaryContact()->firstOrNew();
+            $contact->fill($data);
+            $contact->created_by ??= $actor->id;
+            $contact->updated_by = $actor->id;
+            $contact->save();
+        }
+
+        /**
+         * Reassign the responsible salesperson with a dedicated audit entry
      * (RF-LEAD-003).
      */
 public function assign(Lead $lead, User $newOwner, User $actor, ?string $note = null): Lead

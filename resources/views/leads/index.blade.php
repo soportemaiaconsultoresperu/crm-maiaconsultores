@@ -100,13 +100,29 @@
             @forelse ($leads as $lead)
                 <tr data-testid="lead-row">
                     <td><a href="{{ route('leads.show', $lead) }}" class="fw-medium">{{ $lead->code }}</a></td>
-                    <td>
-                        {{ trim(($lead->first_name.' '.$lead->last_name)) }}
-                        @if ($lead->company_name)
-                            <div class="small text-secondary">{{ $lead->company_name }}</div>
-                        @endif
-                    </td>
-                    <td class="text-nowrap">{{ $lead->doc_type ? strtoupper($lead->doc_type) : '' }} {{ $lead->doc_number }}</td>
+                        <td>
+                            @if ($lead->person_type === 'juridica')
+                                {{ $lead->legal_name ?: $lead->trade_name ?: $lead->company_name ?: 'Sin razón social' }}
+                                @if ($lead->trade_name && $lead->trade_name !== $lead->legal_name)
+                                    <div class="small text-secondary">{{ $lead->trade_name }}</div>
+                                @endif
+                                @if ($lead->primaryContact)
+                                    <div class="small text-secondary">{{ trim($lead->primaryContact->first_name.' '.$lead->primaryContact->last_name) }}</div>
+                                @endif
+                            @else
+                                {{ trim(($lead->first_name.' '.$lead->last_name)) }}
+                                @if ($lead->company_name)
+                                    <div class="small text-secondary">{{ $lead->company_name }}</div>
+                                @endif
+                            @endif
+                        </td>
+                        <td class="text-nowrap">
+                            @if ($lead->doc_number)
+                                {{ $lead->doc_type ? strtoupper($lead->doc_type) : '' }} {{ $lead->doc_number }}
+                            @else
+                                <span class="text-secondary">Sin documento</span>
+                            @endif
+                        </td>
                     <td><x-badge-status :status="$lead->status?->slug"/></td>
                     <td>{{ $lead->source?->name }}</td>
                     <td>{{ $lead->owner?->name }}</td>

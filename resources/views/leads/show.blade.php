@@ -67,22 +67,39 @@
                             <dd class="col-sm-7">{{ $lead->trade_name }}</dd>
                         @endif
 
-                        @if ($lead->position)
-                            <dt class="col-sm-5">Cargo</dt>
-                            <dd class="col-sm-7">{{ $lead->position }}</dd>
+                        @if ($lead->person_type === 'juridica' && $lead->primaryContact)
+                            <dt class="col-sm-5">Contacto principal</dt>
+                            <dd class="col-sm-7">{{ $lead->primaryContact->first_name }} {{ $lead->primaryContact->last_name }}</dd>
+
+                            @if ($lead->primaryContact->position)
+                                <dt class="col-sm-5">Cargo del contacto</dt>
+                                <dd class="col-sm-7">{{ $lead->primaryContact->position }}</dd>
+                            @endif
+
+                            <dt class="col-sm-5">Contacto</dt>
+                            <dd class="col-sm-7">
+                                {{ collect([$lead->primaryContact->phone, $lead->primaryContact->whatsapp, $lead->primaryContact->email])->filter()->join(' · ') }}
+                            </dd>
+                        @endif
+
+                        @if ($lead->person_type === 'natural')
+                            @if ($lead->position)
+                                <dt class="col-sm-5">Cargo</dt>
+                                <dd class="col-sm-7">{{ $lead->position }}</dd>
+                            @endif
+
+                            <dt class="col-sm-5">Teléfono</dt>
+                            <dd class="col-sm-7">{{ $lead->phone ?? '—' }}</dd>
+
+                            <dt class="col-sm-5">WhatsApp</dt>
+                            <dd class="col-sm-7">{{ $lead->whatsapp ?? '—' }}</dd>
+
+                            <dt class="col-sm-5">Correo electrónico</dt>
+                            <dd class="col-sm-7">{{ $lead->email ?? '—' }}</dd>
                         @endif
 
                         <dt class="col-sm-5">Documento</dt>
                         <dd class="col-sm-7">{{ $lead->doc_type ? strtoupper($lead->doc_type).' ' : '' }}{{ $lead->doc_number ?? '—' }}</dd>
-
-                        <dt class="col-sm-5">Teléfono</dt>
-                        <dd class="col-sm-7">{{ $lead->phone ?? '—' }}</dd>
-
-                        <dt class="col-sm-5">WhatsApp</dt>
-                        <dd class="col-sm-7">{{ $lead->whatsapp ?? '—' }}</dd>
-
-<dt class="col-sm-5">Correo electrónico</dt>
-                            <dd class="col-sm-7">{{ $lead->email ?? '—' }}</dd>
 
                             @if ($lead->website)
                                 <dt class="col-sm-5">Sitio web</dt>

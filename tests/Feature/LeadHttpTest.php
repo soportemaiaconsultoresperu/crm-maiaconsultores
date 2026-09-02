@@ -104,7 +104,39 @@ class LeadHttpTest extends TestCase
             ->assertSee('Nuevo prospecto');
     }
 
-    public function test_store_creates_lead_in_nuevo_status_and_redirects_to_show(): void
+    public function test_index_shows_a_legal_leads_primary_contact_without_changing_natural_leads(): void
+    {
+        $legalLead = app(LeadService::class)->create($this->validData([
+            'person_type' => 'juridica',
+            'first_name' => null,
+            'last_name' => null,
+            'legal_name' => 'Comercial Andina S.A.C.',
+            'trade_name' => 'Andina',
+            'doc_type' => 'ruc',
+            'doc_number' => '20512345678',
+            'primary_contact' => [
+                'first_name' => 'Rosa',
+                'last_name' => 'Quispe',
+            ],
+        ]), $this->salespersonOne);
+        $naturalLead = Lead::factory()->forOwner($this->salespersonOne)->create([
+            'first_name' => 'Juan',
+            'last_name' => 'Pérez',
+        ]);
+
+        $response = $this->actingAs($this->salespersonOne)->get('/leads');
+
+        $response->assertOk()
+            ->assertSee('Comercial Andina S.A.C.')
+            ->assertSee('Andina')
+            ->assertSee('Rosa Quispe')
+            ->assertSee($naturalLead->first_name.' '.$naturalLead->last_name);
+        $this->assertTrue(
+            $response->viewData('leads')->getCollection()->firstWhere('id', $legalLead->id)->relationLoaded('primaryContact'),
+        );
+    }
+
+    public function test_store_creates_a_natural_lead_without_primary_contact_and_redirects_to_show(): void
     {
         $response = $this->actingAs($this->salespersonOne)
             ->post('/leads', $this->validData());
@@ -119,7 +151,7 @@ class LeadHttpTest extends TestCase
         $this->assertSame($this->salespersonOne->id, $lead->owner_id);
     }
 
-    public function test_store_with_duplicate_doc_bounces_without_confirmation_and_creates_with_it(): void
+    public function test_natural_duplicate_flow_works_without_primary_contact(): void
     {
         $existing = app(LeadService::class)->create(
             $this->validData(['owner_id' => $this->salespersonTwo->id]),
@@ -166,7 +198,7 @@ class LeadHttpTest extends TestCase
         ]);
     }
 
-    public function test_update_ignores_the_lead_being_edited_in_duplicate_check(): void
+    public function test_natural_update_without_primary_contact_ignores_the_lead_being_edited_in_duplicate_check(): void
     {
         $lead = app(LeadService::class)->create($this->validData(), $this->salespersonOne);
 
@@ -178,6 +210,161 @@ class LeadHttpTest extends TestCase
         $response->assertSessionHas('status');
 
         $this->assertSame('Juan Editado', $lead->refresh()->first_name);
+    }
+
+    public function test_legal_prospect_can_be_created_without_a_ruc(): void
+    {
+        $payload = $this->validData([
+            'person_type' => 'juridica',
+            'first_name' => '',
+            'last_name' => '',
+            'legal_name' => 'Comercial Andina S.A.C.',
+            'trade_name' => 'Andina',
+            'doc_type' => null,
+            'doc_number' => null,
+            'phone' => null,
+            'email' => null,
+            'primary_contact' => [
+                'first_name' => 'Rosa',
+                'last_name' => 'Quispe',
+                'position' => 'Gerente de Compras',
+                'email' => 'rosa@andina.example.com',
+            ],
+        ]);
+
+        $response = $this->actingAs($this->salespersonOne)->post('/leads', $payload);
+
+        $lead = Lead::query()->where('legal_name', 'Comercial Andina S.A.C.')->firstOrFail();
+        $response->assertRedirect(route('leads.show', $lead));
+        $this->assertNull($lead->doc_type);
+        $this->assertNull($lead->doc_number);
+        $this->assertDatabaseHas('lead_contacts', [
+            'lead_id' => $lead->id,
+            'first_name' => 'Rosa',
+            'last_name' => 'Quispe',
+            'email_norm' => 'rosa@andina.example.com',
+        ]);
+
+        $this->actingAs($this->salespersonOne)
+            ->from('/leads/create')
+            ->post('/leads', $this->validData([
+                'person_type' => 'juridica',
+                'first_name' => '',
+                    'legal_name' => 'Comercial Andina S.A.C.',
+                    'doc_type' => 'ruc',
+                    'doc_number' => '123',
+                    'primary_contact' => [
+                        'first_name' => 'Rosa',
+                        'last_name' => 'Quispe',
+                        'email' => 'rosa@andina.example.com',
+                    ],
+            ]))
+            ->assertSessionHasErrors(['doc_number']);
+    }
+
+    public function test_legal_prospect_requires_a_primary_contact_channel(): void
+    {
+        $this->actingAs($this->salespersonOne)
+            ->from('/leads/create')
+            ->post('/leads', $this->validData([
+                'person_type' => 'juridica',
+                'first_name' => null,
+                'last_name' => null,
+                'legal_name' => 'Comercial Andina S.A.C.',
+                'primary_contact' => [
+                    'first_name' => 'Rosa',
+                    'last_name' => 'Quispe',
+                ],
+            ]))
+            ->assertSessionHasErrors([
+                'primary_contact.phone',
+                'primary_contact.whatsapp',
+                'primary_contact.email',
+            ]);
+    }
+
+    public function test_legal_prospect_update_can_clear_its_ruc_and_updates_its_contact(): void
+    {
+        $lead = app(LeadService::class)->create($this->validData([
+            'person_type' => 'juridica',
+            'first_name' => null,
+            'last_name' => null,
+            'legal_name' => 'Comercial Andina S.A.C.',
+            'doc_type' => 'ruc',
+            'doc_number' => '20512345678',
+            'primary_contact' => [
+                'first_name' => 'Rosa',
+                'last_name' => 'Quispe',
+                'phone' => '987654321',
+            ],
+        ]), $this->salespersonOne);
+
+        $response = $this->actingAs($this->salespersonOne)
+            ->put("/leads/{$lead->id}", $this->validData([
+                'person_type' => 'juridica',
+                'first_name' => '',
+                'last_name' => '',
+                'legal_name' => 'Comercial Andina Actualizada S.A.C.',
+                'doc_type' => null,
+                'doc_number' => null,
+                'phone' => null,
+                'email' => null,
+                'primary_contact' => [
+                    'first_name' => 'Rosa',
+                    'last_name' => 'Quispe',
+                    'whatsapp' => '999888777',
+                ],
+            ]));
+
+        $response->assertRedirect(route('leads.show', $lead));
+        $this->assertSame('Comercial Andina Actualizada S.A.C.', $lead->refresh()->legal_name);
+        $this->assertNull($lead->doc_type);
+        $this->assertNull($lead->doc_number);
+        $this->assertSame('999888777', $lead->primaryContact->whatsapp);
+    }
+
+    public function test_changing_a_legal_prospect_to_natural_deletes_its_primary_contact(): void
+    {
+        $lead = app(LeadService::class)->create($this->validData([
+            'person_type' => 'juridica',
+            'first_name' => null,
+            'last_name' => null,
+            'legal_name' => 'Comercial Andina S.A.C.',
+            'doc_type' => 'ruc',
+            'doc_number' => '20512345678',
+            'primary_contact' => [
+                'first_name' => 'Rosa',
+                'last_name' => 'Quispe',
+                'phone' => '987654321',
+            ],
+        ]), $this->salespersonOne);
+
+        $this->assertNotNull($lead->primaryContact);
+
+        $this->actingAs($this->salespersonOne)
+            ->put("/leads/{$lead->id}", $this->validData([
+                'person_type' => 'natural',
+                'first_name' => 'Rosa',
+                'last_name' => 'Quispe',
+                'legal_name' => null,
+                'doc_type' => 'dni',
+                'doc_number' => '12345678',
+            ]))
+            ->assertRedirect(route('leads.show', $lead));
+
+        $this->assertNull($lead->refresh()->primaryContact);
+        $this->assertDatabaseMissing('lead_contacts', ['lead_id' => $lead->id]);
+    }
+
+    public function test_legal_contact_inputs_are_disabled_when_the_person_type_is_natural(): void
+    {
+        $this->actingAs($this->salespersonOne)
+            ->get('/leads/create')
+            ->assertOk()
+            ->assertSee('field.querySelectorAll(\'input, select, textarea\').forEach(function (input)', false)
+            ->assertSee('input.disabled = true;', false)
+            ->assertSee("input.removeAttribute('required');", false)
+            ->assertSee("input.setAttribute('required', '');", false);
     }
 
     public function test_import_ui_requires_leads_import_permission(): void
