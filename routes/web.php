@@ -12,6 +12,7 @@ use App\Http\Controllers\CourseTalks\CourseActivityController;
 use App\Http\Controllers\CourseTalks\CourseActivityReadController;
 use App\Http\Controllers\CourseTalks\CourseAttendanceController;
 use App\Http\Controllers\CourseTalks\CourseCommercialDocumentController;
+use App\Http\Controllers\CourseTalks\CourseCommercialDocumentDeliveryController;
 use App\Http\Controllers\CourseTalks\CourseEditionController;
 use App\Http\Controllers\CourseTalks\CourseEnrollmentController;
 use App\Http\Controllers\CourseTalks\CourseGradeController;
@@ -147,6 +148,18 @@ Route::middleware(['auth', 'active'])
             Route::post('enrollment-groups/{group}/commercial-documents', 'storeGroup')
                 ->name('commercial-documents.groups.store');
             Route::post('commercial-documents/{commercialDocument}/file', 'upload')->name('commercial-documents.file');
+        });
+
+        // Slice 6.f-2b — delivery actions of a commercial document (email through
+        // the queued path, assisted WhatsApp handoff and manual confirmation).
+        // Each action posts to its own document-scoped endpoint so every payload
+        // keeps its own FormRequest, and all three are registered before the
+        // read-only group's `editions/{edition}` binding so none of them can be
+        // shadowed by it.
+        Route::controller(CourseCommercialDocumentDeliveryController::class)->group(function (): void {
+            Route::post('commercial-documents/{commercialDocument}/email', 'email')->name('commercial-documents.email');
+            Route::post('commercial-documents/{commercialDocument}/whatsapp', 'whatsapp')->name('commercial-documents.whatsapp');
+            Route::post('commercial-documents/{commercialDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('commercial-documents.whatsapp.confirm');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {

@@ -10,6 +10,7 @@ use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Courses\CourseEdition;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\Courses\CourseEnrollmentGroup;
+use App\Models\Notification\OutboundDelivery;
 use App\Services\Courses\CourseCommercialDocumentService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -21,7 +22,8 @@ use InvalidArgumentException;
  * Authenticated commercial documents of one edition: the list of the edition's
  * registered facturas/boletas/recibos, their private attachment upload, and the
  * per-enrollment registration form with the IGV breakdown shown before the user
- * commits.
+ * commits, plus the read-only delivery history and recipient data the delivery
+ * actions of CourseCommercialDocumentDeliveryController render from.
  *
  * Thin by design: CourseEditionPolicy::view authorizes the list,
  * `course-talks.commercial-documents.manage` authorizes registration and upload
@@ -39,8 +41,10 @@ use InvalidArgumentException;
  * refuses (no billable enrollments, zero aggregated subtotal) shows the
  * service's reason instead of a control that cannot succeed.
  *
- * Commercial delivery actions (email, WhatsApp handoff, confirmation) belong to
- * unit 6.f-2 and are not part of this surface.
+ * Commercial delivery actions (email, WhatsApp handoff, confirmation) are
+ * implemented by CourseCommercialDocumentDeliveryController (unit 6.f-2b). This
+ * surface supplies the listing data they need — the append-only delivery history
+ * per comprobante and the payer data the controls are prefilled from.
  */
 class CourseCommercialDocumentController extends Controller
 {
@@ -67,7 +71,10 @@ class CourseCommercialDocumentController extends Controller
                 $query->whereHas('enrollment', fn ($enrollment) => $enrollment->where('course_edition_id', $edition->id))
                     ->orWhereHas('group', fn ($group) => $group->where('course_edition_id', $edition->id));
             })
-            ->with(['document', 'group', 'enrollment.participant'])
+            // `group.payerCustomer` is eager loaded because the delivery actions
+            // offered below are prefilled from the group's own payer; the
+            // enrollment path already carries its participant.
+            ->with(['document', 'group.payerCustomer', 'enrollment.participant'])
             ->orderBy('id')
             ->get();
 
@@ -91,6 +98,15 @@ class CourseCommercialDocumentController extends Controller
             'groupBreakdowns' => $groupBreakdowns,
             'groupBreakdownFailures' => $groupBreakdownFailures,
             'currency' => (string) config('courses.default_currency'),
+            // Delivery history is read once for the whole edition. The append-only
+            // ledger is the only source of delivery truth and this surface never
+            // writes it: the domain service records every attempt.
+            'deliveries' => OutboundDelivery::query()
+                ->where('related_entity_type', CourseCommercialDocument::class)
+                ->whereIn('related_entity_id', $commercialDocuments->pluck('id'))
+                ->orderByDesc('id')
+                ->get()
+                ->groupBy('related_entity_id'),
         ]);
     }
 
