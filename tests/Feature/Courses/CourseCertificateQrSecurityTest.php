@@ -16,6 +16,7 @@ use App\Services\Courses\CertificateQrTokenService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use InvalidArgumentException;
@@ -176,6 +177,250 @@ class CourseCertificateQrSecurityTest extends TestCase
         $this->assertNotNull($revoked->fresh()->qr_token_revoked_at);
         $this->assertSame(AcademicDocumentStatus::Replaced, $replaced->fresh()->status);
         $this->assertSame($current->id, $service->findCurrentByToken($currentToken)?->id);
+    }
+
+    /**
+     * A document that has already been annulled keeps the record of that
+     * annulment. A second annulment must not overwrite the reason, the actor or
+     * the timestamp: all three are the audit trace of the first one, and losing
+     * them loses the fact that two annulments ever happened.
+     */
+    public function test_a_second_annulment_is_rejected_and_the_first_annulment_survives(): void
+    {
+        Storage::fake('docs');
+        $academic = $this->currentAcademicDocument('%PDF current certificate');
+        $firstActor = $this->revoker();
+        $secondActor = $this->revoker();
+        $service = app(CertificateQrTokenService::class);
+
+        $service->revoke($academic, $firstActor, 'Primera anulación registrada');
+        $firstAnnulledAt = $academic->fresh()->annulled_at?->toDateTimeString();
+
+        $this->travel(5)->minutes();
+
+        try {
+            $service->revoke($academic->fresh(), $secondActor, 'Segunda anulación');
+            $this->fail('An annulled document must not be annulled a second time.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertNotSame('', $exception->getMessage());
+        } finally {
+            $this->travelBack();
+        }
+
+        $academic = $academic->fresh();
+        $this->assertSame(AcademicDocumentStatus::Annulled, $academic->status);
+        $this->assertSame('Primera anulación registrada', $academic->annul_reason);
+        $this->assertSame($firstActor->id, $academic->annulled_by);
+        $this->assertSame($firstAnnulledAt, $academic->annulled_at?->toDateTimeString());
+    }
+
+    /**
+     * A replaced document carries the trace of the document that succeeded it.
+     * Flipping it to annulled would contradict that trace: the row would claim
+     * to be annulled while `replaced_by_id` still points at the successor.
+     */
+    public function test_annulling_a_replaced_document_is_rejected_and_preserves_the_replacement_trace(): void
+    {
+        Storage::fake('docs');
+        $academic = $this->currentAcademicDocument('%PDF replaced certificate');
+        $successor = $this->currentAcademicDocument('%PDF successor certificate');
+        $preReplacement = now()->subDay();
+        $this->markReplacedBy($academic, $successor, 'Regenerado por corrección de nota', $preReplacement);
+
+        try {
+            app(CertificateQrTokenService::class)->revoke(
+                $academic->fresh(),
+                $this->revoker(),
+                'Anulación posterior al reemplazo',
+            );
+            $this->fail('A replaced document must not be annulled.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertNotSame('', $exception->getMessage());
+        }
+
+        $academic = $academic->fresh();
+        $this->assertSame(AcademicDocumentStatus::Replaced, $academic->status);
+        $this->assertSame('Regenerado por corrección de nota', $academic->annul_reason);
+        $this->assertSame($successor->id, $academic->replaced_by_id);
+        $this->assertSame($successor->id, $academic->replacement?->id);
+        $this->assertNull($academic->annulled_by);
+        $this->assertSame($preReplacement->toDateTimeString(), $academic->annulled_at?->toDateTimeString());
+        $this->assertSame(AcademicDocumentStatus::Current, $successor->fresh()->status);
+    }
+
+    /**
+     * `Current` is the only status an annulment may start from. Every other
+     * status is rejected before any write, so the row is left completely
+     * untouched.
+     */
+    public function test_annulment_is_rejected_for_every_persisted_status_other_than_current(): void
+    {
+        Storage::fake('docs');
+
+        foreach ([AcademicDocumentStatus::PendingGeneration, AcademicDocumentStatus::Failed, AcademicDocumentStatus::Annulled, AcademicDocumentStatus::Replaced] as $status) {
+            $academic = $this->currentAcademicDocument('%PDF current certificate');
+            $academic->forceFill(['status' => $status, 'annul_reason' => 'Motivo original'])->save();
+
+            try {
+                app(CertificateQrTokenService::class)->revoke($academic->fresh(), $this->revoker(), 'Anulación no permitida');
+                $this->fail("A {$status->value} document must not be annulled.");
+            } catch (InvalidArgumentException $exception) {
+                $this->assertNotSame('', $exception->getMessage());
+            }
+
+            $academic = $academic->fresh();
+            $this->assertSame($status, $academic->status);
+            $this->assertSame('Motivo original', $academic->annul_reason);
+            $this->assertNull($academic->annulled_by);
+            $this->assertNull($academic->qr_token_revoked_at);
+        }
+    }
+
+    /**
+     * The caller may hold a snapshot read while the document was still vigente.
+     * The persisted status is the only one that may decide the write, otherwise
+     * a concurrent replacement or annulment is overwritten by a stale instance.
+     */
+    public function test_annulment_refuses_a_stale_instance_whose_persisted_status_is_no_longer_current(): void
+    {
+        Storage::fake('docs');
+        $academic = $this->currentAcademicDocument('%PDF current certificate');
+        $successor = $this->currentAcademicDocument('%PDF successor certificate');
+
+        $stale = CourseAcademicDocument::query()->findOrFail($academic->id);
+        $this->assertSame(AcademicDocumentStatus::Current, $stale->status);
+
+        $this->markReplacedBy($academic, $successor, 'Reemplazo concurrente');
+
+        try {
+            app(CertificateQrTokenService::class)->revoke($stale, $this->revoker(), 'Anulación tardía');
+            $this->fail('The persisted status, not the caller snapshot, decides whether a document may be annulled.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertNotSame('', $exception->getMessage());
+        }
+
+        $academic = $academic->fresh();
+        $this->assertSame(AcademicDocumentStatus::Replaced, $academic->status);
+        $this->assertSame('Reemplazo concurrente', $academic->annul_reason);
+        $this->assertSame($successor->id, $academic->replaced_by_id);
+        $this->assertNull($academic->annulled_by);
+    }
+
+    /**
+     * The HTTP boundary guard checks the status the request bound, so a document
+     * that stopped being vigente between that check and the write reaches the
+     * service guard instead. That rejection must still render a visible Spanish
+     * error, never an HTTP 500 and never a write.
+     */
+    public function test_an_annulment_rejected_by_the_service_in_a_race_renders_a_visible_spanish_error(): void
+    {
+        Storage::fake('docs');
+        $academic = $this->currentAcademicDocument('%PDF current certificate');
+        $successor = $this->currentAcademicDocument('%PDF successor certificate');
+        $actor = $this->revoker();
+        $actor->givePermissionTo(Permission::findOrCreate('course-talks.view'));
+
+        // Race simulation: this request already bound the document while it was
+        // still vigente, and a concurrent request replaced it afterwards. The
+        // instance the surface validated is stale, which is exactly the case the
+        // boundary guard cannot see.
+        $stale = CourseAcademicDocument::query()->findOrFail($academic->id);
+        $this->markReplacedBy($academic, $successor, 'Reemplazo concurrente');
+        // The premise of the race: the instance this request holds still says
+        // `Current` while the row it was read from no longer does.
+        $this->assertSame(AcademicDocumentStatus::Current, $stale->status);
+        $this->assertSame(AcademicDocumentStatus::Replaced, $academic->fresh()->status);
+        Route::bind('academicDocument', fn () => $stale);
+
+        $response = $this->actingAs($actor)->post(
+            route('course-talks.documents.annul', $academic->id),
+            ['reason' => 'Anulación tardía'],
+        );
+
+        $response->assertRedirect(route('course-talks.documents.index', $academic->enrollment->edition));
+        $response->assertSessionHasErrors('documents');
+
+        $this->actingAs($actor)
+            ->followingRedirects()
+            ->post(route('course-talks.documents.annul', $academic->id), ['reason' => 'Anulación tardía'])
+            ->assertOk()
+            ->assertSee('Solo un documento vigente puede anularse.');
+
+        $academic = $academic->fresh();
+        $this->assertSame(AcademicDocumentStatus::Replaced, $academic->status);
+        $this->assertSame('Reemplazo concurrente', $academic->annul_reason);
+        $this->assertSame($successor->id, $academic->replaced_by_id);
+        $this->assertNull($academic->annulled_by);
+    }
+
+    /**
+     * The guard must not disturb the ordering the service already had: empty
+     * reason first, then authorization, and only then the status guard. An
+     * unauthorized actor therefore never learns the persisted status of a
+     * document they may not annul, and an empty reason keeps its own message.
+     */
+    public function test_revocation_keeps_the_reason_then_authorization_then_status_ordering(): void
+    {
+        Storage::fake('docs');
+        $service = app(CertificateQrTokenService::class);
+        $nonCurrent = $this->currentAcademicDocument('%PDF current certificate');
+        $nonCurrent->forceFill(['status' => AcademicDocumentStatus::Annulled, 'annul_reason' => 'Motivo original'])->save();
+        $nonCurrent = $nonCurrent->fresh();
+
+        try {
+            $service->revoke($nonCurrent, User::factory()->create(), '   ');
+            $this->fail('An empty reason must still be rejected first.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertSame('A revocation reason is required.', $exception->getMessage());
+        }
+
+        try {
+            $service->revoke($nonCurrent, User::factory()->create(), 'Corrección requerida');
+            $this->fail('An unauthorized actor must still be denied before the status guard runs.');
+        } catch (AuthorizationException $exception) {
+            $this->assertNotSame('', $exception->getMessage());
+        }
+
+        try {
+            $service->revoke($nonCurrent, $this->revoker(), 'Corrección solicitada');
+            $this->fail('A non-current document must not be annulled.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertSame('Only a current academic document may be annulled.', $exception->getMessage());
+        }
+
+        $nonCurrent = $nonCurrent->fresh();
+        $this->assertSame(AcademicDocumentStatus::Annulled, $nonCurrent->status);
+        $this->assertSame('Motivo original', $nonCurrent->annul_reason);
+        $this->assertNull($nonCurrent->annulled_by);
+    }
+
+    /**
+     * The stored state a replacement leaves behind: the previous document keeps
+     * `Replaced`, the reason of the replacement and the pointer to its successor.
+     * Mirrors what CourseDocumentGenerationService::regenerate() persists.
+     */
+    private function markReplacedBy(
+        CourseAcademicDocument $document,
+        CourseAcademicDocument $successor,
+        string $reason,
+        ?\DateTimeInterface $at = null,
+    ): void {
+        $document->forceFill([
+            'status' => AcademicDocumentStatus::Replaced,
+            'qr_token_revoked_at' => $at,
+            'annulled_at' => $at,
+            'annulled_by' => null,
+            'annul_reason' => $reason,
+            'replaced_by_id' => $successor->id,
+        ])->save();
+    }
+
+    private function revoker(): User
+    {
+        $actor = User::factory()->create(['is_active' => true]);
+        $actor->givePermissionTo(Permission::findOrCreate('course-talks.documents.revoke'));
+
+        return $actor;
     }
 
     private function currentAcademicDocument(string $contents): CourseAcademicDocument

@@ -117,19 +117,21 @@ class CourseAcademicDocumentController extends Controller
         $edition = $this->editionOf($academicDocument);
 
         if ($academicDocument->status !== AcademicDocumentStatus::Current) {
-            // Boundary guard. CertificateQrTokenService::revoke() itself has no
-            // guard against revoking a document that is no longer vigente, so
-            // annulling twice would overwrite the original reason, actor and
-            // timestamp (and would flip a replaced document back to annulled,
-            // breaking the replacement trace). The surface refuses instead of
-            // delegating; the missing domain guard is reported to the parent.
+            // Boundary guard, defence in depth: the service owns the rule below,
+            // but the surface refuses here so the user gets the message without
+            // an attempted write. CertificateQrTokenService::revoke() re-reads the
+            // persisted status under a lock and refuses anything that is not
+            // current, which is the only guard able to see a document that
+            // stopped being vigente after this check.
             return $this->backToIndex($edition)->withErrors(['documents' => self::ONLY_CURRENT_CAN_BE_ANNULLED]);
         }
 
         try {
             $this->qrTokens->revoke($academicDocument, $request->user(), (string) $request->validated('reason'));
         } catch (InvalidArgumentException) {
-            return $this->backToIndex($edition)->withInput()->withErrors(['documents' => self::ANNULMENT_REJECTION]);
+            return $this->backToIndex($edition)->withInput()->withErrors([
+                'documents' => $this->annulmentRejection($academicDocument),
+            ]);
         }
 
         return $this->backToIndex($edition)
@@ -141,6 +143,21 @@ class CourseAcademicDocumentController extends Controller
         $document->loadMissing('enrollment.edition');
 
         return $document->enrollment->edition;
+    }
+
+    /**
+     * Spanish wording for an annulment the domain refused. The boundary guard
+     * above normally reports the not-current case before the service is called,
+     * but a document can stop being vigente between that check and the write.
+     * The service refuses without writing — its own message is developer-facing
+     * English — so the persisted status is re-read here to pick the sentence the
+     * user needs, instead of blaming the reason for a rejection it did not cause.
+     */
+    private function annulmentRejection(CourseAcademicDocument $document): string
+    {
+        return $document->fresh()?->status === AcademicDocumentStatus::Current
+            ? self::ANNULMENT_REJECTION
+            : self::ONLY_CURRENT_CAN_BE_ANNULLED;
     }
 
     private function backToIndex(CourseEdition $edition): RedirectResponse

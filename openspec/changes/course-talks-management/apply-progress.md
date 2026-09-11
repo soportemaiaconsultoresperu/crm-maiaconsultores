@@ -2105,3 +2105,92 @@ All runs used `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test
 ### Next step
 
 - Unit 6.e-2 (delivery actions: email, WhatsApp handoff, confirm sent) and 6.f (commercial documents + template settings) remain. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
+
+## Slice 6 corrective — certificate QR revoke status guard moved into the domain
+
+- Authorized work unit: `certificate-qr-revoke-status-guard`; corrective unit, stacked-to-main. No commit, no branch/worktree, no rebase, no migration execution, no attempt acquire/settle, no bounded-review/refutation/correction/validation actor, no receipt, and no delivery gate. The parent retains attempt authority. Native status confirms an attempt token is already active for this change (`sha256:d072d16e49278f7bfd0a2bdd2644dcf3400a22862f5d65e1b7cdfc4ffa82ba77`); it was not acquired or settled here.
+- Structured status consumed (native, authoritative): `gentle-ai sdd-status course-talks-management --cwd . --json` returned `schemaName=gentle-ai.sdd-status`, `changeName=course-talks-management`, `artifactStore=openspec`, `planningHome.mode=repo-local`, `applyState=ready`, `nextRecommended=apply`, `blockedReasons=[]`, `dependencies.apply=ready`, `actionContext.mode=repo-local`, `workspaceRoot=C:\laragon\www\crm-maia-consultores`, `allowedEditRoots=[C:\laragon\www\crm-maia-consultores]`. Every edited path is inside that root, so no unsafe `actionContext` was present. Warning (unchanged): `openspec/config.yaml` documents the unrelated `b12-ui` change and its bare `php artisan test` command; the absolute PHP executable was used instead because `php` is not on PATH.
+- Review Workload Gate: `tasks.md` forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent resolved the delivery path for this corrective unit as a bounded stacked-to-main slice, so no `Decision needed` blocker remained.
+- Workload / PR boundary: only the domain status guard in `CertificateQrTokenService::revoke()`, the controller's rejection-to-Spanish mapping for that guard, the corrective test cases, and these two artifacts. No other service, model, policy, enum, migration, route, view, permission seeder, or remaining Slice 6 unit (6.e-2 delivery, 6.f commercial documents) was touched.
+
+### Defect corrected
+
+Two verified damage paths existed because `revoke()` wrote `status = Annulled` with `forceFill` and no current-status guard:
+
+1. A `Replaced` document could be flipped to `Annulled`, overwriting `annul_reason`/`annulled_by`/`annulled_at` while `replaced_by_id` still pointed at its successor, so the status and the replacement trace contradicted each other and the spec requirement to preserve prior documents for audit was violated.
+2. A second annulment silently overwrote the first annulment's reason, actor and timestamp, losing the record that two annulments occurred.
+
+Unit 6.e-1 worked around this in the HTTP boundary. The rule now lives in the domain and the boundary check is kept as defence in depth.
+
+### Behavior delivered
+
+- `CertificateQrTokenService::revoke()` now opens a transaction, re-reads the document under `lockForUpdate()` and refuses anything whose **persisted** status is not `Current` with `InvalidArgumentException('Only a current academic document may be annulled.')` **before any write**. The row is left completely untouched, so a prior annulment's reason/actor/timestamp survive and a `Replaced` document keeps its status and its `replaced_by_id` trace.
+- The guard reads the persisted row rather than the attribute on the passed instance. A caller can hold a snapshot read while the document was still current, and only the stored status may authorise the write. This mirrors the pattern `CourseDocumentGenerationService::regenerate()` already uses (`lockForUpdate()` plus a status check inside the transaction), so there is one idiom for this rule in the domain.
+- Persisting the locked, freshly read instance instead of the caller's instance also stops a concurrent change from being clobbered by stale attributes.
+- `CourseAcademicDocumentController::annul()` keeps its boundary check and now maps a service rejection back to the Spanish sentence the user needs by re-reading the persisted status (`annulmentRejection()`), instead of showing the mandatory-reason wording for a rejection the reason did not cause. A service rejection therefore still renders a visible Spanish error and never an HTTP 500.
+- Ordering decision (deliberate): empty-reason check first (unchanged), then `Gate::forUser($actor)->authorize('revoke', $document)` (unchanged), **then** the status guard inside the transaction. Authorization must not be reordered: an unauthorized actor keeps receiving `AuthorizationException` and never learns the persisted status of a document they may not annul, and the guard sits immediately before the write it protects, inside the same transaction that holds the lock. Locked by a dedicated ordering test and mutation-verified (see below).
+- Public signature unchanged: `revoke(CourseAcademicDocument $document, User $actor, string $reason): void`.
+
+### Task persistence
+
+- **No OpenSpec unit row was changed**, per the corrective-unit instruction. The persisted `tasks.md` was re-read after this unit: `6.e-1` is still visibly `- [x]` with byte-identical text, the aggregate `6.e` row is still visibly `- [ ]`, and a clearly labelled correction note was added on its own line next to `6.e-1`. Native `sdd-status` confirms the aggregate is unchanged (`taskProgress: total 79 / completed 50 / pending 29`, identical to before the edit). A scan of every `sdd-owner` line shows only terminal `<!-- sdd-owner: implementation -->` / `<!-- sdd-owner: parent -->` markers; no malformed, duplicate or non-terminal marker exists, and no parent-owned row was altered.
+
+### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE / REFACTOR |
+|---|---|---|---|---|---|---|
+| Current-status guard in `CertificateQrTokenService::revoke()` | `tests/Feature/Courses/CourseCertificateQrSecurityTest.php` | Feature / service + HTTP | 9 tests / 125 assertions passing | Added 5 tests; RED run failed as expected with 5 failures: double annulment, replaced-document annulment, every non-current status, stale instance, and the HTTP race path (`Session is missing expected key [errors]` — i.e. the annulment **succeeded** and overwrote the `Replaced` row). 9 pre-existing tests stayed green. | After the guard: 14 tests / 174 assertions passed | Triangulated with all four non-current statuses, a stale in-memory instance, the HTTP race path, and a reason→gate→status ordering test; refactor extracted `revoker()` and `markReplacedBy()` helpers. Final 15 tests / 182 assertions passed |
+| Controller mapping of a service rejection to the correct Spanish sentence | same | Feature / HTTP | same | Covered by the same RED run (the race test's failure mode is exactly this path) | same | Same suite; the ordering test plus the race test pin both the boundary guard and the service guard |
+| Spanish/ordering preservation | same | Feature / service | same | The ordering test passes only with gate-before-status; mutation-verified below | — | Mutation run: moving the status check before the gate failed exactly `test_revocation_keeps_the_reason_then_authorization_then_status_ordering` and nothing else, then reverted |
+
+**Test summary**
+
+- Total tests written: 6 new tests in `CourseCertificateQrSecurityTest` (suite grew 9 to 15); total passing: **15 tests / 182 assertions**.
+- Layers: Feature/service+HTTP 15. Unit 0.
+- Mutation evidence for triangulation value: with the guard temporarily placed before the gate, the focused run reported `15 tests, 14 passed, 1 error` on `test_revocation_keeps_the_reason_then_authorization_then_status_ordering` with the injected message; the mutation was reverted and the suite returned to `15 tests / 182 assertions passed`. This proves the ordering test is load-bearing rather than decorative.
+- RED/false-positive control for the HTTP race test: that test failed in RED with "Session is missing expected key [errors]". Had the `Route::bind` stale-snapshot override not taken effect, the controller's boundary guard would have refused the request, the errors key would have been present, and the test would have **passed** in RED. Its failure therefore proves the request reached the service, not the boundary guard.
+- Assertions are behavioral: ORM value assertions on the surviving annulment/replacement columns, exception type and message assertions, HTTP redirect-or-error assertions, and rendered-HTML assertions.
+
+### Commands and results (exact)
+
+- Safety net (pre-edit): `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=CourseCertificateQrSecurityTest` gives `{"tool":"phpunit","result":"passed","tests":9,"passed":9,"assertions":125}`.
+- RED: same command gives `{"tool":"phpunit","result":"failed","tests":14,"passed":9,"assertions":133,"failed":5}` — `test_a_second_annulment_is_rejected_and_the_first_annulment_survives` (`An annulled document must not be annulled a second time.`), `test_annulling_a_replaced_document_is_rejected_and_preserves_the_replacement_trace` (`A replaced document must not be annulled.`), `test_annulment_is_rejected_for_every_persisted_status_other_than_current` (`A pending_generation document must not be annulled.`), `test_annulment_refuses_a_stale_instance_whose_persisted_status_is_no_longer_current` (`The persisted status, not the caller snapshot, decides whether a document may be annulled.`), `test_an_annulment_rejected_by_the_service_in_a_race_renders_a_visible_spanish_error` (`Session is missing expected key [errors].`). No PHP fatal; every failure is a real behavioural assertion failure.
+- GREEN: same command gives `{"tool":"phpunit","result":"passed","tests":14,"passed":14,"assertions":174}`.
+- TRIANGULATE / REFACTOR (ordering test plus the `revoker()`/`markReplacedBy()` helpers): same command gives `{"tool":"phpunit","result":"passed","tests":15,"passed":15,"assertions":180}`; after adding the race test's premise assertions, `{"tool":"phpunit","result":"passed","tests":15,"passed":15,"assertions":182,"duration_ms":2028}`.
+- Ordered verification requested by the parent:
+  1. `--filter=CourseCertificateQrSecurityTest` gives `{"result":"passed","tests":15,"passed":15,"assertions":182}`.
+  2. `--filter=CourseAcademicDocumentHttpTest` (the 6.e-1 suite) gives `{"result":"passed","tests":16,"passed":16,"assertions":149}` — identical to the recorded baseline, no assertion weakened.
+  3. `--filter=CourseAcademicDocumentGenerationTest` gives `{"result":"passed","tests":11,"passed":11,"assertions":57}`.
+  4. `--filter=Course` final regression gives `{"result":"passed","tests":261,"passed":261,"assertions":1747,"duration_ms":19551}` (baseline 255/1,690, so +6 tests and +57 assertions, exactly the six new cases).
+- Additional safety net: full `artisan test` gives `{"result":"failed","tests":1061,"passed":1032,"assertions":4790,"failed":17,"errors":12}`. Every failure and error is pre-existing and in an untouched suite (`AdminHttpTest`, `Admin\Automations\*`, `Admin\SettingsServiceTest`, `Email\GmailProviderTest`, `GoogleCalendarWebhookTest`, `RolesAndPermissionsTest`, `SeedersTest`, `Campaign*`). No failing test name, file, or suite references any path changed here.
+- Mutation check: `--filter=CourseCertificateQrSecurityTest` with the guard temporarily before the gate gives `{"result":"failed","tests":15,"passed":14,"errors":1}` on the ordering test only; reverted, and `git diff --numstat` returned to `26 7`.
+- Hygiene: `php.exe -l` reported no syntax errors for the service, controller and test file; `git diff --cached --name-only` was empty, so nothing was staged and no commit was made. No migration, reset, seed or external database operation ran; the only database touched is the in-memory SQLite test database.
+
+### Files changed
+
+- `app/Services/Courses/CertificateQrTokenService.php` — `git diff --numstat` `26 added / 7 removed` (1 `use` line plus the guarded `revoke()` body).
+- `app/Http/Controllers/CourseTalks/CourseAcademicDocumentController.php` — `24 added / 7 removed` (the rejection-mapping helper plus the updated `annul()` catch and boundary-guard comment).
+- `tests/Feature/Courses/CourseCertificateQrSecurityTest.php` — `245 added / 0 removed` (**purely additive**).
+- `openspec/changes/course-talks-management/tasks.md` — `2 added / 0 removed` (blank line plus the labelled correction note; the `6.e-1` row itself is byte-identical).
+- `openspec/changes/course-talks-management/apply-progress.md` (this entry).
+
+### Deviations and decisions
+
+1. **The guard reads the persisted status under a lock instead of the passed instance.** Justified: the passed instance can be a stale snapshot, and the parent's own brief requires that a service rejection reaching the controller in a race be handled. Checking only the in-memory attribute would make the guard cosmetic for exactly that race, because the controller and the service would inspect the same instance and always agree. It also matches the existing `CourseDocumentGenerationService::regenerate()` idiom. This is the only place where the implementation goes beyond a literal one-line status check.
+2. **The controller was changed even though the strict minimum (no HTTP 500) was already satisfied.** The pre-existing `catch (InvalidArgumentException)` already prevented a 500, but it displayed the mandatory-reason sentence for a rejection the reason did not cause. The catch now re-reads the persisted status to choose the correct Spanish sentence. Flagged as a deliberate scope decision inside an allowed surface, backed by a test.
+3. **Behaviour change, untested (reported, not hidden):** because the guard uses `findOrFail()`, a document soft-deleted between the controller's check and the write now yields a 404 instead of the previous silent no-op "success" (a `save()` on a missing row affected zero rows). No test covers this path; it is a strictly safer outcome but it is a change.
+4. **Exception family kept as `InvalidArgumentException`** with an English message (`Only a current academic document may be annulled.`), matching the service's existing style and the same-exception-family instruction. No new exception class was introduced, and a new class file would have been outside the allowed edit surfaces.
+5. **`tasks.md` note placement.** The correction note was added on its own line rather than appended to the `6.e-1` row, because a trailing marker would make that row's `sdd-owner` marker non-terminal and therefore malformed.
+
+### Pre-existing assertions and the boundary check
+
+- **No pre-existing assertion was changed.** `git diff --numstat` for the test file is `245 added / 0 removed`, so no existing line (assertion, setup or docblock) was modified or deleted. All 9 pre-existing tests and all 16 `CourseAcademicDocumentHttpTest` tests pass unchanged, including `test_an_annulled_or_replaced_document_cannot_be_annulled_again` (16 tests / 149 assertions, identical to baseline).
+- **The controller's boundary check is still load-bearing, not redundant.** It is defence in depth with a distinct job: it refuses a document already known to be non-current *before* attempting a write transaction, so the common already-annulled/already-replaced case never reaches the domain, and it keeps the domain rule from being the only protection if a future caller path moves. It is no longer the *only* guard, and the service guard is the one that closes the race the boundary check cannot see. Its inline comment was updated to say exactly that, because the previous comment stated the service had no guard.
+
+### Workload / PR boundary and budget
+
+- Honest changed-line delta from `git diff --numstat`: 26+7 (service) + 24+7 (controller) + 245+0 (tests) + 2+0 (tasks) = **311 changed lines** (295 added, 15 removed, plus 1 replaced line counted on both sides). Under the 400-line budget.
+- Distribution note: 245 of the 311 lines are the test file. The cost relative to a pure one-line fix is the strict-TDD price of six scenarios (double annulment, replaced document, four non-current statuses, stale instance, HTTP race) plus two small helpers and their docblocks. Production code grew by the guard plus the rejection mapping only.
+- No staged files (`git diff --cached --name-only` empty) and no commit.
+- Remaining unchecked rows are unchanged; directly relevant ones: `- [ ] 6.e Academic document actions: generate, regenerate, annul, email, WhatsApp handoff, confirm sent, and discard. <!-- sdd-owner: implementation -->` (still blocked on 6.e-2 delivery actions) and `- [ ] Review Slice 6 for UI completeness, authorization coverage, route naming, and adherence to existing Laravel/AdminLTE/Bootstrap patterns. <!-- sdd-owner: parent -->`.
+- This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated. Parent attempt settlement for this change is still pending.

@@ -6,6 +6,7 @@ use App\Contracts\Courses\QrRenderer;
 use App\Enums\Courses\AcademicDocumentStatus;
 use App\Models\Courses\CourseAcademicDocument;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use InvalidArgumentException;
 
@@ -48,13 +49,31 @@ class CertificateQrTokenService
 
         Gate::forUser($actor)->authorize('revoke', $document);
 
-        $document->forceFill([
-            'status' => AcademicDocumentStatus::Annulled,
-            'qr_token_revoked_at' => now(),
-            'annulled_at' => now(),
-            'annulled_by' => $actor->id,
-            'annul_reason' => $reason,
-        ])->save();
+        DB::transaction(function () use ($document, $actor, $reason): void {
+            // The guard reads the persisted status under a lock instead of the
+            // attribute carried by the passed instance. A caller may hold a
+            // snapshot read while the document was still current, so only the
+            // stored status may authorise the write: a document already annulled
+            // keeps its original reason, actor and timestamp, and a replaced one
+            // keeps its status and its replacement trace.
+            $locked = CourseAcademicDocument::query()
+                ->lockForUpdate()
+                ->findOrFail($document->getKey());
+
+            if ($locked->status !== AcademicDocumentStatus::Current) {
+                throw new InvalidArgumentException('Only a current academic document may be annulled.');
+            }
+
+            // Saving the locked, freshly read instance also keeps a concurrent
+            // change from being clobbered by stale attributes.
+            $locked->forceFill([
+                'status' => AcademicDocumentStatus::Annulled,
+                'qr_token_revoked_at' => now(),
+                'annulled_at' => now(),
+                'annulled_by' => $actor->id,
+                'annul_reason' => $reason,
+            ])->save();
+        });
     }
 
     private function hash(string $token): string
