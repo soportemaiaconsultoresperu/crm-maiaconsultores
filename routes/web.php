@@ -11,6 +11,7 @@ use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
 use App\Http\Controllers\CourseTalks\CourseActivityController;
 use App\Http\Controllers\CourseTalks\CourseActivityReadController;
 use App\Http\Controllers\CourseTalks\CourseAttendanceController;
+use App\Http\Controllers\CourseTalks\CourseCommercialDocumentController;
 use App\Http\Controllers\CourseTalks\CourseEditionController;
 use App\Http\Controllers\CourseTalks\CourseEnrollmentController;
 use App\Http\Controllers\CourseTalks\CourseGradeController;
@@ -129,6 +130,19 @@ Route::middleware(['auth', 'active'])
             Route::post('documents/{academicDocument}/email', 'email')->name('documents.email');
             Route::post('documents/{academicDocument}/whatsapp', 'whatsapp')->name('documents.whatsapp');
             Route::post('documents/{academicDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('documents.whatsapp.confirm');
+        });
+
+        // Slice 6.f-1 — commercial documents of one edition (register an
+        // external factura/boleta/recibo for one enrollment, upload its private
+        // attachment and list the edition's documents). The enrollment-scoped
+        // and document-scoped actions post to their own endpoints so each
+        // payload keeps its own FormRequest, and the static
+        // `commercial-documents` segment is registered before the read-only
+        // group's `editions/{edition}` binding so it is never shadowed by it.
+        Route::controller(CourseCommercialDocumentController::class)->group(function (): void {
+            Route::get('editions/{edition}/commercial-documents', 'index')->name('commercial-documents.index');
+            Route::post('enrollments/{enrollment}/commercial-documents', 'store')->name('commercial-documents.store');
+            Route::post('commercial-documents/{commercialDocument}/file', 'upload')->name('commercial-documents.file');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {

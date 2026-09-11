@@ -33,6 +33,9 @@
         @endcan
         @can('view', $edition)
             <a href="{{ route('course-talks.documents.index', $edition) }}" class="btn btn-outline-primary">Documentos</a>
+            {{-- The commercial documents list requires the same ability its own
+                 route requires, so the link can never answer 403. --}}
+            <a href="{{ route('course-talks.commercial-documents.index', $edition) }}" class="btn btn-outline-primary">Comprobantes</a>
         @endcan
     </nav>
 
