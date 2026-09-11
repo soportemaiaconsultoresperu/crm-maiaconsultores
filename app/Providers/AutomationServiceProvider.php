@@ -174,9 +174,12 @@ class AutomationServiceProvider extends ServiceProvider
             ->first();
 
         if ($admin !== null) {
-            $existing = $admin->permissions->pluck('name')->all();
-            $merged = array_values(array_unique(array_merge($existing, $permissions)));
-            $admin->syncPermissions($merged);
+            // Grant additively instead of syncPermissions(): givePermissionTo()
+            // only attaches the missing role_has_permissions rows, whereas
+            // syncPermissions() detaches every row and re-inserts it, which
+            // races on the role_has_permissions primary key when parallel
+            // artisan processes boot against the same DB.
+            $admin->givePermissionTo($permissions);
         }
 
         $supervisor = Role::query()
@@ -185,9 +188,9 @@ class AutomationServiceProvider extends ServiceProvider
             ->first();
 
         if ($supervisor !== null) {
-            $existing = $supervisor->permissions->pluck('name')->all();
-            $merged = array_values(array_unique(array_merge($existing, ['automations.view'])));
-            $supervisor->syncPermissions($merged);
+            // Additive grant — see the admin branch above for the
+            // concurrent-boot duplicate-key rationale.
+            $supervisor->givePermissionTo(['automations.view']);
         }
     }
 
