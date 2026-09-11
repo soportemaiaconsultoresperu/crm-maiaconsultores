@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Jobs\V2;
 
+use App\Enums\Courses\DeliveryStatus;
+use App\Models\Courses\CourseAcademicDocument;
 use App\Models\Email\EmailMessage;
+use App\Models\Notification\OutboundDelivery;
 use App\Models\Quotation;
 use App\Services\QuotationService;
 use Illuminate\Bus\Queueable;
@@ -18,6 +21,8 @@ use RuntimeException;
 
 class SendEmailMessage implements ShouldQueue
 {
+    private const FAILURE_MESSAGE = 'No fue posible enviar el correo.';
+
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
@@ -39,7 +44,7 @@ class SendEmailMessage implements ShouldQueue
         }
 
         if (app(\App\Services\DemoData\DemoDataGuard::class)->isEmailMessageDemo($message)) {
-            $this->markFailed($message, 'DemoDataGuardBlocked', 'Demo data guard blocked outbound email job.');
+            $this->markFailed($message, 'DemoDataGuardBlocked');
             return;
         }
 
@@ -53,13 +58,13 @@ class SendEmailMessage implements ShouldQueue
 
         $account = $message->account;
         if ($account === null) {
-            $this->markFailed($message, 'NoBoundAccount', 'EmailMessage has no IntegrationAccount.');
+            $this->markFailed($message, 'NoBoundAccount');
 
             return;
         }
 
         if (! $account->is_active) {
-            $this->markFailed($message, 'AccountInactive', 'IntegrationAccount is inactive.');
+            $this->markFailed($message, 'AccountInactive');
 
             return;
         }
@@ -77,10 +82,11 @@ class SendEmailMessage implements ShouldQueue
             $message->forceFill([
                 'status' => EmailMessage::STATUS_PENDING,
                 'error_class' => (string) ($result['error_class'] ?? 'RetryableEmailProviderError'),
-                'error_message' => (string) ($result['error_message'] ?? 'Email provider returned a retryable error.'),
+                'error_message' => self::FAILURE_MESSAGE,
             ])->save();
+            $this->syncCourseDelivery($message->fresh());
 
-            throw new RuntimeException($message->error_message ?? 'Email provider returned a retryable error.');
+            throw new RuntimeException(self::FAILURE_MESSAGE);
         }
 
         DB::transaction(function () use ($message, $result, $quotations): void {
@@ -111,7 +117,7 @@ class SendEmailMessage implements ShouldQueue
                 $message->forceFill([
                     'status' => EmailMessage::STATUS_SEND_UNCONFIRMED,
                     'error_class' => (string) ($result['error_class'] ?? 'GmailSendUnconfirmed'),
-                    'error_message' => (string) ($result['error_message'] ?? 'No se pudo confirmar si Gmail aceptó el mensaje.'),
+                    'error_message' => 'No se pudo confirmar el envío del correo.',
                 ])->save();
 
                 return;
@@ -120,9 +126,11 @@ class SendEmailMessage implements ShouldQueue
             $message->forceFill([
                 'status' => EmailMessage::STATUS_FAILED,
                 'error_class' => (string) ($result['error_class'] ?? 'UnknownError'),
-                'error_message' => (string) ($result['error_message'] ?? 'Unknown'),
+                'error_message' => self::FAILURE_MESSAGE,
             ])->save();
         });
+
+        $this->syncCourseDelivery($message->fresh());
     }
 
     public function failed(\Throwable $exception): void
@@ -131,19 +139,58 @@ class SendEmailMessage implements ShouldQueue
         if ($message === null || $message->status === EmailMessage::STATUS_SEND_UNCONFIRMED) {
             return;
         }
-        $this->markFailed($message, $exception::class, $exception->getMessage());
+        $this->markFailed($message, $exception::class);
         Log::warning('SendEmailMessage: exhausted retries', [
             'message_id' => $message->id,
             'error_class' => $exception::class,
         ]);
     }
 
-    private function markFailed(EmailMessage $message, string $class, string $messageText): void
+    private function markFailed(EmailMessage $message, string $class): void
     {
         $message->forceFill([
             'status' => EmailMessage::STATUS_FAILED,
             'error_class' => $class,
-            'error_message' => $messageText,
+            'error_message' => self::FAILURE_MESSAGE,
         ])->save();
+        $this->syncCourseDelivery($message->fresh());
+    }
+
+    private function syncCourseDelivery(EmailMessage $message): void
+    {
+        $deliveries = OutboundDelivery::query()->where('email_message_id', $message->id)->get();
+        if ($deliveries->count() !== 1) {
+            return;
+        }
+
+        $delivery = $deliveries->first();
+        if ($delivery->related_entity_type !== CourseAcademicDocument::class) {
+            return;
+        }
+
+        DB::transaction(function () use ($delivery, $message): void {
+            $academic = CourseAcademicDocument::query()->find($delivery->related_entity_id);
+            if ($message->status === EmailMessage::STATUS_SENT) {
+                $delivery->forceFill(['status' => OutboundDelivery::STATUS_SENT, 'last_error' => null])->save();
+                $academic?->forceFill(['delivery_status' => DeliveryStatus::Sent, 'last_sent_at' => $message->sent_at ?? now()])->save();
+
+                return;
+            }
+
+            if ($message->status === EmailMessage::STATUS_FAILED) {
+                $delivery->forceFill([
+                    'status' => OutboundDelivery::STATUS_FAILED,
+                    'last_error' => 'No fue posible enviar el correo.',
+                ])->save();
+                $academic?->forceFill(['delivery_status' => DeliveryStatus::Failed])->save();
+
+                return;
+            }
+
+            $delivery->forceFill([
+                'status' => OutboundDelivery::STATUS_QUEUED,
+                'last_error' => 'No fue posible confirmar el envío del correo.',
+            ])->save();
+        });
     }
 }

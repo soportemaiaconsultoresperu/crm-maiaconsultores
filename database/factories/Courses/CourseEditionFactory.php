@@ -1,0 +1,4 @@
+<?php
+namespace Database\Factories\Courses;
+use App\Enums\Courses\CourseEditionState;use App\Enums\Courses\CourseModality;use App\Models\Courses\CourseActivity;use App\Models\Courses\CourseEdition;use App\Models\User;use Illuminate\Database\Eloquent\Factories\Factory;
+class CourseEditionFactory extends Factory{protected $model=CourseEdition::class;public function definition():array{return ['course_activity_id'=>CourseActivity::factory(),'code'=>fake()->unique()->bothify('ED-###'),'state'=>CourseEditionState::Draft,'modality'=>CourseModality::Virtual,'starts_on'=>now()->toDateString(),'ends_on'=>now()->addDay()->toDateString(),'address'=>null,'access_url'=>'https://meet.example.test','price_amount'=>'100.00','currency'=>'PEN','responsible_user_id'=>User::factory(),'delivery_due_days'=>1];}}

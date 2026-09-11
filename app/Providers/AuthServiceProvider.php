@@ -4,8 +4,20 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Models\Courses\CourseAcademicDocument;
+use App\Models\Courses\CourseActivity;
+use App\Models\Courses\CourseCertificateTemplate;
+use App\Models\Courses\CourseCommercialDocument;
+use App\Models\Courses\CourseEdition;
+use App\Models\Courses\CourseEnrollment;
 use App\Models\CustomerInvoice;
 use App\Models\SupportTicket;
+use App\Policies\Courses\CourseAcademicDocumentPolicy;
+use App\Policies\Courses\CourseActivityPolicy;
+use App\Policies\Courses\CourseCertificateTemplatePolicy;
+use App\Policies\Courses\CourseCommercialDocumentPolicy;
+use App\Policies\Courses\CourseEditionPolicy;
+use App\Policies\Courses\CourseEnrollmentPolicy;
 use App\Policies\CustomerInvoicePolicy;
 use App\Policies\SupportTicketPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as BaseAuthServiceProvider;
@@ -44,6 +56,12 @@ class AuthServiceProvider extends BaseAuthServiceProvider
      * @var array<class-string, class-string>
      */
     protected $policies = [
+        CourseAcademicDocument::class => CourseAcademicDocumentPolicy::class,
+        CourseActivity::class => CourseActivityPolicy::class,
+        CourseCertificateTemplate::class => CourseCertificateTemplatePolicy::class,
+        CourseCommercialDocument::class => CourseCommercialDocumentPolicy::class,
+        CourseEdition::class => CourseEditionPolicy::class,
+        CourseEnrollment::class => CourseEnrollmentPolicy::class,
         CustomerInvoice::class => CustomerInvoicePolicy::class,
         SupportTicket::class => SupportTicketPolicy::class,
     ];

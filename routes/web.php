@@ -6,6 +6,9 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CourseTalks\CourseActivityController;
+use App\Http\Controllers\CourseTalks\CourseActivityReadController;
+use App\Http\Controllers\CourseTalks\CourseEditionController;
 use App\Http\Controllers\CustomerInvoiceController;
 use App\Http\Controllers\CustomerProductController;
 use App\Http\Controllers\DashboardController;
@@ -14,6 +17,7 @@ use App\Http\Controllers\LeadConversionController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OpportunityController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\PublicCertificateQrController;
 use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\SupportDashboardController;
 use App\Http\Controllers\SupportTicketController;
@@ -24,6 +28,51 @@ use Illuminate\Support\Facades\Route;
  *
  * B01 ships auth + dashboard; B02 adds the Leads module (RF-LEAD-001..012).
  */
+
+Route::get('certificate/qr/{token}', [PublicCertificateQrController::class, 'show'])
+    ->middleware('throttle:60,1')
+    ->name('certificates.qr.show');
+Route::get('certificate/documents/{academicDocument}', [PublicCertificateQrController::class, 'showSigned'])
+    ->middleware(['signed', 'throttle:60,1'])
+    ->name('certificates.documents.show');
+Route::get('commercial-documents/{commercialDocument}/download', [PublicCertificateQrController::class, 'showSignedCommercial'])
+    ->middleware(['signed', 'throttle:60,1'])
+    ->name('commercial-documents.documents.show');
+
+Route::middleware(['auth', 'active'])
+    ->prefix('course-talks')
+    ->name('course-talks.')
+    ->group(function (): void {
+        // Static `activities/create` segment is registered before
+        // `activities/{activity}` so it is never swallowed by the binding.
+        Route::controller(CourseActivityController::class)->group(function (): void {
+            Route::get('activities/create', 'create')->name('activities.create');
+            Route::post('activities', 'store')->name('activities.store');
+        });
+
+        // Activity-scoped edition creation. Static segments and the teacher
+        // management routes are registered before the read-only group's
+        // `editions/{edition}` binding so it is never shadowed.
+        Route::controller(CourseEditionController::class)->group(function (): void {
+            Route::get('activities/{activity}/editions/create', 'create')->name('editions.create');
+            Route::post('activities/{activity}/editions', 'store')->name('editions.store');
+
+            Route::get('editions/{edition}/teachers', 'teachers')->name('editions.teachers');
+            Route::post('editions/{edition}/teachers', 'syncTeachers')->name('editions.teachers.sync');
+
+            // Same pattern for the session list: the static `sessions` segment
+            // is registered before the read-only group's `editions/{edition}`
+            // binding so it is never shadowed by it.
+            Route::get('editions/{edition}/sessions', 'sessions')->name('editions.sessions');
+            Route::post('editions/{edition}/sessions', 'syncSessions')->name('editions.sessions.sync');
+        });
+
+        Route::controller(CourseActivityReadController::class)->group(function (): void {
+            Route::get('activities', 'index')->name('activities.index');
+            Route::get('activities/{activity}', 'show')->name('activities.show');
+            Route::get('editions/{edition}', 'showEdition')->name('editions.show');
+        });
+    });
 
 Route::middleware('guest')->group(function (): void {
     Route::get('login', [AuthenticatedSessionController::class, 'create'])

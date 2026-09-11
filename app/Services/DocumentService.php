@@ -247,9 +247,14 @@ class DocumentService
             return app(\App\Services\SupportTicketScopeService::class)->canView($actor, $supportTicket);
         }
 
-        $ownerId = $subject->owner_id
-            ?? $subject->customer?->owner_id
-            ?? null;
+        $ownerId = match (true) {
+            $subject instanceof \App\Models\Courses\CourseAcademicDocument => $subject->enrollment?->edition?->responsible_user_id,
+            $subject instanceof \App\Models\Courses\CourseCommercialDocument => $subject->enrollment?->edition?->responsible_user_id
+                ?? $subject->group?->edition?->responsible_user_id,
+            default => $subject->owner_id
+                ?? $subject->customer?->owner_id
+                ?? null,
+        };
 
         if ($ownerId === null) {
             return false;
@@ -305,6 +310,8 @@ class DocumentService
             \App\Models\SupportObservation::class,
             \App\Models\SupportIncidentDetail::class,
             \App\Models\SupportSessionDetail::class,
+            \App\Models\Courses\CourseAcademicDocument::class,
+            \App\Models\Courses\CourseCommercialDocument::class,
         ];
 
         if (! in_array($docable::class, $allowed, true)) {
@@ -403,6 +410,7 @@ class DocumentService
             \App\Models\SupportObservation::class => 'support/observations',
             \App\Models\SupportIncidentDetail::class => 'support/incidents',
             \App\Models\SupportSessionDetail::class => 'support/sessions',
+            \App\Models\Courses\CourseCommercialDocument::class => 'course-commercial-documents',
             default => 'misc',
         };
 

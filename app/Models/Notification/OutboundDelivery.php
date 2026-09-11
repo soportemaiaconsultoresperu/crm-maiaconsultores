@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Notification;
 
+use App\Models\Email\EmailMessage;
 use App\Models\IntegrationAccount;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -59,6 +60,7 @@ class OutboundDelivery extends Model
         'related_entity_type',
         'related_entity_id',
         'account_id',
+        'email_message_id',
         'status',
         'attempts',
         'next_attempt_at',
@@ -85,6 +87,12 @@ class OutboundDelivery extends Model
     public function account(): BelongsTo
     {
         return $this->belongsTo(IntegrationAccount::class, 'account_id');
+    }
+
+    /** @return BelongsTo<EmailMessage, $this> */
+    public function emailMessage(): BelongsTo
+    {
+        return $this->belongsTo(EmailMessage::class, 'email_message_id');
     }
 
     /**

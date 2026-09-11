@@ -1,0 +1,4 @@
+<?php
+namespace Database\Factories\Courses;
+use App\Enums\Courses\CourseEnrollmentState;use App\Enums\Courses\FinalResult;use App\Enums\Courses\PaymentStatus;use App\Models\Courses\CourseEdition;use App\Models\Courses\CourseEnrollment;use App\Models\Courses\CourseParticipant;use Illuminate\Database\Eloquent\Factories\Factory;
+class CourseEnrollmentFactory extends Factory{protected $model=CourseEnrollment::class;public function definition():array{return ['course_edition_id'=>CourseEdition::factory(),'course_participant_id'=>CourseParticipant::factory(),'state'=>CourseEnrollmentState::Enrolled,'payment_status'=>PaymentStatus::Pending,'activity_price_amount'=>'100.00','certificate_charge_amount'=>'0.00','discount_amount'=>'0.00','subtotal_amount'=>'100.00','currency'=>'PEN','final_result'=>FinalResult::Pending];}}
