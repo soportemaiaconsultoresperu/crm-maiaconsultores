@@ -2317,3 +2317,130 @@ Unit 6.e-1 worked around this in the HTTP boundary. The rule now lives in the do
 ### Next step
 
 - Unit 6.f (commercial documents + template settings) and the Slice 7 `discard`/alerts/audit work remain. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
+
+## Slice 6 corrective — academic email carries the document, and the precondition moves into the service
+
+- Authorized corrective work unit: `academic-email-document-and-precondition`. Strict TDD active; runner `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH). No commit, no branch, no worktree, no migration, no model/policy/enum change. Parent retains attempt and delivery authority.
+- Artifact store: `openspec`. This change has no `state.yaml`, so status is resolved from the persisted task rows and the change artifacts, not from a native dispatcher. Warning (unchanged): `openspec/config.yaml` still documents the unrelated `b12-ui` change and its bare `php artisan test` command; the absolute PHP executable was used instead and `config.yaml` was not rewritten.
+- Review Workload Gate: `tasks.md` still forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. This correction runs inside the already-approved stacked slice, so no new delivery decision was required.
+- Scope: exactly the three verified defects D1/D2/D3 in the authorized surfaces. Commercial UI/template settings (6.f), discard (Slice 7), schema/migrations, policies/permissions, models/enums, the QR token service, Docker/docs and the grade/attendance/enrollment surfaces are untouched.
+
+### Behavior delivered (D1, D2, D3)
+
+- **D1 — the email carries the document.** `queueAcademicEmail()` now sends a real Spanish message whose body contains the working signed temporary/read route, and whose subject names the document type and code. The old fixed payload (`subject = 'Documento académico disponible'`, body = the single line `Documento académico disponible.`, empty attachment list) is gone.
+- **D2 — the email precondition.** `queueAcademicEmail()` refuses a document that is not `Current`, is QR-revoked or whose private file is missing, before any ledger row or `EmailMessage` exists.
+- **D3 — the WhatsApp precondition.** `openAcademicWhatsAppHandoff()` asserts the same rule before creating its `queued` ledger row, so a refused handoff leaves no orphan attempt in the delivery history.
+- **Single rule, one place.** The condition is extracted into one private predicate, `hasDeliverableAcademicDocument()`, plus its throwing wrapper `assertDeliverableAcademicDocument()`. `secureAcademicDocumentUrl()`, `queueAcademicEmail()` and `openAcademicWhatsAppHandoff()` all read it; no caller re-implements it.
+- **Controller workaround removed, not kept as defence in depth.** `CourseAcademicDocumentDeliveryController::assertDeliverable()` and both call sites were deleted (production diff `5 added / 27 deleted`). The surface now only decides how a domain rejection is rendered, and it did not lose the Spanish error: the service `InvalidArgumentException` is still mapped to `Solo un documento vigente con su archivo privado disponible puede entregarse.`. Because the rule now lives inside both service entry points, the controller-level pre-check is genuinely redundant, and keeping it would have preserved the "caller owns the rule" shape this unit exists to remove. It was therefore removed deliberately; the HTTP test that follows the redirect and asserts the Spanish refusal now proves the service rejection renders correctly.
+- **Public signatures unchanged.** `queueAcademicEmail`, `sendAcademicEmail`, `openAcademicWhatsAppHandoff`, `confirmAcademicWhatsAppSent` and `secureAcademicDocumentUrl` keep their exact signatures (including the `secureAcademicDocumentUrl` default of `60`). The idempotency contract is preserved: the existing-delivery lookup still runs first and still returns the matching delivery, so a replay is never duplicated. `sendAcademicEmail()` (the direct synchronous path) was deliberately left without the file precondition because the unit boundary names only `queueAcademicEmail()` and `openAcademicWhatsAppHandoff()`.
+- `SendCourseDocumentEmail` was left unchanged (it needed no change): it already delegates to `queueAcademicEmail()`, so it inherits the precondition.
+
+### D1 branch chosen and its evidence
+
+- **Chosen: the signed link in the body — branch 2 of the instruction.** The repository has **no clear, tested mechanism to attach a private file to an outgoing `EmailMessage` through the delivery service**, so inventing attachment infrastructure inside a corrective unit was avoided.
+- Evidence for that branch (read from the code, not assumed):
+  - `EmailService::send()` is `send(EmailTemplate|EmailMessage $source, array $recipients, array $vars = [], array $options = [], ?User $actor = null)` — the third parameter is documented as `array<string, string|int|float|bool>` **template vars**, not attachments, and there is no attachment parameter at all. `send()` only persists the `EmailMessage` and its participants.
+  - `EmailAttachment` rows are created in exactly one place in `app/`: `Http/Controllers/QuotationController.php:368`, and it does so **outside** `EmailService`, by manually writing the PDF to the `local` disk and dispatching `Jobs\V2\SendEmailMessage` itself. There is no service-level, tested path from a private document to an `EmailMessage`.
+  - Even an `EmailAttachment` row would not reach the SMTP transport: `Services/Email/SmtpProvider.php:43` calls `new GenericEmail($message)` with the attachments array defaulting to `[]`, so only `GmailProvider::buildMime()` actually reads `$message->attachments`. Attachment delivery is therefore provider-dependent and untested for this path.
+  - The design explicitly allows the alternative: the `design.md` delivery section and `spec.md` ("Email delivery") permit "attachments **or** secure links" according to document type, and `design.md:137` names "a controlled temporary/read route".
+
+### Emailed link validity chosen
+
+- `10080` minutes (7 days), configurable as `courses.email_document_link_minutes` in `config/courses.php`, read through `config()` with a `10080` fallback. Rationale: an emailed link is opened hours or days later, so the 60-minute default is effectively broken for email; 7 days covers a full business week (including weekends/holidays) while keeping the signed URL bounded. The route independently re-validates document currency and revocation (`PublicCertificateQrController::showSigned` plus `signed` and `throttle:60,1`), so even a still-valid link stops serving a document that was annulled or replaced afterwards — the route's protections were not weakened.
+- The WhatsApp path keeps its shorter, immediate-use validity unchanged: `openAcademicWhatsAppHandoff()` calls `secureAcademicDocumentUrl($academic)` with the original default of 60 minutes. This is asserted explicitly by a triangulation test.
+
+### Exact place the precondition now lives
+
+- `app/Services/Courses/CourseDocumentDeliveryService.php` — private `hasDeliverableAcademicDocument(CourseAcademicDocument): bool` is the single predicate (`document !== null && status === Current && qr_token_revoked_at === null && Storage::disk(document->disk)->exists(document->path)`), and private `assertDeliverableAcademicDocument()` throws `InvalidArgumentException('A current non-revoked private document is required.')` when it is false.
+- Used from three places: `secureAcademicDocumentUrl()`, `queueAcademicEmail()` (before the DB transaction) and `openAcademicWhatsAppHandoff()` (before the ledger insert).
+
+### Task persistence
+
+- **No checkbox changed, and no aggregate row was marked `[x]`.** The 6.e-2 row already reflects the delivered delivery actions; this unit corrects defects inside them, so flipping a row would be false. `6.e` stays `- [ ]` (its `discard` action belongs to Slice 7), `6.f` stays `- [ ]`, and every `sdd-owner: parent` row is byte-for-byte unchanged.
+- `tasks.md` gained one non-checkbox correction note recording this corrective unit; the pre-existing `certificate-qr-revoke-status-guard` note is unchanged.
+- The persisted `tasks.md` was re-read after the edit: `6.e-2` is visibly `- [x]`, `6.e` is visibly `- [ ]`, `6.f` is visibly `- [ ]`, and both correction notes are present once.
+
+### TDD Cycle Evidence
+
+| Defect / requirement | Test file(s) | Layer | RED (observed) | GREEN | TRIANGULATE / REFACTOR |
+|---|---|---|---|---|---|
+| D1 — email body/subject carry a working document link and are not the placeholder | `CourseDocumentEmailDeliveryTest::test_the_queued_email_carries_the_document_through_a_working_signed_link`; `CourseAcademicDocumentDeliveryHttpTest::test_email_enqueues_...` | Feature / service + HTTP | `--filter=CourseDocumentEmailDeliveryTest` -> `failed, tests 13, passed 11, failed 2`; the D1 test failed at the subject assertion (`Failed asserting that two strings are not identical.`). HTTP: `failed, tests 15, passed 14` at `line 279` for the same reason. | After the service content change: the email suite passed | Triangulated with `test_the_email_names_the_specific_document_type` (a `TalkCertificate` message names `Certificado de charla` and never `Certificado de aprobación`), and the exact TTL is asserted from the parsed `expires` param |
+| D2 — `queueAcademicEmail()` refuses before any ledger row / queued message | `CourseDocumentEmailDeliveryTest::test_a_non_deliverable_document_is_refused_before_any_ledger_row_or_queued_message` | Feature / service | `failed` at `A non-deliverable document must be refused by the service.` — the service queued for an annulled document and for one whose file was deleted | After the service precondition: passed | Covered by two rejected shapes (annulled + missing file); asserts `outbound_deliveries = 0` **and** `email_messages = 0` |
+| D3 — `openAcademicWhatsAppHandoff()` refuses before the ledger row | `CourseDocumentWhatsAppDeliveryTest::test_a_non_deliverable_document_is_refused_before_the_handoff_ledger_row_is_created` | Feature / service | `failed` at `Failed asserting that table [outbound_deliveries] matches expected entries count of 0. Entries found: 2.` — exactly the two orphan attempts the defect produces | After moving the assertion before the create: passed | Asserted at the persisted ledger, which is where the orphan was observable |
+| B — emailed link is usable hours/days later | same D1 test (parsed `expires`) | Feature / service | part of the same RED (the body had no URL at all) | passed | Exact `expires` equals `now()->addMinutes(config('courses.email_document_link_minutes'))` under frozen time, and is greater than `now()+1h`; the WhatsApp 60-minute default is guarded separately by `CourseDocumentWhatsAppDeliveryTest::test_the_whatsapp_handoff_keeps_its_short_immediate_use_link_validity` |
+| C — HTTP surface no longer needs its own pre-check | `CourseAcademicDocumentDeliveryHttpTest::test_delivery_is_refused_when_the_document_is_not_current_or_its_private_file_is_missing` (extended) | Feature / HTTP | Not RED on its own (the controller pre-check already refused); it is the regression guard that proves the **service** now carries the rule after the workaround was deleted | passed | Now also asserts `email_messages = 0` for both channels |
+
+**Test summary**
+
+- New tests: **5** (3 in `CourseDocumentEmailDeliveryTest`, 2 in `CourseDocumentWhatsAppDeliveryTest`). Two existing HTTP assertion blocks were extended.
+- Focused suites: email 14/82, WhatsApp 9/38, HTTP 15/178. `--filter=Course` regression: **281 tests / 1,952 assertions passing** (baseline was 276 / 1,917 -> +5 tests, +35 assertions).
+
+### Commands and results (exact, in the required order)
+
+1. `--filter=CourseDocumentEmailDeliveryTest` -> `{"tool":"phpunit","result":"passed","tests":14,"passed":14,"assertions":82,"duration_ms":1801}`.
+2. `--filter=CourseDocumentWhatsAppDeliveryTest` -> `{"result":"passed","tests":9,"passed":9,"assertions":38,"duration_ms":1506}`.
+3. `--filter=CourseAcademicDocumentDeliveryHttpTest` -> `{"result":"passed","tests":15,"passed":15,"assertions":178,"duration_ms":2660}`.
+4. `--filter=CourseCommercialDocumentDeliveryTest` -> `{"result":"passed","tests":12,"passed":12,"assertions":79,"duration_ms":1729}`.
+5. `--filter=CourseCertificateQrSecurityTest` -> `{"result":"passed","tests":15,"passed":15,"assertions":182,"duration_ms":2075}`.
+6. `--filter=Course` -> `{"result":"passed","tests":281,"passed":281,"assertions":1952,"duration_ms":21484}`.
+- RED runs (before implementation): email `{"result":"failed","tests":13,"passed":11,"failed":2}`; WhatsApp `{"result":"failed","tests":8,"passed":7,"failed":1}` with `Failed asserting that table [outbound_deliveries] matches expected entries count of 0. Entries found: 2.`; HTTP `{"result":"failed","tests":15,"passed":14,"failed":1}`.
+- Hygiene: `php.exe -l` reported no syntax errors for all six changed PHP files; `git diff --check` is clean; `git diff --cached --name-only` is empty, so nothing is staged and no commit was made. No migration, reset or database operation other than the in-memory test database ran.
+
+### Existing tests changed (fixture fallout), and why
+
+Adding the file-existence precondition inside `queueAcademicEmail()` broke Slice 5 queued-email tests that never created a private PDF. Every one was fixed by making the fixture create a real private file, never by weakening the service:
+
+1. `CourseDocumentEmailDeliveryTest::test_it_queues_the_exact_email_message_on_its_delivery_ledger` — switched from `academicDocument()` to the new `academicDocumentWithPdf()` fixture; `Storage::fake('docs')` added. Why: the queued path now requires a present private file.
+2. `CourseDocumentEmailDeliveryTest::test_course_document_email_job_queues_email_through_the_existing_email_pipeline` — same fixture change. Why: `SendCourseDocumentEmail` delegates to `queueAcademicEmail()`, so it inherits the precondition.
+3. `CourseDocumentEmailDeliveryTest::test_it_does_not_publish_the_email_job_when_the_enclosing_transaction_rolls_back` — same fixture change. Why: the row must be created for the rollback assertion to be meaningful.
+4. `CourseDocumentEmailDeliveryTest::test_it_publishes_the_email_job_only_after_the_enclosing_transaction_commits` — same fixture change, for the same reason.
+5. `CourseDocumentEmailDeliveryTest::test_it_rolls_back_the_delivery_when_email_message_creation_fails` — same fixture change. Why: the delivery has to get past the precondition before the mocked `EmailService::send()` can throw.
+6. `CourseAcademicDocumentDeliveryHttpTest::test_delivery_is_refused_when_the_document_is_not_current_or_its_private_file_is_missing` — assertions **added** (`email_messages = 0`), not weakened.
+7. `CourseAcademicDocumentDeliveryHttpTest::test_email_enqueues_the_document_and_records_the_recipient_override_in_the_ledger` — assertions **added** on the persisted message subject/body.
+8. `CourseDocumentWhatsAppDeliveryTest` — no existing test changed; only the new test and the TTL triangulation test were added.
+
+The direct (`sendAcademicEmail`) tests were intentionally left on the no-file fixture: that path is outside this unit's class-creating scope and still has no file precondition.
+
+### Files changed (with line counts)
+
+- `app/Services/Courses/CourseDocumentDeliveryService.php` — 96 added / 11 deleted.
+- `app/Http/Controllers/CourseTalks/CourseAcademicDocumentDeliveryController.php` — 5 added / 27 deleted (the `assertDeliverable()` workaround and its two call sites removed; class docblock corrected).
+- `config/courses.php` — 1 added / 1 deleted (`email_document_link_minutes: 10080`).
+- `tests/Feature/Courses/CourseDocumentEmailDeliveryTest.php` — 146 added / 5 deleted.
+- `tests/Feature/Courses/CourseDocumentWhatsAppDeliveryTest.php` — 56 added / 0 deleted.
+- `tests/Feature/Courses/CourseAcademicDocumentDeliveryHttpTest.php` — 16 added / 1 deleted.
+- `openspec/changes/course-talks-management/tasks.md` — 1 correction-note line added, no checkbox change.
+- `openspec/changes/course-talks-management/apply-progress.md` — this section (bookkeeping).
+
+`SendCourseDocumentEmail.php`, `EmailService.php`, `OutboundDelivery.php`, `CourseAcademicDocument.php`, the delivery requests, the policy, the enums and the migrations were deliberately left untouched.
+
+### Review workload
+
+- Total changed lines: **320 added / 45 deleted = 365 changed** against the 400-line corrective budget — **under budget** (production 141, tests 224, config 2). `openspec` bookkeeping files are excluded, as in 6.e-2. No overage to report.
+
+### Deviations (every one)
+
+1. **The precondition runs after the idempotency lookup, not before it.** The instruction requires "no ledger row when the document is rejected" and "an existing matching delivery for the same key must still be returned rather than duplicated". Placing the lookup first satisfies both literally: a rejected **new** attempt creates nothing, while a replay of an already-accepted operation still returns its existing delivery instead of turning into an error. Documented rather than silently chosen.
+2. **`queueAcademicEmail()` reuses `secureAcademicDocumentUrl()` as its precondition** (the builder asserts via the shared predicate) while `openAcademicWhatsAppHandoff()` uses the predicate wrapper directly before its insert. The rule itself is still single-sourced; the two entry points differ only because the WhatsApp path must keep the URL build after the ledger resolution for replay parity.
+3. **`sendAcademicEmail()` gained no precondition.** The unit boundary names only the queued email path and the WhatsApp handoff. Adding it would also require reworking the direct-path tests (which use file-less fixtures), widening the unit; reported as a residual gap instead.
+4. **The controller workaround was removed, not kept as defence in depth.** The unit boundary explicitly asks for the now-redundant 6.e-2 pre-check to be simplified; keeping a duplicate of the rule in the caller would preserve the shape the unit exists to correct. The Spanish rejection remains visible because the service `InvalidArgumentException` is still mapped in the controller, and the HTTP test proves it end to end.
+5. **The email test fixture gained a helper (`academicDocumentWithPdf`) and five queued-path tests use it**, rather than parameterizing the existing `academicDocument()`, to keep the direct-path fixtures file-less and the change minimal.
+6. **`config/courses.php` was changed only by appending one key** to its existing single-line return array; the three pre-existing defaults are unchanged.
+7. **Two `artisan test` runs were accidentally launched concurrently** during GREEN troubleshooting (same shell block) and produced two spurious failures (a job-test precondition error and an HTTP ledger count of 0). Both passed when re-run sequentially, and the entire final verification order was re-run sequentially: concurrent `artisan test` processes share compiled-config/cache state. Worth flagging for the parent as a harness hazard, not a product defect.
+
+### Risks and gaps for the parent
+
+1. **`sendAcademicEmail()` still accepts a file-less or annulled document.** It is outside this unit's declared scope; a future non-HTTP caller of the direct synchronous path can still record a send for a non-deliverable document. Recommended follow-up: apply the same predicate to it.
+2. **The email carries a link, not an attachment.** This is the design-sanctioned alternative, but the spec's phrase "as attachments **or** secure links" means a reviewer may expect attachments. The attachment path does not exist at service level and is provider-dependent (`GmailProvider` only), so this is reported as a deliberate, evidenced choice rather than an omission.
+3. **The signed URL itself travels in the message body.** It is a controlled temporary route with an independent currency/revocation check and rate limiting, and it carries no personal data, but it is a bearer-ish secret visible to anyone with the mailbox — inherent to the link approach.
+4. **Residual idempotency edge case:** a replay whose document has since become non-deliverable returns the original delivery on the email path (lookup-first) while the WhatsApp path still rebuilds the URL and can throw. Behavior differs between the two channels in that corner; both preserve "no duplicate row".
+
+### Manual verification entry point
+
+- As a user holding `course-talks.view` plus `course-talks.documents.send`, open a course edition's documents screen and send a current document by email: the success flash appears, and inspecting the persisted `email_messages` row shows a Spanish body containing the `/certificate/documents/{id}?expires=...&signature=...` URL and a `Documento académico: <tipo> (CÓDIGO)` subject.
+- Paste the emailed link into a browser: the PDF is served; wait past 60 minutes and it still works; annul the document and the same link starts returning the generic not-current response.
+- Try to email or open WhatsApp for an annulled document or one whose private PDF was deleted: the Spanish refusal appears and no `Historial de entregas` row is added.
+
+### Next step
+
+- This unit hands off to `parent-lifecycle`. No bounded-review, refutation, correction or validation actor was started; no receipt was created or approved; no delivery gate (pre-commit, pre-push, pre-PR, release) was validated. Unit 6.f and the Slice 7 `discard`/alerts/audit work remain.

@@ -141,6 +141,62 @@ class CourseDocumentWhatsAppDeliveryTest extends TestCase
             ->openAcademicWhatsAppHandoff($this->academicDocument(), '555', $this->actor, 'academic-whatsapp-008');
     }
 
+    /**
+     * D3 regression: the handoff used to insert its `queued` ledger row before
+     * building the secure link, so a refused handoff left an orphan attempt in
+     * the delivery history. The deliverability rule now runs inside the service
+     * before any row exists.
+     */
+    public function test_a_non_deliverable_document_is_refused_before_the_handoff_ledger_row_is_created(): void
+    {
+        Queue::fake();
+        Storage::fake('docs');
+        $service = new CourseDocumentDeliveryService(static fn (): bool => true);
+
+        $annulled = $this->academicDocumentWithPdf();
+        $annulled->forceFill([
+            'status' => AcademicDocumentStatus::Annulled,
+            'qr_token_revoked_at' => now(),
+            'annul_reason' => 'Error en los datos del participante',
+        ])->save();
+
+        $withoutFile = $this->academicDocumentWithPdf();
+        Storage::disk('docs')->delete($withoutFile->document->path);
+
+        foreach ([[$annulled, 'refused-annulled-whatsapp'], [$withoutFile, 'refused-missing-file-whatsapp']] as [$academic, $key]) {
+            try {
+                $service->openAcademicWhatsAppHandoff($academic, '+51 999 123 456', $this->actor, $key);
+                $this->fail('A non-deliverable document must be refused by the service.');
+            } catch (InvalidArgumentException $exception) {
+                $this->assertNotSame('', $exception->getMessage());
+            }
+        }
+
+        // No orphan attempt is left behind for a document that was refused.
+        $this->assertDatabaseCount('outbound_deliveries', 0);
+    }
+
+    /**
+     * Triangulation: moving the emailed link to a days-long validity must not leak
+     * into the WhatsApp handoff, whose link stays short for immediate use.
+     */
+    public function test_the_whatsapp_handoff_keeps_its_short_immediate_use_link_validity(): void
+    {
+        Queue::fake();
+        Storage::fake('docs');
+        $this->travelTo(now()->startOfSecond());
+        $academic = $this->academicDocumentWithPdf();
+
+        $handoff = (new CourseDocumentDeliveryService(static fn (): bool => true))
+            ->openAcademicWhatsAppHandoff($academic, '+51 999 123 456', $this->actor, 'academic-whatsapp-ttl');
+
+        preg_match('#https?://[^\s]+#', $handoff['text'], $matches);
+        $this->assertNotEmpty($matches, 'The handoff text must carry a secure document link.');
+        $query = [];
+        parse_str((string) parse_url($matches[0], PHP_URL_QUERY), $query);
+        $this->assertSame(now()->addMinutes(60)->timestamp, (int) $query['expires']);
+    }
+
     private function academicDocument(): CourseAcademicDocument
     {
         return CourseAcademicDocument::query()->create([

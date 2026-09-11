@@ -10,6 +10,7 @@ use App\Enums\Courses\DeliveryStatus;
 use App\Jobs\Courses\SendCourseDocumentEmail;
 use App\Models\Courses\CourseAcademicDocument;
 use App\Models\Courses\CourseEnrollment;
+use App\Models\Document;
 use App\Models\Notification\OutboundDelivery;
 use App\Models\User;
 use App\Services\Courses\CourseDocumentDeliveryService;
@@ -17,6 +18,8 @@ use App\Services\Email\EmailService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use InvalidArgumentException;
 use RuntimeException;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -39,7 +42,8 @@ class CourseDocumentEmailDeliveryTest extends TestCase
     public function test_it_queues_the_exact_email_message_on_its_delivery_ledger(): void
     {
         Queue::fake();
-        $academic = $this->academicDocument();
+        Storage::fake('docs');
+        $academic = $this->academicDocumentWithPdf();
 
         $delivery = (new CourseDocumentDeliveryService(static fn (): bool => true))
             ->queueAcademicEmail($academic, 'recipient@example.test', $this->actor, 'academic-email-correlation', app(EmailService::class));
@@ -52,7 +56,8 @@ class CourseDocumentEmailDeliveryTest extends TestCase
     public function test_course_document_email_job_queues_email_through_the_existing_email_pipeline(): void
     {
         Queue::fake();
-        $academic = $this->academicDocument();
+        Storage::fake('docs');
+        $academic = $this->academicDocumentWithPdf();
 
         (new SendCourseDocumentEmail(
             $academic->id,
@@ -78,7 +83,8 @@ class CourseDocumentEmailDeliveryTest extends TestCase
     public function test_it_does_not_publish_the_email_job_when_the_enclosing_transaction_rolls_back(): void
     {
         Queue::fake();
-        $academic = $this->academicDocument();
+        Storage::fake('docs');
+        $academic = $this->academicDocumentWithPdf();
 
         DB::beginTransaction();
         try {
@@ -102,7 +108,8 @@ class CourseDocumentEmailDeliveryTest extends TestCase
     public function test_it_publishes_the_email_job_only_after_the_enclosing_transaction_commits(): void
     {
         Queue::fake();
-        $academic = $this->academicDocument();
+        Storage::fake('docs');
+        $academic = $this->academicDocumentWithPdf();
 
         DB::beginTransaction();
         try {
@@ -195,7 +202,8 @@ class CourseDocumentEmailDeliveryTest extends TestCase
 
     public function test_it_rolls_back_the_delivery_when_email_message_creation_fails(): void
     {
-        $academic = $this->academicDocument();
+        Storage::fake('docs');
+        $academic = $this->academicDocumentWithPdf();
         $email = \Mockery::mock(EmailService::class);
         $email->shouldReceive('send')->once()->andThrow(new RuntimeException('provider password=secret'));
 
@@ -282,5 +290,138 @@ class CourseDocumentEmailDeliveryTest extends TestCase
             'code' => 'CERT-'.str()->upper(str()->random(8)),
             'delivery_status' => DeliveryStatus::Pending,
         ]);
+    }
+
+    /**
+     * A document the queued email path may actually deliver: current, not
+     * QR-revoked, with its private PDF present on the configured disk. The
+     * deliverability precondition moved into the service in the corrective unit
+     * `academic-email-document-and-precondition`, so every queued-email fixture
+     * now has to carry a real private file.
+     */
+    private function academicDocumentWithPdf(): CourseAcademicDocument
+    {
+        $academic = $this->academicDocument();
+        $path = "course-academic-documents/{$academic->course_enrollment_id}/{$academic->code}.pdf";
+        Storage::disk('docs')->put($path, '%PDF academic certificate', ['visibility' => 'private']);
+        $document = Document::query()->create([
+            'docable_type' => CourseAcademicDocument::class,
+            'docable_id' => $academic->id,
+            'name' => $academic->code.'.pdf',
+            'disk' => 'docs',
+            'path' => $path,
+            'mime_type' => 'application/pdf',
+            'extension' => 'pdf',
+            'size_bytes' => 25,
+            'uploaded_by' => User::factory()->create()->id,
+            'uploaded_at' => now(),
+        ]);
+        $academic->forceFill([
+            'document_id' => $document->id,
+            'qr_token_hash' => hash_hmac('sha256', 'email-raw-token-'.$academic->id, config('app.key')),
+        ])->save();
+
+        return $academic->fresh();
+    }
+
+    /**
+     * D1 regression: the emailed message used to be the fixed one-line placeholder
+     * `Documento académico disponible.` with an empty attachment list, so the
+     * recipient was told a document existed but never shown how to reach it.
+     */
+    public function test_the_queued_email_carries_the_document_through_a_working_signed_link(): void
+    {
+        Queue::fake();
+        Storage::fake('docs');
+        $this->travelTo(now()->startOfSecond());
+        $academic = $this->academicDocumentWithPdf();
+
+        $delivery = (new CourseDocumentDeliveryService(static fn (): bool => true))
+            ->queueAcademicEmail($academic, 'recipient@example.test', $this->actor, 'academic-email-content', app(EmailService::class));
+
+        $message = $delivery->emailMessage;
+
+        // The subject identifies the document instead of the generic placeholder.
+        $this->assertNotSame('Documento académico disponible', $message->subject);
+        $this->assertStringContainsString('Certificado de aprobación', $message->subject);
+        $this->assertStringContainsString($academic->code, $message->subject);
+
+        $body = $message->body_text[0];
+        // A real person-readable message, not the single-line placeholder.
+        $this->assertNotSame('Documento académico disponible.', $body);
+        $this->assertStringContainsString('Hola,', $body);
+        $this->assertStringContainsString('/certificate/documents/'.$academic->id, $body);
+        $this->assertStringContainsString('signature=', $body);
+
+        // The emailed link is usable hours or days later, not only inside the
+        // WhatsApp 60-minute window.
+        preg_match('#https?://[^\s]+#', $body, $matches);
+        $this->assertNotEmpty($matches, 'The email body must carry a download URL.');
+        $query = [];
+        parse_str((string) parse_url($matches[0], PHP_URL_QUERY), $query);
+        $this->assertArrayHasKey('expires', $query);
+        $this->assertSame(now()->addMinutes((int) config('courses.email_document_link_minutes'))->timestamp, (int) $query['expires']);
+        $this->assertGreaterThan(now()->addHour()->timestamp, (int) $query['expires']);
+
+        // No raw QR material, private storage path or unrelated PII in the payload.
+        $this->assertStringNotContainsString((string) $academic->qr_token_hash, $body);
+        $this->assertStringNotContainsString('course-academic-documents/', $body);
+        $this->assertStringContainsString('/certificate/documents/'.$academic->id, $message->body_html[0]);
+    }
+
+    /**
+     * Triangulation: the subject/body identify the specific document type through
+     * a real mapping instead of a single hard-coded string.
+     */
+    public function test_the_email_names_the_specific_document_type(): void
+    {
+        Queue::fake();
+        Storage::fake('docs');
+        $academic = $this->academicDocumentWithPdf();
+        $academic->forceFill(['type' => AcademicDocumentType::TalkCertificate])->save();
+
+        $delivery = (new CourseDocumentDeliveryService(static fn (): bool => true))
+            ->queueAcademicEmail($academic, 'recipient@example.test', $this->actor, 'academic-email-talk-label', app(EmailService::class));
+
+        $message = $delivery->emailMessage;
+        $this->assertStringContainsString('Certificado de charla', $message->subject);
+        $this->assertStringNotContainsString('Certificado de aprobación', $message->subject);
+        $this->assertStringContainsString('Certificado de charla', $message->body_text[0]);
+        $this->assertStringContainsString($academic->code, $message->body_text[0]);
+    }
+
+    /**
+     * D2 regression: the queued path had no document precondition, so it queued a
+     * message for an annulled document or one whose private file is gone. The
+     * rule now lives in the service and must leave no ledger row and no queued
+     * message behind.
+     */
+    public function test_a_non_deliverable_document_is_refused_before_any_ledger_row_or_queued_message(): void
+    {
+        Queue::fake();
+        Storage::fake('docs');
+        $service = new CourseDocumentDeliveryService(static fn (): bool => true);
+
+        $annulled = $this->academicDocumentWithPdf();
+        $annulled->forceFill([
+            'status' => AcademicDocumentStatus::Annulled,
+            'qr_token_revoked_at' => now(),
+            'annul_reason' => 'Error en los datos del participante',
+        ])->save();
+
+        $withoutFile = $this->academicDocumentWithPdf();
+        Storage::disk('docs')->delete($withoutFile->document->path);
+
+        foreach ([[$annulled, 'refused-annulled-email'], [$withoutFile, 'refused-missing-file-email']] as [$academic, $key]) {
+            try {
+                $service->queueAcademicEmail($academic, 'recipient@example.test', $this->actor, $key, app(EmailService::class));
+                $this->fail('A non-deliverable document must be refused by the service.');
+            } catch (InvalidArgumentException $exception) {
+                $this->assertNotSame('', $exception->getMessage());
+            }
+        }
+
+        $this->assertDatabaseCount('outbound_deliveries', 0);
+        $this->assertDatabaseCount('email_messages', 0);
     }
 }

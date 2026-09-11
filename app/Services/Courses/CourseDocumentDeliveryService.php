@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Courses;
 
 use App\Enums\Courses\AcademicDocumentStatus;
+use App\Enums\Courses\AcademicDocumentType;
 use App\Enums\Courses\DeliveryStatus;
 use App\Models\Courses\CourseAcademicDocument;
 use App\Models\Courses\CourseCommercialDocument;
@@ -60,8 +61,17 @@ class CourseDocumentDeliveryService
             return $existing;
         }
 
+        // The deliverability rule is the domain's, not the HTTP surface's: an
+        // annulled, replaced or QR-revoked document — or one whose private file is
+        // gone — is refused before any ledger row or queued message exists.
+        // `secureAcademicDocumentUrl()` asserts exactly that rule and returns the
+        // controlled temporary/read route the design allows as the email payload.
+        // The emailed link is valid for days, not minutes: it is opened hours or
+        // days after the message was sent.
+        $documentUrl = $this->secureAcademicDocumentUrl($academic, $this->emailDocumentLinkMinutes());
+
         try {
-            $delivery = DB::transaction(function () use ($academic, $recipient, $operationKey, $email, $actor): OutboundDelivery {
+            $delivery = DB::transaction(function () use ($academic, $recipient, $operationKey, $email, $actor, $documentUrl): OutboundDelivery {
                 $delivery = OutboundDelivery::query()->create([
                     'channel' => OutboundDelivery::CHANNEL_MAIL,
                     'recipient_ref' => $recipient,
@@ -75,9 +85,9 @@ class CourseDocumentDeliveryService
                 $email->send(new EmailMessage([
                     'from_email' => (string) config('mail.from.address'),
                     'from_name' => config('mail.from.name'),
-                    'subject' => 'Documento académico disponible',
-                    'body_html' => ['Documento académico disponible.'],
-                    'body_text' => ['Documento académico disponible.'],
+                    'subject' => $this->academicEmailSubject($academic),
+                    'body_html' => [$this->academicEmailBodyHtml($academic, $documentUrl)],
+                    'body_text' => [$this->academicEmailBodyText($academic, $documentUrl)],
                 ]), [$recipient], [], ['outbound_delivery_id' => $delivery->id], $actor);
 
                 return $delivery;
@@ -110,6 +120,11 @@ class CourseDocumentDeliveryService
 
         $delivery = $this->matchingAcademicDelivery($academic, $operationKey, OutboundDelivery::CHANNEL_WHATSAPP, $phone);
         if ($delivery === null) {
+            // The deliverability rule runs before the ledger row exists, so a
+            // refused handoff leaves no orphan `queued` attempt in the delivery
+            // history. Replays keep returning their existing handoff.
+            $this->assertDeliverableAcademicDocument($academic);
+
             try {
                 $delivery = OutboundDelivery::query()->create([
                     'channel' => OutboundDelivery::CHANNEL_WHATSAPP,
@@ -142,13 +157,7 @@ class CourseDocumentDeliveryService
 
     public function secureAcademicDocumentUrl(CourseAcademicDocument $academic, int $minutes = 60): string
     {
-        $academic->loadMissing('document');
-        if ($academic->document === null
-            || $academic->status !== AcademicDocumentStatus::Current
-            || $academic->qr_token_revoked_at !== null
-            || ! Storage::disk($academic->document->disk)->exists($academic->document->path)) {
-            throw new InvalidArgumentException('A current non-revoked private document is required.');
-        }
+        $this->assertDeliverableAcademicDocument($academic);
 
         return URL::temporarySignedRoute('certificates.documents.show', now()->addMinutes($minutes), [
             'academicDocument' => $academic->id,
@@ -437,5 +446,81 @@ class CourseDocumentDeliveryService
             && $commercial->document->docable_type === CourseCommercialDocument::class
             && (int) $commercial->document->docable_id === (int) $commercial->id
             && Storage::disk($commercial->document->disk)->exists($commercial->document->path);
+    }
+
+    /**
+     * The single deliverability predicate for an academic document: current
+     * status, QR not revoked and its private file actually present on the
+     * configured disk. Every entry point (email, WhatsApp handoff and the signed
+     * URL builder) reads the rule from here, so it lives in exactly one place.
+     */
+    private function hasDeliverableAcademicDocument(CourseAcademicDocument $academic): bool
+    {
+        $academic->loadMissing('document');
+
+        return $academic->document !== null
+            && $academic->status === AcademicDocumentStatus::Current
+            && $academic->qr_token_revoked_at === null
+            && Storage::disk($academic->document->disk)->exists($academic->document->path);
+    }
+
+    private function assertDeliverableAcademicDocument(CourseAcademicDocument $academic): void
+    {
+        if (! $this->hasDeliverableAcademicDocument($academic)) {
+            throw new InvalidArgumentException('A current non-revoked private document is required.');
+        }
+    }
+
+    /**
+     * An emailed link is opened hours or days after the message was sent, so the
+     * WhatsApp 60-minute window would be broken for email. The default lives in
+     * `config/courses.php` next to the other course defaults; the route keeps
+     * re-validating document currency and revocation, so a live link still stops
+     * serving a document that was annulled or replaced afterwards.
+     */
+    private function emailDocumentLinkMinutes(): int
+    {
+        return max(1, (int) config('courses.email_document_link_minutes', 10080));
+    }
+
+    private function academicDocumentTypeLabel(CourseAcademicDocument $academic): string
+    {
+        return match ($academic->type) {
+            AcademicDocumentType::ApprovalCertificate => 'Certificado de aprobación',
+            AcademicDocumentType::ParticipationConstancy => 'Constancia de participación',
+            AcademicDocumentType::TalkCertificate => 'Certificado de charla',
+        };
+    }
+
+    private function academicEmailSubject(CourseAcademicDocument $academic): string
+    {
+        return 'Documento académico: '.$this->academicDocumentTypeLabel($academic).' ('.$academic->code.')';
+    }
+
+    /**
+     * Person-readable Spanish message carrying the controlled temporary/read
+     * route. It never includes the raw QR token, a private storage path or
+     * unrelated PII.
+     */
+    private function academicEmailBodyText(CourseAcademicDocument $academic, string $documentUrl): string
+    {
+        return implode("\n", [
+            'Hola,',
+            '',
+            'Le compartimos por correo su documento académico: '.$this->academicDocumentTypeLabel($academic).' (código '.$academic->code.').',
+            '',
+            'Puede descargarlo de forma segura desde el siguiente enlace:',
+            $documentUrl,
+            '',
+            'Por seguridad, el enlace de descarga tiene vigencia limitada. Si ya venció o necesita una nueva copia, responda a este correo y se lo enviaremos nuevamente.',
+            '',
+            'Atentamente,',
+            'Maia Consultores',
+        ]);
+    }
+
+    private function academicEmailBodyHtml(CourseAcademicDocument $academic, string $documentUrl): string
+    {
+        return nl2br((string) e($this->academicEmailBodyText($academic, $documentUrl)));
     }
 }

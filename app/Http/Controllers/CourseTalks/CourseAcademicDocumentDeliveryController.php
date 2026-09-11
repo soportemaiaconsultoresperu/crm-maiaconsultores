@@ -21,11 +21,11 @@ use InvalidArgumentException;
  *
  * Thin by design. `send` on CourseAcademicDocument authorizes all three actions
  * (route gate, form contract and the domain service all ask for the same
- * ability) and CourseDocumentDeliveryService owns every rule — ledger rows,
- * idempotency keys, status transitions, snapshot updates and the `wa.me` URL.
- * This controller only decides how a domain rejection is reported, so no
- * rejection becomes an HTTP 500, and it never rebuilds a URL, validates a
- * recipient or touches the ledger itself.
+ * ability) and CourseDocumentDeliveryService owns every rule — the deliverability
+ * precondition, ledger rows, idempotency keys, status transitions, snapshot
+ * updates and the `wa.me` URL. This controller only decides how a domain
+ * rejection is reported, so no rejection becomes an HTTP 500, and it never
+ * rebuilds a URL, validates a recipient or touches the ledger itself.
  *
  * Email goes through the queued path (`queueAcademicEmail()`): the delivery is
  * recorded as an attempt and the document snapshot is only marked `sent` once the
@@ -65,8 +65,6 @@ class CourseAcademicDocumentDeliveryController extends Controller
         $edition = $this->editionOf($academicDocument);
 
         try {
-            $this->assertDeliverable($academicDocument);
-
             $this->deliveries->queueAcademicEmail(
                 $academicDocument,
                 (string) $request->validated('recipient'),
@@ -91,8 +89,6 @@ class CourseAcademicDocumentDeliveryController extends Controller
         $edition = $this->editionOf($academicDocument);
 
         try {
-            $this->assertDeliverable($academicDocument);
-
             $handoff = $this->deliveries->openAcademicWhatsAppHandoff(
                 $academicDocument,
                 (string) $request->validated('recipient_phone'),
@@ -135,24 +131,6 @@ class CourseAcademicDocumentDeliveryController extends Controller
 
         return $this->backToIndex($edition)
             ->with('status', 'Entrega por WhatsApp confirmada y registrada en el historial de entregas.');
-    }
-
-    /**
-     * Reuses the service's own deliverability predicate instead of duplicating it:
-     * CourseDocumentDeliveryService::secureAcademicDocumentUrl() refuses a document
-     * that is not current, whose QR token is revoked or whose private file is
-     * missing. The check is delegated here for BOTH channels before anything is
-     * written, because neither delivery entry point validates the document first:
-     * the queued email path never checks it at all, and
-     * openAcademicWhatsAppHandoff() records its queued ledger row before it builds
-     * the message and discovers the document is not deliverable — which would leave
-     * an orphan attempt behind for a document that was refused. The temporary URL
-     * the predicate builds is deliberately discarded and never rendered, flashed or
-     * logged.
-     */
-    private function assertDeliverable(CourseAcademicDocument $document): void
-    {
-        $this->deliveries->secureAcademicDocumentUrl($document);
     }
 
     private function editionOf(CourseAcademicDocument $document): CourseEdition

@@ -300,6 +300,18 @@ class CourseAcademicDocumentDeliveryHttpTest extends TestCase
         $this->assertNotNull($delivery->email_message_id);
         $this->assertSame('jefa@example.test', $delivery->emailMessage->participants()->where('kind', 'to')->value('email'));
 
+        // D1 regression at the HTTP boundary: the queued message must carry the
+        // document through a working signed link, not the old one-line placeholder
+        // that told the recipient a document was available but gave no way to it.
+        $message = $delivery->emailMessage;
+        $this->assertNotSame('Documento académico disponible', $message->subject);
+        $this->assertStringContainsString($document->code, $message->subject);
+        $this->assertNotSame('Documento académico disponible.', $message->body_text[0]);
+        $this->assertStringContainsString('/certificate/documents/'.$document->id, $message->body_text[0]);
+        $this->assertStringContainsString('signature=', $message->body_text[0]);
+        $this->assertStringNotContainsString('sha256-secret-hash', $message->body_text[0]);
+        $this->assertStringNotContainsString('course-academic-documents/', $message->body_text[0]);
+
         // The queued path never marks the document sent by itself.
         $document = $document->fresh();
         $this->assertSame(DeliveryStatus::Pending, $document->delivery_status);
@@ -510,8 +522,11 @@ class CourseAcademicDocumentDeliveryHttpTest extends TestCase
         $this->sendEmail($withoutFile, 'jefa@example.test', 'refused-missing-file')
             ->assertSessionHasErrors('documents');
 
-        // No attempt reaches the ledger for a document that cannot be delivered.
+        // No attempt reaches the ledger for a document that cannot be delivered,
+        // and no queued message is left behind for either channel. The rule now
+        // lives in the service, so the surface no longer needs its own pre-check.
         $this->assertDatabaseCount('outbound_deliveries', 0);
+        $this->assertDatabaseCount('email_messages', 0);
         $this->assertSame(AcademicDocumentStatus::Annulled, $annulled->fresh()->status);
         $this->assertSame(DeliveryStatus::Pending, $annulled->fresh()->delivery_status);
 
