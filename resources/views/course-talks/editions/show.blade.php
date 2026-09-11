@@ -31,6 +31,9 @@
         @can('manageGrades', $edition)
             <a href="{{ route('course-talks.grades.index', $edition) }}" class="btn btn-outline-primary">Notas</a>
         @endcan
+        @can('view', $edition)
+            <a href="{{ route('course-talks.documents.index', $edition) }}" class="btn btn-outline-primary">Documentos</a>
+        @endcan
     </nav>
 
     <div class="card" data-testid="course-talks-edition-detail">

@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
 use App\Http\Controllers\CourseTalks\CourseActivityController;
 use App\Http\Controllers\CourseTalks\CourseActivityReadController;
 use App\Http\Controllers\CourseTalks\CourseAttendanceController;
@@ -102,6 +103,20 @@ Route::middleware(['auth', 'active'])
         Route::controller(CourseGradeController::class)->group(function (): void {
             Route::get('editions/{edition}/grades', 'index')->name('grades.index');
             Route::post('editions/{edition}/grades', 'store')->name('grades.store');
+        });
+
+        // Slice 6.e-1 — academic document lifecycle of one edition (list with the
+        // expected type and eligibility, generate, regenerate and annul). The
+        // enrollment-scoped and document-scoped actions post to their own
+        // endpoints so each payload keeps its own FormRequest (same split as
+        // `enrollments.groups.store` and `editions.teachers.sync`), and the static
+        // `documents` segments are registered before the read-only group's
+        // `editions/{edition}` binding so none of them is shadowed by it.
+        Route::controller(CourseAcademicDocumentController::class)->group(function (): void {
+            Route::get('editions/{edition}/documents', 'index')->name('documents.index');
+            Route::post('enrollments/{enrollment}/documents', 'store')->name('documents.generate');
+            Route::post('documents/{academicDocument}/regenerate', 'regenerate')->name('documents.regenerate');
+            Route::post('documents/{academicDocument}/annul', 'annul')->name('documents.annul');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {
