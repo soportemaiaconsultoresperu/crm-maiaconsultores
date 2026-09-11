@@ -8,6 +8,7 @@ use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseActivityController;
 use App\Http\Controllers\CourseTalks\CourseActivityReadController;
+use App\Http\Controllers\CourseTalks\CourseAttendanceController;
 use App\Http\Controllers\CourseTalks\CourseEditionController;
 use App\Http\Controllers\CourseTalks\CourseEnrollmentController;
 use App\Http\Controllers\CustomerInvoiceController;
@@ -82,6 +83,15 @@ Route::middleware(['auth', 'active'])
 
             Route::patch('enrollments/{enrollment}/payment-status', 'updatePaymentStatus')
                 ->name('enrollments.payment-status.update');
+        });
+
+        // Slice 6.c — attendance matrix of one edition (read the matrix, mark
+        // the submitted cells). The static `attendance` segment is registered
+        // before the read-only group's `editions/{edition}` binding so it is
+        // never shadowed by it.
+        Route::controller(CourseAttendanceController::class)->group(function (): void {
+            Route::get('editions/{edition}/attendance', 'index')->name('attendance.index');
+            Route::post('editions/{edition}/attendance', 'store')->name('attendance.store');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {

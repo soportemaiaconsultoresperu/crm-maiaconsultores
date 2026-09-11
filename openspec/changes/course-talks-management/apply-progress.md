@@ -1706,3 +1706,95 @@ All runs used `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test
 ### Next step
 
 - Unit 6.c, attendance matrix, remains the next implementation unit. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
+
+## Slice 6 unit 6.c — attendance matrix
+
+### Scope and status contract
+
+- Authorized work unit: unit 6.c, `Attendance matrix`, in the authenticated `course-talks` route group. Strict TDD active; runner `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH). No commit, no push, no branch/worktree change, no migration, no domain-service change.
+- Structured status consumed (native, authoritative): the parent prompt supplied the unit scope, the artifact store (`openspec`), the repo root and the allowed edit surfaces. Readiness was additionally resolved from the native dispatcher: `gentle-ai sdd-status course-talks-management --cwd . --json --instructions` → `schemaName=gentle-ai.sdd-status`, `changeName=course-talks-management`, `artifactStore=openspec`, `planningHome.mode=repo-local`, `applyState=ready`, `nextRecommended=apply`, `blockedReasons=[]`, `dependencies.apply=ready`, `dependencies.verify=blocked`, `actionContext.mode=repo-local`, `workspaceRoot=C:\laragon\www\crm-maia-consultores`, `allowedEditRoots=[C:\laragon\www\crm-maia-consultores]`. Every edited path is inside that root and inside the surfaces the parent authorized; no unsafe `actionContext` was present.
+- Native attempt note (parent-owned, unchanged): the dispatcher reports an active attempt token `sha256:d072d16e49278f7bfd0a2bdd2644dcf3400a22862f5d65e1b7cdfc4ffa82ba77` for this change. No `sdd-attempt acquire` or `settle` was performed here; attempt authority stays with the parent.
+- Warning (unchanged from earlier units): `openspec/config.yaml` still documents the unrelated `b12-ui` change and a bare `php artisan test` command; the change directory plus the absolute PHP executable were treated as authoritative and the file was deliberately not rewritten.
+- Review Workload Gate: `tasks.md` forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent pre-resolved the delivery path for this bounded stacked-to-main unit, so no decision blocker remained. **This unit exceeds the 400-line review budget: 780 added / 0 deleted lines (see the workload section below).**
+
+### Behavior delivered
+
+- `GET editions/{edition}/attendance` (`attendance.index`) and `POST editions/{edition}/attendance` (`attendance.store`), inside the existing authenticated `auth`+`active` `course-talks` group. The group is registered before the read-only group's `editions/{edition}` binding, so the static `attendance` segment can never be shadowed; `route:list` confirms both routes carry `web`, `Illuminate\Auth\Middleware\Authenticate` and `App\Http\Middleware\EnsureUserIsActive`.
+- Matrix listing: rows are the edition's enrollments (participant name, document type/number) in stable id order, columns are the edition's sessions ordered by `session_date` then `sort_order`, and each cell renders the stored `course_attendances.status` (`Sin marcar` when no row exists). The edition identity (activity name, activity type label, code, modality, session count) is shown above the table.
+- Bulk marking: one form per edition submits every rendered cell as `cells[N][enrollment_id]`, `cells[N][session_id]`, `cells[N][status]`; the controller iterates the submitted cells and calls `CourseAttendanceService::mark()` once per cell with the authenticated actor. The service remains the only owner of the valid statuses, the same-edition check, the talk participation refresh and the eligibility trigger.
+- Talk editions surface participation: a per-row badge renders `Participación confirmada` / `Participación pendiente` from `participation_confirmed_at`, plus an explanatory note that Presente/Tardanza/Justificado confirm participation and that participation (with payment and validations) enables the talk certificate. Course editions render an explicit informational note instead and no participation column.
+- Read-only path for `course-talks.view` holders: the matrix renders status badges without editable cells and without the submit button; the write route stays behind `course-talks.attendance.manage` in both the FormRequest `authorize()` and the controller `Gate::authorize()`.
+- Clear empty states: no sessions renders an informational alert and no matrix/editable control; sessions but no enrollments renders the table's empty row (`Todavía no hay participantes inscritos en esta edición.`) with no editable cells and no submit button.
+- Error surfacing: any `InvalidCourseEditionData` raised by the service (invalid status, session/enrollment from another edition) and any cell whose row vanished after render is returned as `back()->withInput()->withErrors(['attendance' => ...])` and rendered by the view's error alert — never an HTTP 500. The message is the service's own, so the rule stays single-sourced.
+
+### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE / REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.c attendance matrix: listing, bulk marking through the service, talk participation, course informational copy, empty states, authorization | `tests/Feature/Courses/CourseAttendanceHttpTest.php` | Feature / HTTP | `--filter=Course` pre-edit: 202 tests / 1,202 assertions passing | 13 tests written first; RED run failed with 13 errors, all `Route [course-talks.attendance.index] not defined.` (an initial helper named `session()` collided with the base `TestCase::session()` and produced a PHP fatal — a test-harness defect, renamed to `courseSession()` before recording the RED) | After routes, request, controller and view: 12/13 passing; the single failure was a wrong test-fixture expectation (the helper hardcoded the participant first name, so `Diaz, Marco` was never created) — fixture corrected, not production code | Triangulated with the mirrored same-edition case (foreign enrollment + own session), a third interaction (`excused`/`late`/`absent` confirm only the participating statuses) and participation clearing when no participating status remains; final 16 tests / 104 assertions passing |
+
+**Test summary**
+
+- Total tests written: 16 new HTTP tests, 104 assertions, all passing (the class went from nonexistent to 16).
+- Layers: Feature/HTTP 16. Unit 0 (the attendance rules are the service's; no unit-level rule was introduced by this unit).
+- Behavioral assertions cover: guest redirects on both routes; full 403 matrix for a user without module permission and for a `course-talks.view` viewer; read-but-not-write for a viewer (no editable cell, no submit control, write still 403, stored status unchanged); matrix content (edition identity, participants, session columns ordered by date/sort order rather than creation, stored status rendered as the selected cell value, unmarked default, other editions' sessions and enrollments absent); bulk marking of four cells with `marked_by` = authenticated actor and `marked_at` recorded; update-in-place on re-submit (one row per session/enrollment pair); mismatched session **and** mismatched enrollment surfaced as visible errors with zero persisted rows and no 500; invalid status surfaced from the service; unknown ids/empty matrix reported as validation errors; talk participation confirmed, cleared and restricted to the participating statuses; course informational copy; both empty states.
+- Service ownership is asserted rather than re-implemented: the talk participation transitions (`participation_confirmed_at`) and the same-edition rejection are exercised through HTTP and asserted on the domain state, with the service's own messages (`must belong to the same edition`, `Attendance status is invalid`) reaching the user.
+- Harness helper caveat: a private test helper named `session()` overrides `Illuminate\Foundation\Testing\TestCase::session()` and is a PHP fatal error (access-level mismatch), not a test failure. Use a distinct name (`courseSession()`).
+
+### Commands and results (exact)
+
+- Safety net (pre-edit): `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=Course` → `{"tool":"phpunit","result":"passed","tests":202,"passed":202,"assertions":1202,"duration_ms":40012}`.
+- RED: `--filter=CourseAttendanceHttpTest` → `{"tool":"phpunit","result":"failed","tests":13,"passed":0,"assertions":0,"duration_ms":2108,"errors":13}` — every error was `Route [course-talks.attendance.index] not defined.`
+- GREEN iteration 1: same command → `{"result":"failed","tests":13,"passed":12,"assertions":80,"failed":1}` — the single failure was the fixture bug described above (`contains "Diaz, Marco"`).
+- GREEN: same command → `{"tool":"phpunit","result":"passed","tests":13,"passed":13,"assertions":87,"duration_ms":2903}`.
+- TRIANGULATE: same command → `{"tool":"phpunit","result":"passed","tests":16,"passed":16,"assertions":104,"duration_ms":4540}`.
+- REFACTOR (try scoped to the service call only, no exception-for-control-flow, unused import removed) and final focused verification: same command → `{"tool":"phpunit","result":"passed","tests":16,"passed":16,"assertions":104,"duration_ms":3848}`.
+- Regression: `--filter=Course` → `{"tool":"phpunit","result":"passed","tests":218,"passed":218,"assertions":1306,"duration_ms":44230}` (the 6.a/6.b evidence suites remain green inside that run).
+- Pint (project formatter) on the three new PHP files: `pint --test …` → `{"tool":"pint","result":"passed"}`.
+- Route surface: `artisan route:list --name=course-talks` shows 18 routes, including the two new ones; `route:list --name=course-talks.attendance --json` shows both carrying `web`, `Illuminate\Auth\Middleware\Authenticate` and `App\Http\Middleware\EnsureUserIsActive`. No menu/sidebar entry was added (unit 6.g).
+- Hygiene: `php.exe -l` reported no syntax errors for the controller, the request, the test file and `routes/web.php`; `git status --porcelain` lists only `routes/web.php` (modified) plus the three new untracked files; `git diff --cached --name-only` was empty, so nothing was staged and no commit was made. No migration, reset or database operation other than the in-memory SQLite test database ran.
+
+### Task persistence
+
+- `tasks.md` row 6.c was changed from `- [ ]` to `- [x]` with its evidence appended, and its `<!-- sdd-owner: implementation -->` marker was left terminal and intact.
+- No `<!-- sdd-owner: parent -->` row was touched, and no other implementation row was marked: the aggregate Slice 6 rows stay open because units 6.d–6.g and the slice-wide RED/GREEN/TRIANGULATE/REFACTOR/verification rows are still pending.
+- The persisted `tasks.md` was re-read after the edit: 6.c is visibly `- [x]`; every remaining Slice 6 row is visibly `- [ ]`.
+
+### Files changed
+
+- `app/Http/Controllers/CourseTalks/CourseAttendanceController.php` (new, 101 lines)
+- `app/Http/Requests/CourseTalks/StoreCourseAttendanceRequest.php` (new, 72 lines)
+- `resources/views/course-talks/editions/attendance.blade.php` (new, 146 lines)
+- `tests/Feature/Courses/CourseAttendanceHttpTest.php` (new, 451 lines)
+- `routes/web.php` (+10 / −0, inside the existing `course-talks.` group only: 1 import + 3 comment lines + the 4-line controller group + 1 blank line; `git diff --numstat routes/web.php` reports exactly `10 0`)
+- `openspec/changes/course-talks-management/tasks.md` (6.c checkbox + evidence)
+- `openspec/changes/course-talks-management/apply-progress.md` (this entry)
+
+### Workload / PR boundary
+
+- Review budget was 400 changed lines. Actual: **780 added / 0 deleted** — production 329 (controller 101, request 72, view 146, routes 10), tests 451.
+- The overage (≈1.95×) comes almost entirely from the HTTP test class (451 lines, 16 tests). It is reported as a risk rather than compensated by trimming coverage or starting another unit, per the parent's instruction. If a smaller review is required, the natural split is production-only (controller + request + view + routes, 329 lines) followed by a tests-only follow-up (451 lines), because the unit cannot be split further without shipping one of its four workflows untested.
+- PR boundary: unit 6.c only. Grades (6.d), academic/commercial document actions (6.e/6.f), navigation or menu exposure (6.g), schema changes, domain services, Docker and docs are untouched. `CourseAttendanceService`, `CourseEligibilityTriggerService`, the course models, the migrations and the existing service tests were not modified (confirmed by `git status`).
+
+### Deviations from the instruction
+
+1. **The bulk payload is a positional list of cells, not a nested id map.** The form submits `cells[N][enrollment_id]`, `cells[N][session_id]`, `cells[N][status]` so the request can use the repo's existing wildcard-validation pattern (`StoreCourseEnrollmentGroupRequest`), instead of keying the payload by enrollment/session id, which Laravel cannot validate with `exists` without per-key dynamic rules. The two routes and their names are exactly the requested ones.
+2. **`exists` rules are input existence, not edition membership.** `cells.*.session_id`/`cells.*.enrollment_id` are checked against their tables purely so an id that can never resolve reports a field-level error; which edition a session or enrollment belongs to stays the service's same-edition rule, and the tests exercise both mismatched sides. A cell whose row disappeared after render (soft delete or a race) is caught by a null guard and returned as a visible validation error, so no stale payload can 404 or 500.
+3. **The attendance status labels live in the Blade view.** There is no attendance-status enum and the valid set is a private constant of `CourseAttendanceService`; adding an enum was outside the allowed edit surfaces. The view therefore holds the display map (Presente/Ausente/Tardanza/Justificado/Sin marcar) with a fallback for unexpected stored values, mirroring how `enrollments/index.blade.php` holds the enrollment-state and payment-status label maps. The request deliberately does **not** validate the status values, so the service's rule and message stay single-sourced and reach the user.
+4. **Every rendered cell is submitted on save**, so the service re-marks cells the user did not change (idempotent `updateOrCreate` per session/enrollment pair, refreshing `marked_at`/`marked_by`). Skipping unchanged cells in the controller was rejected on purpose: "which cells count as a change" is an attendance rule, and this unit required the controller to stay free of attendance rules. Consequence: a bulk save rewrites the whole submitted matrix, which the service already treats as an upsert.
+5. **The controller stops at the first rejected cell** (`return back()->withInput()`) instead of continuing with the remaining cells. The service commits each cell in its own transaction, so cells before the rejected one are already persisted; the matrix re-reads persisted state on the next render, so the user always sees the true state. This is documented behavior, not a hidden partial success.
+6. **No link was added from the edition detail page** to the matrix: `resources/views/course-talks/editions/show.blade.php` is outside the authorized edit surfaces, so the matrix is reachable by URL only until navigation work in 6.g. The matrix itself links back to the edition.
+7. **Bookkeeping incident (self-inflicted, resolved).** The first attempt to append this section used a shell heredoc that the tool truncated mid-write, leaving a partial section in `apply-progress.md`. The file was restored byte-for-byte to its committed state (`git diff` clean at 1708 lines, verified against `HEAD`) and the section was then re-appended in full. No completed prior work was lost.
+
+### Remaining tasks (exact unchecked lines)
+
+- `- [ ] 6.d Grade matrix: course grade recording and correction, with grades blocked for talks. <!-- sdd-owner: implementation -->`
+- `- [ ] 6.e Academic document actions: generate, regenerate, annul, email, WhatsApp handoff, confirm sent, and discard. <!-- sdd-owner: implementation -->`
+- `- [ ] 6.f Commercial document actions: register, upload, send, and discard, plus certificate template settings. <!-- sdd-owner: implementation -->`
+- `- [ ] 6.g Navigation exposure for authorized users only. <!-- sdd-owner: implementation -->`
+- Slice 6 aggregate rows (RED, GREEN routes, GREEN controllers/requests, GREEN views, GREEN menu, TRIANGULATE, REFACTOR, focused verification) remain unchecked by design; they close only when units 6.d–6.g are delivered.
+- Parent-owned rows remain untouched: the Slice 0 review-context row, the Slice 1/2/3 review rows, the Slice 4/5 review rows, and the Slice 6 UI review row.
+
+### Next step
+
+- Unit 6.d, grade matrix, remains the next implementation unit. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
