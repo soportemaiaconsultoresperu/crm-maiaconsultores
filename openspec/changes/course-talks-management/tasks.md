@@ -103,7 +103,7 @@ Chain strategy: stacked-to-main (approved)
 The slice-level rows above are aggregate and cannot be checked until every workflow is delivered. Track progress through these units instead.
 
 - [x] 6.a Activities and editions HTTP surfaces: authenticated `course-talks` route group, activity index/show/create/store, edition create/store/show with teacher and session management, form requests, and Blade views. Evidence: `CourseActivityCreateHttpTest`, `CourseEditionCreateHttpTest`, `CourseEditionSessionsHttpTest`, `CourseEditionTeachersHttpTest`, `CourseTalksReadOnlyHttpTest` — 63 tests / 370 assertions passing. <!-- sdd-owner: implementation -->
-- [ ] 6.b Enrollments and participants UI: per-edition enrollment list, participant linking and creation, group payer enrollment, and payment status display. <!-- sdd-owner: implementation -->
+- [x] 6.b Enrollments and participants UI: per-edition enrollment list, participant linking and creation, group payer enrollment, and payment status display. Evidence: `CourseEnrollmentHttpTest` — 21 tests / 161 assertions passing; `--filter=Course` regression run 202 tests / 1,202 assertions passing. <!-- sdd-owner: implementation -->
 - [ ] 6.c Attendance matrix: per-session attendance marking for courses and informational attendance for talks. <!-- sdd-owner: implementation -->
 - [ ] 6.d Grade matrix: course grade recording and correction, with grades blocked for talks. <!-- sdd-owner: implementation -->
 - [ ] 6.e Academic document actions: generate, regenerate, annul, email, WhatsApp handoff, confirm sent, and discard. <!-- sdd-owner: implementation -->

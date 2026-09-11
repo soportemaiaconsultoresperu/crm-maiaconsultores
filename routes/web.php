@@ -9,6 +9,7 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseActivityController;
 use App\Http\Controllers\CourseTalks\CourseActivityReadController;
 use App\Http\Controllers\CourseTalks\CourseEditionController;
+use App\Http\Controllers\CourseTalks\CourseEnrollmentController;
 use App\Http\Controllers\CustomerInvoiceController;
 use App\Http\Controllers\CustomerProductController;
 use App\Http\Controllers\DashboardController;
@@ -65,6 +66,22 @@ Route::middleware(['auth', 'active'])
             // binding so it is never shadowed by it.
             Route::get('editions/{edition}/sessions', 'sessions')->name('editions.sessions');
             Route::post('editions/{edition}/sessions', 'syncSessions')->name('editions.sessions.sync');
+        });
+
+        // Slice 6.b — participants/enrollments of one edition. The static
+        // `enrollments`, `enrollments/create` and `enrollment-groups` segments
+        // are registered before the read-only group's `editions/{edition}`
+        // binding so none of them can be shadowed by it, and the group surface
+        // posts to its own endpoint so each payload shape keeps its own
+        // FormRequest (same split as `editions.teachers.sync`).
+        Route::controller(CourseEnrollmentController::class)->group(function (): void {
+            Route::get('editions/{edition}/enrollments/create', 'create')->name('enrollments.create');
+            Route::get('editions/{edition}/enrollments', 'index')->name('enrollments.index');
+            Route::post('editions/{edition}/enrollments', 'store')->name('enrollments.store');
+            Route::post('editions/{edition}/enrollment-groups', 'storeGroup')->name('enrollments.groups.store');
+
+            Route::patch('enrollments/{enrollment}/payment-status', 'updatePaymentStatus')
+                ->name('enrollments.payment-status.update');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {
