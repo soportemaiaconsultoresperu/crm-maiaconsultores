@@ -26,6 +26,11 @@
             <a href="{{ route('course-talks.enrollments.create', $edition) }}" class="btn btn-outline-primary">Inscribir participante</a>
         @endcan
         <a href="{{ route('course-talks.attendance.index', $edition) }}" class="btn btn-outline-primary">Asistencia</a>
+        {{-- The grade matrix requires the same ability the route itself
+             requires, so a rendered link can never answer 403. --}}
+        @can('manageGrades', $edition)
+            <a href="{{ route('course-talks.grades.index', $edition) }}" class="btn btn-outline-primary">Notas</a>
+        @endcan
     </nav>
 
     <div class="card" data-testid="course-talks-edition-detail">

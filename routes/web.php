@@ -11,6 +11,7 @@ use App\Http\Controllers\CourseTalks\CourseActivityReadController;
 use App\Http\Controllers\CourseTalks\CourseAttendanceController;
 use App\Http\Controllers\CourseTalks\CourseEditionController;
 use App\Http\Controllers\CourseTalks\CourseEnrollmentController;
+use App\Http\Controllers\CourseTalks\CourseGradeController;
 use App\Http\Controllers\CustomerInvoiceController;
 use App\Http\Controllers\CustomerProductController;
 use App\Http\Controllers\DashboardController;
@@ -92,6 +93,15 @@ Route::middleware(['auth', 'active'])
         Route::controller(CourseAttendanceController::class)->group(function (): void {
             Route::get('editions/{edition}/attendance', 'index')->name('attendance.index');
             Route::post('editions/{edition}/attendance', 'store')->name('attendance.store');
+        });
+
+        // Slice 6.d — grade matrix of one edition (read the matrix, record the
+        // submitted grades). Same per-cell bulk submit as attendance; the static
+        // `grades` segment is registered before the read-only group's
+        // `editions/{edition}` binding so it is never shadowed by it.
+        Route::controller(CourseGradeController::class)->group(function (): void {
+            Route::get('editions/{edition}/grades', 'index')->name('grades.index');
+            Route::post('editions/{edition}/grades', 'store')->name('grades.store');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {

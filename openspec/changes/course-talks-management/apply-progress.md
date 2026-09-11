@@ -1892,3 +1892,104 @@ All runs used `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test
 
 - Unit 6.d, grade matrix, remains the next implementation unit; 6.e and 6.f follow. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
 
+
+## Slice 6 unit 6.d — grade matrix
+
+### Scope and status contract
+
+- Authorized work unit: unit 6.d, `Grade matrix`, in the authenticated `course-talks` route group. Strict TDD active; runner `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH). No commit, no push, no branch/worktree change, no migration, no domain-service change.
+- Structured status consumed (native, authoritative): the parent prompt supplied the unit scope, the artifact store (`openspec`), the repo root and the allowed edit surfaces. Readiness was additionally resolved from the native dispatcher: `gentle-ai sdd-status course-talks-management --cwd . --json --instructions` → `schemaName=gentle-ai.sdd-status`, `changeName=course-talks-management`, `artifactStore=openspec`, `planningHome.mode=repo-local`, `applyState=ready`, `nextRecommended=apply`, `blockedReasons=[]`, `dependencies.apply=ready`, `dependencies.verify=blocked`, `actionContext.mode=repo-local`, `workspaceRoot=C:\laragon\www\crm-maia-consultores`, `allowedEditRoots=[C:\laragon\www\crm-maia-consultores]`. Every edited path is inside that root and inside the surfaces the parent authorized; no unsafe `actionContext` was present.
+- Native attempt note (parent-owned, unchanged): `gentle-ai sdd-attempt status` reports the active attempt token `sha256:d072d16e49278f7bfd0a2bdd2644dcf3400a22862f5d65e1b7cdfc4ffa82ba77`, whose objective is `slice-5-delivery-closure` (`max_changed_lines: 400`), i.e. **not** this unit. No `sdd-attempt acquire` or `settle` was performed here; attempt authority stays with the parent, and that token belongs to a different work unit.
+- Warning (unchanged from earlier units): `openspec/config.yaml` still documents the unrelated `b12-ui` change and a bare `php artisan test` command; the change directory plus the absolute PHP executable were treated as authoritative and the file was deliberately not rewritten.
+- Review Workload Gate: `tasks.md` forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent pre-resolved the delivery path for this bounded stacked-to-main unit, so no decision blocker remained. **This unit exceeds the 400-line review budget: 827 added / 0 deleted lines (see the workload section below).**
+
+### Behavior delivered
+
+- `GET editions/{edition}/grades` (`grades.index`) and `POST editions/{edition}/grades` (`grades.store`), inside the existing authenticated `auth`+`active` `course-talks` group and registered before the read-only group's `editions/{edition}` binding, so the static `grades` segment can never be shadowed; `route:list` confirms both routes.
+- Matrix listing: rows are the edition's enrollments (participant name, document type/number) in stable id order, columns are the edition's sessions ordered by `session_date` then `sort_order`, and each cell renders the stored `course_grades.grade` (empty when no row exists) and accepts a value. The edition identity (activity name, activity type label, code, modality, session count) is shown above the table.
+- Row outcome: every row renders the enrollment's recalculation outcome produced by the domain — `Promedio exacto`, `Promedio`, `Redondeado` from `exact_average`/`display_average`/`rounded_result`, plus the `final_result` badge (`Aprobado` / `Participación` / `Pendiente` / `No aplica`). The averages are read from the enrollment row, never recomputed in PHP or Blade.
+- Bulk recording: one form per edition submits every rendered cell as `grades[N][enrollment_id]`, `grades[N][session_id]`, `grades[N][grade]`; the controller iterates the submitted cells and calls `CourseGradeService::record()` once per cell with the authenticated actor. The service remains the only owner of the accepted value range (through `CourseGradeCalculator`), the same-edition check, the talk rejection, the upsert correction path and the recalculation.
+- Correction path: recording again for the same session+enrollment is the service's `updateOrCreate`, so the matrix corrects in place (one `course_grades` row per pair) and the row outcome updates. The row's existing `description` is carried through from the submitted cells, because this surface has no description field and re-recording must not silently clear a description set elsewhere.
+- Talk editions: no grade inputs, no session columns, no averages; the screen renders an explicit Spanish note (`las charlas no usan notas` in v1) plus a participation table driven by `participation_confirmed_at` (`Participación confirmada` / `Participación pendiente`), matching the spec scenario "show participation status, MUST NOT require grades or course averages". A submission that still reaches the server is rejected by the service and surfaced as a visible error carrying the service's own message — never an HTTP 500.
+- An untouched cell is not a zero: `StoreCourseGradeRequest::cells()` drops empty grades, so they are never recorded. A submission that carries no grade at all reports `No se enviaron notas para guardar.` instead of claiming a save.
+- Error surfacing: any `InvalidArgumentException` from the service/calculator (talk edition, session from another edition, out-of-range or malformed value) and any cell whose row vanished after render is returned as `back()->withInput()->withErrors(['grades' => ...])` and rendered by the view's error alert; the typed value is preserved through `old()`. The message is the service's own, so the rule stays single-sourced.
+- Authorization: `course-talks.grades.manage` through `CourseEditionPolicy::manageGrades` guards `grades.index`, `grades.store` and the `StoreCourseGradeRequest::authorize()` gate. The edition-detail `Notas` link is rendered only inside `@can('manageGrades', $edition)`, i.e. under exactly the ability the route itself requires, so no rendered link can answer 403; a `course-talks.view` module viewer gets 403 on both verbs and no link.
+- Empty states: no sessions renders an informational alert and no matrix/form; sessions but no enrollments renders the empty-participants message and no form.
+
+### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE / REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.d grade matrix: listing with row outcome, bulk recording through the service, correction, approval boundary, talk blocking, domain rejections, authorization, empty states | `tests/Feature/Courses/CourseGradeHttpTest.php` | Feature / HTTP | `CourseAttendanceHttpTest` pre-edit: 16 tests / 104 assertions passing (the unit's direct sibling) | 10 tests written first; RED run failed with 10 errors, all `Route [course-talks.grades.index] not defined.` (no PHP fatal: the helper names avoid `TestCase::session()` and no test references a class that does not exist yet) | After routes, request, controller, view and the edition-detail link: 10/10 passing on the first run, 102 assertions — no production defect needed a second GREEN iteration | Mutation checks proved the assertions bite: removing the carried-through `description` failed the correction test (`"description": null` instead of `Examen final`), and forcing `$isTalk = false` failed the talk test (the matrix rendered grade inputs for a talk edition). Both mutations were reverted; final 10 tests / 102 assertions passing |
+
+**Test summary**
+
+- Total tests written: 10 new HTTP tests, 102 assertions, all passing (the class went from nonexistent to 10).
+- Layers: Feature/HTTP 10. Unit 0 (the value range, rounding and result decision are the `CourseGradeCalculator` unit test's territory and were not duplicated).
+- Behavioral assertions cover: guest redirects on both routes with zero rows; 403 for both verbs for a `course-talks.view` viewer plus the hidden/revealed `Notas` link; matrix content (edition identity, participant rows, session columns ordered by date/sort order rather than creation, stored grade rendered as the current cell value, unmarked cell empty, another edition's sessions and enrollments absent); row outcome rendering (`Promedio exacto: 12.5000`, `Promedio: 12.50`, `Redondeado: 13`, `Aprobado`); bulk recording of four cells with `entered_by` = authenticated actor, the empty cell skipped rather than stored as zero, equal-weight recalculation (`13.0000` approved, `10.5000` → `11` participation) and a subsequent no-grade submission reporting that nothing was saved; correction in place (one row, `12.49` → `15.00`, description preserved, result recalculated to approved); the approval boundary (`12.49` participation vs `12.50` approved through HTTP); talks (no `grades[` input, no `Guardar notas`, participation shown, submission rejected with `Talk editions do not accept grades.` and zero rows); domain rejections for a foreign session (`must belong to the same edition`) and an out-of-range value (`Invalid grade [25].`) with the typed value preserved and zero rows; unknown/empty submissions reported as validation errors; both empty states.
+- Service ownership is asserted rather than re-implemented: the same-edition rejection, the talk rejection, the value range and the recalculation are all exercised through HTTP and asserted on the domain state or on the service's own messages.
+- Harness note (carried from 6.c): private test helpers must not be named `session()`; the new helpers (`edition`, `courseSession`, `enrollment`, `cell`, `indexUrl`, `store`) collide with nothing in `TestCase`.
+
+### Commands and results (exact)
+
+- Safety net (pre-edit): `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=CourseAttendanceHttpTest` → `{"tool":"phpunit","result":"passed","tests":16,"passed":16,"assertions":104,"duration_ms":4470}`.
+- RED: `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=CourseGradeHttpTest` → `{"tool":"phpunit","result":"failed","tests":10,"passed":0,"assertions":0,"duration_ms":2224,"errors":10}` — every error was `Route [course-talks.grades.index] not defined.`
+- GREEN: same command → `{"tool":"phpunit","result":"passed","tests":10,"passed":10,"assertions":102,"duration_ms":7781}`.
+- TRIANGULATE (mutation checks): same command with the description carry-through removed → `{"result":"failed","tests":10,"passed":9,"failed":1}` on the correction test (`"description": null`); the same command with `$isTalk` forced to `false` → `{"result":"failed","tests":1,"passed":0}` on the talk test (grade inputs rendered for a talk edition). Both mutations reverted.
+- Final focused verification: same command → `{"tool":"phpunit","result":"passed","tests":10,"passed":10,"assertions":102,"duration_ms":5954}`.
+- Regression: `--filter=Course` → `{"tool":"phpunit","result":"passed","tests":239,"passed":239,"assertions":1541,"duration_ms":61029}`. The 6.g baseline was 229 tests / 1,439 assertions, so this unit adds exactly its own 10 tests / 102 assertions and changes no existing result (`CourseTalksNavigationTest` green inside that run).
+- Pint (project formatter) on the three new PHP files: `pint --test app/Http/Controllers/CourseTalks/CourseGradeController.php app/Http/Requests/CourseTalks/StoreCourseGradeRequest.php tests/Feature/Courses/CourseGradeHttpTest.php` → `{"tool":"pint","result":"passed"}` (no file reported). `pint --test routes/web.php` reports `fully_qualified_strict_types, method_chaining_indentation, statement_indentation, ordered_imports` — verified pre-existing: the same four fixers are reported for `git show HEAD:routes/web.php` in isolation, so Pint was deliberately **not** run on that file (it would reformat unrelated committed lines and widen this unit's diff).
+- Route surface: `artisan route:list --name=course-talks.grades` shows exactly the two new routes (`GET|HEAD course-talks/editions/{edition}/grades` → `course-talks.grades.index`, `POST ...` → `course-talks.grades.store`), inside the `auth`+`active` group.
+- Hygiene: `php.exe -l` reported no syntax errors for the controller, the request, the test file and `routes/web.php`; `git diff --check` was clean; `git diff --cached --name-only` was empty, so nothing was staged and no commit was made; `git status --short` lists only the six authorized paths (four new/untracked, two modified). No migration, reset or database operation other than the in-memory SQLite test database ran.
+
+### Task persistence
+
+- `tasks.md` row 6.d was changed from `- [ ]` to `- [x]` with its evidence appended, and its `<!-- sdd-owner: implementation -->` marker was left terminal and intact.
+- The persisted `tasks.md` was re-read after the edit: 6.d is visibly `- [x]`; 6.a/6.b/6.c/6.g remain `- [x]`; 6.e/6.f remain visibly `- [ ]`.
+- No `<!-- sdd-owner: parent -->` row was touched, and no aggregate Slice 6 row was marked: the slice-wide RED/GREEN/TRIANGULATE/REFACTOR/verification rows stay open because units 6.e and 6.f and the slice-wide verification are still pending.
+
+### Files changed
+
+- `app/Http/Controllers/CourseTalks/CourseGradeController.php` (new, 149 lines)
+- `app/Http/Requests/CourseTalks/StoreCourseGradeRequest.php` (new, 89 lines)
+- `resources/views/course-talks/editions/grades.blade.php` (new, 175 lines)
+- `tests/Feature/Courses/CourseGradeHttpTest.php` (new, 399 lines)
+- `routes/web.php` (10 added: 1 `use` line + 9 route-group lines)
+- `resources/views/course-talks/editions/show.blade.php` (5 added: the ability-gated `Notas` link)
+- `openspec/changes/course-talks-management/tasks.md` (6.d checkbox + evidence)
+- `openspec/changes/course-talks-management/apply-progress.md` (this entry)
+
+`CourseGradeService.php`, `CourseGradeCalculator.php`, `GradeResult.php`, `CourseEligibilityTriggerService.php`, the course models, migrations, policies, the permission seeder and the existing service tests were deliberately left untouched.
+
+### Deviations and decisions
+
+1. **The whole grade surface (both verbs) requires `course-talks.grades.manage`; there is no read-only viewer mode.** The instruction asked for the `Notas` link to be "gated by exactly the same ability the grade route itself requires, so no rendered link can answer 403", which only has meaning for a gated link — the sibling `Asistencia` link is ungated because that route's read path uses the `view` ability. Grades are also the restricted action the spec names separately (entering grades), so `manageGrades` guards `index`, `store`, the `StoreCourseGradeRequest::authorize()` and the link. Consequence: a `course-talks.view` viewer gets 403 and no link, and the matrix has no non-manager read rendering (the `canEnterGrades` guard remains as defense in depth if that authorization is ever relaxed).
+2. **The description is carried through, not cleared.** The service signature accepts `?string $description` and the upsert writes it unconditionally, so calling `record()` with `null` from a surface that has no description field would silently erase a description set elsewhere. The controller therefore preloads the submitted cells' existing descriptions in one query and passes them back. This is value pass-through, not a re-implemented rule.
+3. **The UI restates the documented range (`0 a 20 con hasta dos decimales`) as help copy only.** No view, controller or request validates the value: `StoreCourseGradeRequest` keeps `grades.*.grade` a `nullable|string|max:10` payload guard, `maxlength="5"` on the input is a typing limit, and out-of-range/malformed values reach `CourseGradeCalculator` so its own message is what the user sees (proven by the `Invalid grade [25].` assertion).
+4. **A submission with no grade is reported, not silently saved.** Empty cells are dropped in `cells()`; when no cell survives, the controller flashes `No se enviaron notas para guardar.` instead of the success message, so the user is never told a save happened when nothing was written.
+5. **Partial persistence on a rejected cell matches the attendance matrix.** Cells accepted before a rejected one remain recorded (the service commits per cell), the rejected cell's domain message is shown and the re-rendered matrix displays what was stored. This mirrors 6.c exactly instead of introducing a controller-level transaction that the sibling does not have; flagged here for reviewer visibility.
+6. **The view duplicates the participant cell markup in the talk and course branches.** Extracting a partial (`_grades_*.blade.php`) would have required a new file outside the authorized edit surfaces, so the four-line duplication was kept.
+7. **`FinalResult` has no `label()`** (and the enum is outside the authorized surfaces), so the Spanish wording and badge colors of the four result values live in the view, exactly as the attendance matrix does for its statuses. No domain value, cast or stored data changed.
+8. **`pint` was not applied to `routes/web.php`** because that file already fails Pint at HEAD with the same four fixers; running the formatter would have reformatted committed, unrelated lines.
+
+### Workload / PR boundary and budget
+
+- Review budget was 400 changed lines. Actual: **827 added / 0 deleted** — production 418 (controller 149, view 175, request 89, `routes/web.php` 10, edition view 5) plus tests 399; the two artifact files are bookkeeping only and are excluded from the count.
+- The overage is roughly double the budget and is **not** hidden: 399 of the 827 lines are the mandated HTTP test class (the instruction explicitly warned about 6.c's 451-line test class and asked for a proportionate one — this one is smaller and covers 10 scenarios / 102 assertions), and the remaining production lines implement the talk variant, the row-outcome column, the correction path and the empty states the unit requires. Reaching 400 would require deleting mandated scenarios or dropping the talk screen, so the prompt's own escape hatch (report the overage as a risk) is used instead. Suggested review split if a smaller diff is required: production-only (418 lines) followed by the tests-only (399 lines) follow-up.
+- PR boundary: unit 6.d only. Academic/commercial document actions (6.e/6.f), schema/migrations, domain services, policies/permissions, Docker and docs are untouched. `git status --short` confirms only the six authorized paths are dirty/untracked.
+
+### Remaining tasks (exact unchecked lines)
+
+- `- [ ] 6.e Academic document actions: generate, regenerate, annul, email, WhatsApp handoff, confirm sent, and discard. <!-- sdd-owner: implementation -->`
+- `- [ ] 6.f Commercial document actions: register, upload, send, and discard, plus certificate template settings. <!-- sdd-owner: implementation -->`
+- Slice 6 aggregate rows (RED, GREEN routes, GREEN controllers/requests, GREEN views, GREEN menu, TRIANGULATE, REFACTOR, focused verification) and the Slice 7 rows remain unchecked by design.
+- Parent-owned rows remain untouched: the Slice 0 review-context row, the Slice 1/2/3 review rows, the Slice 4/5 review rows, and the Slice 6 UI review row.
+
+### Manual verification entry point
+
+- Open `http://localhost:8000/course-talks/editions/{id}` as a user holding `course-talks.grades.manage`: the `Notas` button appears next to `Asistencia`. Type grades in a few cells and save: the row's `Promedio exacto`, `Promedio`, `Redondeado` and result badge must change; re-saving the same cell must correct the same row instead of adding one.
+- Negative checks: a user with only `course-talks.view` must see no `Notas` link and receive 403 on `/course-talks/editions/{id}/grades`; for a talk edition the screen must show the Spanish note and participation badges with no grade inputs.
+
+### Next step
+
+- Unit 6.e, academic document actions, remains the next implementation unit; 6.f follows. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
