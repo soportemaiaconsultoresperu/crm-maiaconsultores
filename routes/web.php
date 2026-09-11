@@ -7,6 +7,7 @@ use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
+use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
 use App\Http\Controllers\CourseTalks\CourseActivityController;
 use App\Http\Controllers\CourseTalks\CourseActivityReadController;
 use App\Http\Controllers\CourseTalks\CourseAttendanceController;
@@ -117,6 +118,17 @@ Route::middleware(['auth', 'active'])
             Route::post('enrollments/{enrollment}/documents', 'store')->name('documents.generate');
             Route::post('documents/{academicDocument}/regenerate', 'regenerate')->name('documents.regenerate');
             Route::post('documents/{academicDocument}/annul', 'annul')->name('documents.annul');
+        });
+
+        // Slice 6.e-2 — academic document delivery actions (email, assisted
+        // WhatsApp handoff and manual confirmation). Each action posts to its own
+        // document-scoped endpoint so every payload keeps its own FormRequest,
+        // and all three are registered before the read-only group's
+        // `editions/{edition}` binding so none of them can be shadowed by it.
+        Route::controller(CourseAcademicDocumentDeliveryController::class)->group(function (): void {
+            Route::post('documents/{academicDocument}/email', 'email')->name('documents.email');
+            Route::post('documents/{academicDocument}/whatsapp', 'whatsapp')->name('documents.whatsapp');
+            Route::post('documents/{academicDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('documents.whatsapp.confirm');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {

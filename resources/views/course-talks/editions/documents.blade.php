@@ -46,6 +46,35 @@
         $canGenerate = Gate::allows('generate', App\Models\Courses\CourseAcademicDocument::class);
         $canAnnul = Gate::allows('revoke', App\Models\Courses\CourseAcademicDocument::class);
         $canRegenerate = $canGenerate && $canAnnul;
+
+        // Same rule for the delivery actions: `course-talks.documents.send` is the
+        // only ability their routes, their form contracts and the domain service
+        // ask for, so the delivery controls are gated on exactly that ability.
+        $canSend = Gate::allows('send', App\Models\Courses\CourseAcademicDocument::class);
+
+        // Attempt-level presentation maps. The append-only outbound-delivery
+        // ledger is the only source of delivery truth; it decides the channel,
+        // the status, the attempt count, the recipient reference and the error,
+        // and this surface only renders those values in Spanish.
+        $channelMeta = [
+            'mail' => ['Correo', 'text-bg-info'],
+            'whatsapp' => ['WhatsApp', 'text-bg-success'],
+        ];
+        $attemptStatusMeta = [
+            'queued' => ['En cola', 'text-bg-secondary'],
+            'sending' => ['Enviando', 'text-bg-info'],
+            'sent' => ['Enviado', 'text-bg-success'],
+            'delivered' => ['Entregado', 'text-bg-success'],
+            'failed' => ['Intento fallido', 'text-bg-danger'],
+            'skipped' => ['Omitido', 'text-bg-light'],
+        ];
+
+        // A handoff stays pending until the user confirms it: the confirmation
+        // control is offered only while an opened WhatsApp handoff is unresolved.
+        $pendingHandoffOf = static fn ($documentDeliveries) => $documentDeliveries->first(
+            static fn ($delivery): bool => $delivery->channel === 'whatsapp'
+                && in_array($delivery->status, ['queued', 'sending'], true),
+        );
     @endphp
 
     <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver a la edición</a>
@@ -164,6 +193,75 @@
                                         </form>
                                     @endif
                                 @endif
+
+                                @php
+                                    $documentDeliveries = $deliveries[$document->id] ?? collect();
+                                    $pendingHandoff = $pendingHandoffOf($documentDeliveries);
+                                @endphp
+
+                                <div class="mt-2 border-top pt-2" data-testid="course-talks-document-delivery-{{ $document->id }}">
+                                    <p class="small fw-semibold mb-1">Historial de entregas</p>
+                                    @forelse ($documentDeliveries as $delivery)
+                                        <div class="small" data-testid="course-talks-document-delivery-{{ $document->id }}-{{ $delivery->id }}">
+                                            <span class="badge {{ $channelMeta[$delivery->channel][1] ?? 'text-bg-secondary' }}">{{ $channelMeta[$delivery->channel][0] ?? $delivery->channel }}</span>
+                                            <span class="badge {{ $attemptStatusMeta[$delivery->status][1] ?? 'text-bg-secondary' }}">{{ $attemptStatusMeta[$delivery->status][0] ?? $delivery->status }}</span>
+                                            <span class="text-secondary">{{ $delivery->recipient_ref }}</span>
+                                            <span class="text-secondary">· Intentos: {{ $delivery->attempts }}</span>
+                                            <span class="text-secondary">· {{ $delivery->updated_at?->format('d/m/Y H:i') ?? '—' }}</span>
+                                            @if ($delivery->last_error)
+                                                <div class="text-danger">Error: {{ $delivery->last_error }}</div>
+                                            @endif
+                                        </div>
+                                    @empty
+                                        <p class="small text-secondary mb-0" data-testid="course-talks-document-delivery-none-{{ $document->id }}">Sin intentos de entrega registrados.</p>
+                                    @endforelse
+
+                                    @if ($canSend && $document->status === App\Enums\Courses\AcademicDocumentStatus::Current)
+                                        @php
+                                            // The idempotency keys are minted once per rendered
+                                            // form, so a double submit reuses the key the server
+                                            // already recorded instead of appending a duplicate
+                                            // ledger row. Each channel has its own key because
+                                            // the service refuses a key that belongs to another
+                                            // channel or recipient.
+                                            $emailOperationKey = (string) \Illuminate\Support\Str::uuid();
+                                            $whatsappOperationKey = (string) \Illuminate\Support\Str::uuid();
+                                            $confirmationOperationKey = (string) \Illuminate\Support\Str::uuid();
+                                        @endphp
+
+                                        {{-- Plain HTML forms on purpose: these payloads need their
+                                             own POST endpoint and their own FormRequest, and an
+                                             interpolation inside a component's attributes would
+                                             not be evaluated. --}}
+                                        <form method="POST" action="{{ route('course-talks.documents.email', $document) }}" class="d-flex flex-wrap gap-1 mt-2" data-testid="course-talks-document-email-form-{{ $document->id }}">
+                                            @csrf
+                                            <input type="hidden" name="operation_key" value="{{ $emailOperationKey }}">
+                                            <label class="visually-hidden" for="document-email-recipient-{{ $document->id }}">Correo del destinatario de {{ $document->code }}</label>
+                                            <input type="email" class="form-control form-control-sm w-auto" id="document-email-recipient-{{ $document->id }}" name="recipient" maxlength="255" required placeholder="correo@ejemplo.com" value="{{ old('recipient', $enrollment->participant->email) }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">Enviar por correo</button>
+                                        </form>
+
+                                        <form method="POST" action="{{ route('course-talks.documents.whatsapp', $document) }}" class="d-flex flex-wrap gap-1 mt-1" data-testid="course-talks-document-whatsapp-form-{{ $document->id }}">
+                                            @csrf
+                                            <input type="hidden" name="operation_key" value="{{ $whatsappOperationKey }}">
+                                            <label class="visually-hidden" for="document-whatsapp-phone-{{ $document->id }}">Teléfono del destinatario de {{ $document->code }}</label>
+                                            <input type="tel" class="form-control form-control-sm w-auto" id="document-whatsapp-phone-{{ $document->id }}" name="recipient_phone" maxlength="30" required placeholder="51999999999" value="{{ old('recipient_phone', $enrollment->participant->mobile) }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-success">Abrir WhatsApp</button>
+                                        </form>
+
+                                        @if ($pendingHandoff)
+                                            <form method="POST" action="{{ route('course-talks.documents.whatsapp.confirm', $document) }}" class="d-flex flex-wrap gap-1 mt-1" data-testid="course-talks-document-whatsapp-confirm-form-{{ $document->id }}">
+                                                @csrf
+                                                <input type="hidden" name="operation_key" value="{{ $confirmationOperationKey }}">
+                                                <input type="hidden" name="handoff" value="{{ $pendingHandoff->id }}">
+                                                <label class="visually-hidden" for="document-whatsapp-confirm-phone-{{ $document->id }}">Teléfono confirmado de {{ $document->code }}</label>
+                                                <input type="tel" class="form-control form-control-sm w-auto" id="document-whatsapp-confirm-phone-{{ $document->id }}" name="recipient_phone" maxlength="30" required value="{{ old('recipient_phone', $pendingHandoff->recipient_ref) }}">
+                                                <button type="submit" class="btn btn-sm btn-success">Marcar como enviado</button>
+                                            </form>
+                                            <p class="small text-secondary mb-0 mt-1" data-testid="course-talks-document-whatsapp-pending-{{ $document->id }}">WhatsApp pendiente de confirmación: use «Marcar como enviado» cuando haya enviado el mensaje.</p>
+                                        @endif
+                                    @endif
+                                </div>
                             </div>
                         @empty
                             <p class="text-secondary small mb-0" data-testid="course-talks-documents-none-{{ $enrollment->id }}">Todavía no se ha generado ningún documento para esta matrícula.</p>

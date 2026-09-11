@@ -9,6 +9,7 @@ use App\Http\Requests\CourseTalks\RegenerateAcademicDocumentRequest;
 use App\Models\Courses\CourseAcademicDocument;
 use App\Models\Courses\CourseEdition;
 use App\Models\Courses\CourseEnrollment;
+use App\Models\Notification\OutboundDelivery;
 use App\Services\Courses\CertificateQrTokenService;
 use App\Services\Courses\CourseDocumentGenerationService;
 use App\Services\Courses\CourseEligibilityService;
@@ -69,6 +70,15 @@ class CourseAcademicDocumentController extends Controller
             'eligibility' => $enrollments
                 ->mapWithKeys(fn (CourseEnrollment $enrollment): array => [$enrollment->id => $this->eligibility->evaluate($enrollment)])
                 ->all(),
+            // Delivery history is read once for the whole edition. The append-only
+            // ledger is the only source of delivery truth and this surface never
+            // writes it: the service records every attempt.
+            'deliveries' => OutboundDelivery::query()
+                ->where('related_entity_type', CourseAcademicDocument::class)
+                ->whereIn('related_entity_id', $enrollments->flatMap->academicDocuments->pluck('id'))
+                ->orderByDesc('id')
+                ->get()
+                ->groupBy('related_entity_id'),
         ]);
     }
 
