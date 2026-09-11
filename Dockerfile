@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:2
+# syntax=docker/dockerfile:1
 
 # CRM Maia Consultores production image.
 FROM php:8.3-fpm-alpine AS base
