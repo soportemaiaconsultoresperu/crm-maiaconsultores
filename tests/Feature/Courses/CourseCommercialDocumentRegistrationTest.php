@@ -3,6 +3,7 @@
 namespace Tests\Feature\Courses;
 
 use App\Enums\Courses\CommercialDocumentType;
+use App\Enums\Courses\CourseEnrollmentState;
 use App\Http\Requests\CourseTalks\StoreCommercialDocumentRequest;
 use App\Http\Requests\CourseTalks\UploadCommercialDocumentRequest;
 use App\Models\Courses\CourseEnrollment;
@@ -31,6 +32,42 @@ class CourseCommercialDocumentRegistrationTest extends TestCase
         Permission::findOrCreate('course-talks.commercial-documents.manage');
         $this->actor = User::factory()->create();
         $this->actor->givePermissionTo('course-talks.commercial-documents.manage');
+    }
+
+    /**
+     * One payable participant of a group purchase, carrying that participant's
+     * own charges.
+     */
+    private function groupEnrollment(
+        CourseEnrollmentGroup $group,
+        string $activityPrice,
+        string $certificateCharge = '0.00',
+        string $discount = '0.00',
+        CourseEnrollmentState $state = CourseEnrollmentState::Enrolled,
+    ): CourseEnrollment {
+        return CourseEnrollment::factory()->create([
+            'course_edition_id' => $group->course_edition_id,
+            'course_enrollment_group_id' => $group->id,
+            'state' => $state,
+            'activity_price_amount' => $activityPrice,
+            'certificate_charge_amount' => $certificateCharge,
+            'discount_amount' => $discount,
+        ]);
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function assertGroupRegistrationRefused(array $attributes, string $expectedMessage): void
+    {
+        try {
+            app(CourseCommercialDocumentService::class)->register(
+                CommercialDocumentType::Factura,
+                ['payer_name' => 'Empresa que paga el grupo'] + $attributes,
+                $this->actor,
+            );
+            $this->fail('Expected the group registration to be refused instead of writing a document.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertStringContainsString($expectedMessage, $exception->getMessage());
+        }
     }
 
     public function test_it_registers_an_external_factura_for_one_enrollment_with_pending_upload_and_audit_values(): void
@@ -88,21 +125,146 @@ class CourseCommercialDocumentRegistrationTest extends TestCase
 
     public function test_it_uses_zero_igv_for_recibo_and_accepts_one_group_target(): void
     {
+        // The group's money comes from its own enrollments: since this unit the
+        // charges of a group purchase are never supplied by the payload.
         $group = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($group, '100.00', '20.00', '5.00');
 
         $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Recibo, [
             'course_enrollment_group_id' => $group->id,
             'payer_name' => 'Grupo pagador',
-            'activity_price_amount' => '100.00',
-            'certificate_charge_amount' => '20.00',
-            'discount_amount' => '5.00',
         ], $this->actor);
 
         $this->assertSame($group->id, $commercial->course_enrollment_group_id);
+        // A zero rate with a non-zero subtotal: the recibo is not a zero document.
         $this->assertSame('115.00', $commercial->subtotal_amount);
         $this->assertSame('0.0000', $commercial->igv_rate);
         $this->assertSame('0.00', $commercial->igv_amount);
         $this->assertSame('115.00', $commercial->total_amount);
+    }
+
+    public function test_it_aggregates_the_group_enrollment_charges_instead_of_writing_a_zero_total(): void
+    {
+        $group = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($group, '100.00', '20.00', '0.00');
+        $this->groupEnrollment($group, '50.00', '0.00', '10.00');
+
+        $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Factura, [
+            'course_enrollment_group_id' => $group->id,
+            'payer_name' => 'Empresa que paga el grupo',
+        ], $this->actor);
+
+        $this->assertSame($group->id, $commercial->course_enrollment_group_id);
+        $this->assertNull($commercial->course_enrollment_id);
+        $this->assertSame('160.00', $commercial->subtotal_amount);
+        $this->assertSame('0.1800', $commercial->igv_rate);
+        $this->assertSame('28.80', $commercial->igv_amount);
+        $this->assertSame('188.80', $commercial->total_amount);
+        // The closed hole: a group target used to fall back to '0' charges and
+        // persist a zero-value document with no error at all.
+        $this->assertNotSame('0.00', $commercial->total_amount);
+    }
+
+    public function test_the_group_aggregation_leaves_out_the_terminal_withdrawn_and_no_show_enrollments(): void
+    {
+        $group = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($group, '100.00');
+        $this->groupEnrollment($group, '500.00', '0.00', '0.00', CourseEnrollmentState::Withdrawn);
+        $this->groupEnrollment($group, '300.00', '0.00', '0.00', CourseEnrollmentState::NoShow);
+
+        $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Boleta, [
+            'course_enrollment_group_id' => $group->id,
+            'payer_name' => 'Empresa que paga el grupo',
+        ], $this->actor);
+
+        // design.md declares `withdrawn` and `no_show` terminal: those
+        // participants no longer receive the service or its certificate, so
+        // their charges are not billable.
+        $this->assertSame('100.00', $commercial->subtotal_amount);
+        $this->assertSame('18.00', $commercial->igv_amount);
+        $this->assertSame('118.00', $commercial->total_amount);
+    }
+
+    public function test_it_refuses_a_group_without_billable_enrollments_or_a_zero_aggregated_subtotal(): void
+    {
+        $withoutEnrollments = CourseEnrollmentGroup::factory()->create();
+        $onlyTerminal = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($onlyTerminal, '100.00', '0.00', '0.00', CourseEnrollmentState::Withdrawn);
+        $zeroCharges = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($zeroCharges, '0.00', '0.00', '0.00');
+
+        $this->assertGroupRegistrationRefused(
+            ['course_enrollment_group_id' => $withoutEnrollments->id],
+            'no tiene matrículas facturables',
+        );
+        $this->assertGroupRegistrationRefused(
+            ['course_enrollment_group_id' => $onlyTerminal->id],
+            'no tiene matrículas facturables',
+        );
+        $this->assertGroupRegistrationRefused(
+            ['course_enrollment_group_id' => $zeroCharges->id],
+            'subtotal del grupo es cero',
+        );
+
+        $this->assertDatabaseCount('course_commercial_documents', 0);
+    }
+
+    public function test_the_group_aggregation_sums_only_the_enrollments_of_the_billed_group(): void
+    {
+        $billed = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($billed, '100.00');
+        $other = CourseEnrollmentGroup::factory()->create([
+            'course_edition_id' => $billed->course_edition_id,
+        ]);
+        $this->groupEnrollment($other, '700.00');
+        // An enrollment outside any group of the same edition is not billable
+        // through a group purchase either.
+        CourseEnrollment::factory()->create([
+            'course_edition_id' => $billed->course_edition_id,
+            'activity_price_amount' => '900.00',
+        ]);
+
+        $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Factura, [
+            'course_enrollment_group_id' => $billed->id,
+            'payer_name' => 'Empresa que paga el grupo',
+        ], $this->actor);
+
+        $this->assertSame('100.00', $commercial->subtotal_amount);
+        $this->assertSame('18.00', $commercial->igv_amount);
+        $this->assertSame('118.00', $commercial->total_amount);
+    }
+
+    public function test_the_group_payload_cannot_fabricate_the_charges_of_its_enrollments(): void
+    {
+        $group = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($group, '100.00', '20.00');
+
+        $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Factura, [
+            'course_enrollment_group_id' => $group->id,
+            'payer_name' => 'Empresa que paga el grupo',
+            'activity_price_amount' => '999.00',
+            'certificate_charge_amount' => '999.00',
+            'discount_amount' => '0.00',
+        ], $this->actor);
+
+        $this->assertSame('120.00', $commercial->subtotal_amount);
+        $this->assertSame('21.60', $commercial->igv_amount);
+        $this->assertSame('141.60', $commercial->total_amount);
+    }
+
+    public function test_an_explicit_subtotal_amount_still_wins_over_the_group_aggregation(): void
+    {
+        $group = CourseEnrollmentGroup::factory()->create();
+
+        $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Factura, [
+            'course_enrollment_group_id' => $group->id,
+            'payer_name' => 'Grupo con importe declarado',
+            'subtotal_amount' => '200.00',
+        ], $this->actor);
+
+        $this->assertSame('200.00', $commercial->subtotal_amount);
+        $this->assertSame('36.00', $commercial->igv_amount);
+        $this->assertSame('236.00', $commercial->total_amount);
     }
 
     public function test_it_rejects_missing_or_multiple_targets_negative_amounts_registered_without_a_file_and_unauthorized_actors(): void

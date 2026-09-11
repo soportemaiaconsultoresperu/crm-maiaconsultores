@@ -3,6 +3,7 @@
 namespace App\Services\Courses;
 
 use App\Enums\Courses\CommercialDocumentType;
+use App\Enums\Courses\CourseEnrollmentState;
 use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\Courses\CourseEnrollmentGroup;
@@ -50,6 +51,56 @@ class CourseCommercialDocumentService
         return $this->calculate($type, $this->format($subtotalCents));
     }
 
+    /**
+     * The breakdown of a group purchase: it sums the charges of the group's
+     * billable enrollments and delegates the tax math to calculateCharges(), so
+     * a group's money always comes from its own enrollments and never from a
+     * fallback to zero.
+     *
+     * Enrollments in the terminal `withdrawn` and `no_show` states are left out
+     * (design.md declares them terminal for eligibility): those participants no
+     * longer receive the service or its certificate, so their charges are not
+     * billable. Every other state is summed.
+     *
+     * @return array{subtotal_amount:string,igv_rate:string,igv_amount:string,total_amount:string}
+     *
+     * @throws InvalidArgumentException when the group has no billable enrollment or its aggregated subtotal is zero, so a zero-value document is never written silently
+     */
+    public function calculateGroupCharges(CommercialDocumentType $type, CourseEnrollmentGroup $group): array
+    {
+        $enrollments = $group->enrollments()
+            ->whereNotIn('state', [
+                CourseEnrollmentState::Withdrawn->value,
+                CourseEnrollmentState::NoShow->value,
+            ])
+            ->get();
+
+        if ($enrollments->isEmpty()) {
+            throw new InvalidArgumentException('El grupo no tiene matrículas facturables: no es posible registrar un comprobante con total cero.');
+        }
+
+        $activityCents = 0;
+        $certificateCents = 0;
+        $discountCents = 0;
+
+        foreach ($enrollments as $enrollment) {
+            $activityCents += $this->cents((string) $enrollment->activity_price_amount, 'activity price');
+            $certificateCents += $this->cents((string) $enrollment->certificate_charge_amount, 'certificate charge');
+            $discountCents += $this->cents((string) $enrollment->discount_amount, 'discount');
+        }
+
+        if ($activityCents + $certificateCents - $discountCents === 0) {
+            throw new InvalidArgumentException('El subtotal del grupo es cero: no es posible registrar un comprobante con total cero.');
+        }
+
+        return $this->calculateCharges(
+            $type,
+            $this->format($activityCents),
+            $this->format($certificateCents),
+            $this->format($discountCents),
+        );
+    }
+
     /** @param array<string, mixed> $attributes */
     public function register(CommercialDocumentType $type, array $attributes, User $actor): CourseCommercialDocument
     {
@@ -67,7 +118,8 @@ class CourseCommercialDocumentService
             throw new InvalidArgumentException('La matrícula seleccionada no existe.');
         }
 
-        if ($groupId !== null && ! CourseEnrollmentGroup::query()->whereKey($groupId)->exists()) {
+        $group = $groupId === null ? null : CourseEnrollmentGroup::query()->find($groupId);
+        if ($groupId !== null && $group === null) {
             throw new InvalidArgumentException('El grupo seleccionado no existe.');
         }
 
@@ -81,14 +133,21 @@ class CourseCommercialDocumentService
             throw new InvalidArgumentException('El pagador es obligatorio.');
         }
 
-        $money = isset($attributes['subtotal_amount'])
-            ? $this->calculate($type, (string) $attributes['subtotal_amount'])
-            : $this->calculateCharges(
+        // A group target has no single payer's charges to inherit, so its money
+        // comes from the group's own enrollments: the aggregation refuses a zero
+        // result instead of writing a zero-value document, and the payload can
+        // never fabricate the group's charges. An enrollment target keeps the
+        // Slice 4 behavior, and an explicit `subtotal_amount` still wins for both.
+        $money = match (true) {
+            isset($attributes['subtotal_amount']) => $this->calculate($type, (string) $attributes['subtotal_amount']),
+            $group !== null => $this->calculateGroupCharges($type, $group),
+            default => $this->calculateCharges(
                 $type,
                 (string) ($attributes['activity_price_amount'] ?? $enrollment?->activity_price_amount ?? '0'),
                 (string) ($attributes['certificate_charge_amount'] ?? $enrollment?->certificate_charge_amount ?? '0'),
                 (string) ($attributes['discount_amount'] ?? $enrollment?->discount_amount ?? '0'),
-            );
+            ),
+        };
 
         return CourseCommercialDocument::query()->create([
             'course_enrollment_id' => $enrollmentId,
