@@ -1798,3 +1798,97 @@ All runs used `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test
 ### Next step
 
 - Unit 6.d, grade matrix, remains the next implementation unit. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
+
+## Slice 6 unit 6.g — navigation exposure for authorized users only
+
+### Scope and status contract
+
+- Authorized work unit: unit 6.g, `Navigation exposure for authorized users only`. Strict TDD active; runner `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH). Views plus tests only: no route, controller, request, policy, permission, seeder, migration or service was touched. No commit, no push, no branch/worktree change.
+- Structured status consumed (native, authoritative, artifact store `openspec`): `gentle-ai sdd-status course-talks-management --cwd . --json --instructions` → `schemaName=gentle-ai.sdd-status`, `schemaVersion=2`, `artifactStore=openspec`, `planningHome.mode=repo-local`, `applyState=ready`, `nextRecommended=apply`, `blockedReasons=[]`, `dependencies.apply=ready`, `dependencies.verify=blocked`, `actionContext.mode=repo-local`, `workspaceRoot=C:\laragon\www\crm-maia-consultores`, `allowedEditRoots=[C:\laragon\www\crm-maia-consultores]`, `taskProgress=47/78` before this unit. Every edited path is inside that root and inside the surfaces the parent authorized; no `resolve-via-engram` carve-out applied (the file store is authoritative and readable).
+- Warning (unchanged from earlier units): `openspec/config.yaml` still documents the unrelated `b12-ui` change and a bare `php artisan test` command; the change directory plus the absolute PHP executable were treated as authoritative and the file was deliberately not rewritten.
+- Review Workload Gate: `tasks.md` forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent pre-resolved the delivery path for this bounded stacked-to-main unit (branch `feat/course-talks-slice-6-ui`), so no decision blocker remained. **This unit lands inside the 400-line review budget: 340 added / 0 deleted (22 production + 318 test).**
+
+### Behavior delivered
+
+- **Sidebar entry (shared layout, additive).** One `<li class="nav-item">` block inserted in `resources/views/layouts/partials/sidebar.blade.php` between the existing `Calendario` and `Soporte` entries, following the file's existing pattern exactly: `<i class="nav-icon bi bi-mortarboard" aria-hidden="true"></i>` plus `<p>Cursos y charlas</p>`, active state via `request()->routeIs('course-talks.*') ? 'active' : ''`. No existing entry was reordered, reformatted or removed (the diff is 7 pure insertions).
+- **Authority of the entry.** Wrapped in `@can('viewAny', \App\Models\Courses\CourseActivity::class)`, the same policy-based style the file already uses for `Soporte` (`@can('viewAny', \App\Models\SupportTicket::class)`). `CourseActivityPolicy::viewAny` is exactly `course-talks.view`, i.e. the permission `course-talks.activities.index` itself requires, so the entry is visible if and only if clicking it succeeds. An edition responsible user without `course-talks.view` keeps edition-scoped access but does not see the entry (tested).
+- **Contextual navigation on the edition detail page.** `resources/views/course-talks/editions/show.blade.php` (15 pure insertions) gained a `<nav aria-label="Secciones de la edición">` button row: `Docentes` (`editions.teachers`), `Sesiones` (`editions.sessions`), `Participantes` (`enrollments.index`), `Inscribir participante` (`enrollments.create`) and `Asistencia` (`attendance.index`). It also keeps exposing `activities.show` (back link, pre-existing) and, from the activity screens, `activities.index`, `activities.show`, `activities.create`, `editions.create` and `editions.show` (all pre-existing).
+- **Reveal only, never re-authorize.** Management buttons are advertised only to holders of the ability their own route already requires: `Docentes`/`Sesiones` behind `@can('update', \App\Models\Courses\CourseEdition::class)` (`course-talks.editions.manage`, the gate `CourseEditionController::teachers()`/`sessions()` use) and `Inscribir participante` behind `@can('create', \App\Models\Courses\CourseEnrollment::class)` (`course-talks.participants.manage`, the gate `CourseEnrollmentController::create()` uses). Read surfaces stay visible to any `CourseEditionPolicy::view` holder because their GET routes authorize on that same ability. Every hidden route still returns 403 for the viewer who cannot see its link.
+- **Route surface untouched.** All 18 `course-talks.*` routes were inventoried before work with `artisan route:list --name=course-talks`; every link added targets a route that already existed. Zero routes added, renamed or removed; zero authorization rules, policies, permissions or seeders changed; nothing under `app/` edited.
+- **Click-reachable after this unit (from the sidebar):** activity list → activity detail → create edition / edition detail → (teachers, sessions, participants list, participant creation form, attendance matrix). **From `editions/show.blade.php` specifically:** `editions.teachers`, `editions.sessions`, `enrollments.index`, `enrollments.create`, `attendance.index` (plus the pre-existing back link to `activities.show`). Every linked screen was asserted to open with 200 for a full module manager, and every screen links back, so the click graph has no dead end.
+
+### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE / REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.g sidebar entry (authorized only) + contextual links to every slice 6.a/6.b/6.c screen | `tests/Feature/Courses/CourseTalksNavigationTest.php` | Feature / HTTP | `--filter=Course` pre-edit: 218 tests / 1,306 assertions passing | 9 tests written first; RED run failed: `{"result":"failed","tests":9,"passed":4,"assertions":52,"failed":4,"errors":1}` — 4 real failures (`contains "Cursos y charlas"`, `The entry must be active on http://localhost:8000/course-talks/activities`, `The edition detail must link .../enrollments`, `A viewer must not be offered ...`) plus 1 test-harness error of my own (`There is no permission named users.view for guard web`, because only `CoursePermissionsSeeder` was seeded) which was fixed in the test | Sidebar entry + edition navigation links: 8/9 passing; the last failure was my own over-specific assertion (`bi ` inside the `<a>` opening tag, while the icon is a child `<i>`), corrected to assert the rendered icon and label on the page | Triangulated with (a) the full 403 matrix over the 10 GET screens extended to prove the denial page leaks no module data (`Curso de navegación`, `ED-NAV-001`), (b) a management permission without `course-talks.view` (`course-talks.attendance.manage`) which still hides the entry, and (c) a round-trip "no dead end" map over 7 screens. REFACTOR collapsed the duplicated `MODULE_SCREENS` const + `match` helper into one `moduleScreens()` map reused by both the denial matrix and the click-through assertions |
+
+**Test summary**
+
+- Total tests written: 11 new HTTP tests, 133 assertions, all passing (the class went from nonexistent to 11).
+- Layers: Feature/HTTP 11. Unit 0 (this unit introduces no domain rule; it only renders and reveals).
+- Behavioral assertions cover: the entry renders with the right `href`, AdminLTE icon markup and Spanish label for a `course-talks.view` holder and is highlighted (`nav-link active` + `aria-current="page"`) only on `course-talks.*` screens; the pre-existing entries (`Prospectos`, `Clientes`) still render; the entry is absent for a permission-less user, for a user holding only an unrelated permission (`users.view`), for a user holding a module management permission without `course-talks.view`, and for an edition responsible user without `course-talks.view`; guests are redirected to login and the login page never shows the entry; all 10 GET module screens return exactly 403 (asserted not 200 and not 500) for a user without `course-talks.view`, with no module data in the denial body; a full module manager reaches every screen by clicking and each one opens with 200; a viewer sees the read links but not the management links while the hidden routes stay 403; and 7 screens link back so navigation has no dead end.
+- Harness caveat (documented so it is not "fixed" wrongly): `sidebarEntry()` extracts the rendered opening `<a …>` tag with `preg_match('/<a\b[^>]*data-testid="sidebar-course-talks"[^>]*>/')`; the decorative `<i class="nav-icon …">` is a child element, so icon markup must be asserted on the page, not on the extracted tag.
+
+### Commands and results (exact)
+
+- Safety net (pre-edit): `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=Course` → `{"tool":"phpunit","result":"passed","tests":218,"passed":218,"assertions":1306}` (recorded for unit 6.c, unchanged HEAD).
+- RED: `--filter=CourseTalksNavigationTest` → `{"tool":"phpunit","result":"failed","tests":9,"passed":4,"assertions":52,"duration_ms":2029,"failed":4,"errors":1}` (failures and the self-inflicted error quoted in the cycle table).
+- GREEN iteration 1: same command → `{"result":"failed","tests":9,"passed":8,"assertions":94,"failed":1}` (own over-specific icon assertion; corrected in the test).
+- GREEN: same command → `{"tool":"phpunit","result":"passed","tests":9,"passed":9,"assertions":95,"duration_ms":2368}`.
+- TRIANGULATE: same command → `{"tool":"phpunit","result":"passed","tests":11,"passed":11,"assertions":133,"duration_ms":3063}`.
+- REFACTOR (`moduleScreens()` single source of truth, dead helper removed) and final focused verification: same command → `{"tool":"phpunit","result":"passed","tests":11,"passed":11,"assertions":133,"duration_ms":6096}`.
+- Regression `--filter=Course`: `{"tool":"phpunit","result":"passed","tests":229,"passed":229,"assertions":1439,"duration_ms":27617}` (+11 tests / +133 assertions over the pre-edit 218/1,306 — exactly this unit's new class, so 6.a/6.b/6.c stayed green).
+- Regression `--filter=Sidebar` (the shared-file check the parent asked for; `grep -rli sidebar tests/` found no pre-existing Sidebar test class, so this filter matches the 6 new 6.g tests whose names contain "sidebar"): `{"tool":"phpunit","result":"passed","tests":6,"passed":6,"assertions":31}`.
+- Regression `--filter=Layout` (matches the repo's existing layout-asserting class `HardeningCrossCutTest::test_every_admin_view_extends_layouts_app`): `{"tool":"phpunit","result":"passed","tests":1,"passed":1,"assertions":2}`; the whole class `--filter=HardeningCrossCutTest` → `{"tool":"phpunit","result":"passed","tests":5,"passed":5,"assertions":9}`.
+- Full suite (run because the sidebar is a shared partial): `{"tool":"phpunit","result":"failed","tests":1029,"passed":1000,"assertions":4482,"failed":17,"errors":12,"duration_ms":448343}`. **All 29 failures are pre-existing on this branch and unrelated to unit 6.g — proven, not assumed:** `git stash push` of the two edited tracked Blade files (my only tracked edits), then the same failing classes were re-run on the unedited tree → `RolesAndPermissionsTest` 4 failures (89 vs 90, 69 vs 70, 106 vs 107, 81 vs 82 permissions), `SeedersTest` 2 failures (129 vs 130), `HistoryAndAudit*` 2 failures (`Cycle breaks (2)` / `<code>Lead</code>` copy drift in the B12 admin views), `--filter=Campaign` 12 errors (`$admin` null in setUp) — byte-identical failures with the pre-change sidebar. `git stash pop` restored both files and `diff` against pre-stash copies printed `IDENTICAL`; the focused suite was re-run green afterwards. Those failures belong to the unrelated in-flight `b12-ui` change and are reported as a risk below.
+- Pint (project formatter) on the new test file: `{"tool":"pint","result":"passed"}`.
+- Route surface: `artisan route:list --name=course-talks` → 18 routes, unchanged by this unit; no route was added, renamed or removed, and every linked route name resolves.
+- Hygiene: `php.exe -l` reported no syntax errors for the new test file; `git diff --numstat` reports exactly `15 0 resources/views/course-talks/editions/show.blade.php` and `7 0 resources/views/layouts/partials/sidebar.blade.php`, both pure insertions; `git status --short` lists only those two modified files plus the new untracked test file; `git diff --cached --name-only` was empty, so nothing is staged and no commit was made.
+
+### Task persistence
+
+- `tasks.md` row 6.g was changed from `- [ ]` to `- [x]` with its evidence appended, and its `<!-- sdd-owner: implementation -->` marker was left terminal and intact.
+- No `<!-- sdd-owner: parent -->` row was touched, and no other implementation row was marked: units 6.d/6.e/6.f remain `- [ ]`, and the Slice 6 aggregate rows stay open by design (the slice's own note says they cannot be checked until every workflow is delivered) — including the aggregate `GREEN: add menu/navigation entry for authorized users only …` row, which this unit satisfies but which shares the Slice 6 block with units 6.d–6.f.
+- The persisted `tasks.md` was re-read after the edit: 6.g is visibly `- [x]`; 6.d, 6.e and 6.f are visibly `- [ ]`.
+
+### Files changed
+
+- `resources/views/layouts/partials/sidebar.blade.php` (+7 / −0: one `@can`-wrapped `<li>` entry, additive only)
+- `resources/views/course-talks/editions/show.blade.php` (+15 / −0: the `<nav>` section row, additive only)
+- `tests/Feature/Courses/CourseTalksNavigationTest.php` (new, 318 lines, 11 tests)
+- `openspec/changes/course-talks-management/tasks.md` (6.g checkbox + evidence)
+- `openspec/changes/course-talks-management/apply-progress.md` (this entry)
+- Nothing else: no file under `app/`, `routes/`, `database/`, `config/` or any other view changed.
+
+### Workload / PR boundary
+
+- Review budget was 400 changed lines. Actual: **340 added / 0 deleted** — production 22 (sidebar 7, edition view 15), tests 318. This is the first Slice 6 unit that lands inside the budget; the ratio is test-heavy because the unit's whole value is proving the authorization boundary.
+- PR boundary: unit 6.g only. Grades (6.d), academic/commercial document actions (6.e/6.f), route changes, schema/migrations, domain services, policies/permissions, Docker and docs are untouched. `git status` confirms only the three files above are dirty/untracked.
+
+### Deviations from the instruction
+
+1. **The sidebar entry was gated with the policy form `@can('viewAny', \App\Models\Courses\CourseActivity::class)` and also carries `aria-current`.** The instruction allowed either `aria-current` or the existing active-class convention; both are used (class for consistency with the other entries, `aria-current="page"`/`"false"` for the accessibility signal the parent asked to respect). No existing entry was touched.
+2. **The edition-detail links are ability-gated rather than always rendered.** Read surfaces (`Participantes`, `Asistencia`) show for any viewer, but `Docentes`/`Sesiones`/`Inscribir participante` are hidden from a viewer who would get 403 from their routes. Reason: an existing test (`CourseTalksReadOnlyHttpTest::test_authorized_user_can_view_edition_detail_without_mutation_actions`) asserts the edition detail offers a view-only user no mutation affordances, and a link that 403s is a dead end. This links and reveals only; it does not change any authorization rule.
+3. **One link target is reached in two clicks from the edition, not one.** `Inscribir participante` was added to the edition detail *and* already existed on the participants list, so both paths work; no extra route or form was created.
+4. **No icon was added to the edition navigation buttons**, only text labels, to keep the shared-page diff minimal and the labels unambiguous; the sidebar entry does carry the `bi-mortarboard` icon as required.
+5. **`--filter=Sidebar` matches my new tests, not a pre-existing sidebar suite.** `grep -rli sidebar tests/` found no prior test asserting on the sidebar, so the requested shared-file regression is `--filter=Layout`/`HardeningCrossCutTest` (passed, 5/5) plus the 6 `sidebar`-named tests in the new class (passed, 6/6); the sidebar also renders in every one of the 229 `--filter=Course` tests.
+6. **`aria-label="Secciones de la edición"`** was used on a `<nav>` landmark instead of a plain `<div>` so the new button row is announced; this is semantics only and does not change behavior or styling beyond the existing gap/button classes.
+
+### Remaining tasks (exact unchecked lines)
+
+- `- [ ] 6.d Grade matrix: course grade recording and correction, with grades blocked for talks. <!-- sdd-owner: implementation -->`
+- `- [ ] 6.e Academic document actions: generate, regenerate, annul, email, WhatsApp handoff, confirm sent, and discard. <!-- sdd-owner: implementation -->`
+- `- [ ] 6.f Commercial document actions: register, upload, send, and discard, plus certificate template settings. <!-- sdd-owner: implementation -->`
+- Slice 6 aggregate rows (RED, GREEN routes, GREEN controllers/requests, GREEN views, GREEN menu, TRIANGULATE, REFACTOR, focused verification) and the Slice 7 rows remain unchecked by design.
+- Parent-owned rows remain untouched: the Slice 0 review-context row, the Slice 1/2/3 review rows, the Slice 4/5 review rows, and the Slice 6 UI review row.
+
+### Manual verification entry point
+
+- Open `http://localhost:8000/dashboard` first: the new `Cursos y charlas` entry must appear between `Calendario` and `Soporte` for a user holding `course-talks.view`. Then click it, or open `http://localhost:8000/course-talks/activities` directly.
+- Negative check: with a user lacking `course-talks.view` (including an edition responsible user), the entry must be absent from every page and `http://localhost:8000/course-talks/activities` must answer 403.
+
+### Next step
+
+- Unit 6.d, grade matrix, remains the next implementation unit; 6.e and 6.f follow. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
+

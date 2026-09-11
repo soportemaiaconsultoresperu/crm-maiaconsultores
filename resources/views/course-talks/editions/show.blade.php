@@ -13,6 +13,21 @@
         <x-alert type="error" data-testid="course-talks-edition-error">{{ $errors->first('edition') }}</x-alert>
     @endif
 
+    {{-- Slice 6.g — contextual navigation: every screen this edition owns is one
+         click away. Management surfaces are advertised only to holders of the
+         ability their own route already requires, so no link can 403. --}}
+    <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Secciones de la edición" data-testid="course-talks-edition-navigation">
+        @can('update', \App\Models\Courses\CourseEdition::class)
+            <a href="{{ route('course-talks.editions.teachers', $edition) }}" class="btn btn-outline-primary">Docentes</a>
+            <a href="{{ route('course-talks.editions.sessions', $edition) }}" class="btn btn-outline-primary">Sesiones</a>
+        @endcan
+        <a href="{{ route('course-talks.enrollments.index', $edition) }}" class="btn btn-outline-primary">Participantes</a>
+        @can('create', \App\Models\Courses\CourseEnrollment::class)
+            <a href="{{ route('course-talks.enrollments.create', $edition) }}" class="btn btn-outline-primary">Inscribir participante</a>
+        @endcan
+        <a href="{{ route('course-talks.attendance.index', $edition) }}" class="btn btn-outline-primary">Asistencia</a>
+    </nav>
+
     <div class="card" data-testid="course-talks-edition-detail">
         <div class="card-header"><h3 class="card-title mb-0">{{ $edition->activity->name }}</h3></div>
         <div class="card-body">

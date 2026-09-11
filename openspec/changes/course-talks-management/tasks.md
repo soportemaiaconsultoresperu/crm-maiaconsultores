@@ -108,7 +108,7 @@ The slice-level rows above are aggregate and cannot be checked until every workf
 - [ ] 6.d Grade matrix: course grade recording and correction, with grades blocked for talks. <!-- sdd-owner: implementation -->
 - [ ] 6.e Academic document actions: generate, regenerate, annul, email, WhatsApp handoff, confirm sent, and discard. <!-- sdd-owner: implementation -->
 - [ ] 6.f Commercial document actions: register, upload, send, and discard, plus certificate template settings. <!-- sdd-owner: implementation -->
-- [ ] 6.g Navigation exposure for authorized users only. <!-- sdd-owner: implementation -->
+- [x] 6.g Navigation exposure for authorized users only. Evidence: `tests/Feature/Courses/CourseTalksNavigationTest.php` — 11 tests / 133 assertions passing; `--filter=Course` regression 229 tests / 1,439 assertions passing; sidebar entry gated by `viewAny` (`course-talks.view`) and every module screen returns 403 (never 200, never 500) for a user without that permission. <!-- sdd-owner: implementation -->
 
 - [ ] RED: add HTTP feature tests for module index filters, activity CRUD, edition CRUD/state transitions, sessions/teachers, enrollment, attendance matrix, course grade matrix, talks hiding/blocking grades, document generate/regenerate/annul/send/open WhatsApp/confirm/discard, commercial document register/upload/send/discard, and template settings permissions. <!-- sdd-owner: implementation -->
 - [ ] GREEN: add authenticated `course-talks` route group and public `/certificate/qr/{token}` route with named routes, middleware, authorization calls, and no route exposure for unauthorized users. <!-- sdd-owner: implementation -->
