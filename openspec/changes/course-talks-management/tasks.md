@@ -98,6 +98,18 @@ Chain strategy: stacked-to-main (approved)
 
 **Depends on:** Slices 1–5. **Edit surfaces:** `routes/web.php`, `app/Http/Controllers/CourseTalks/*Controller.php`, `app/Http/Requests/CourseTalks/*Request.php`, `resources/views/course-talks/**/*`, `resources/views/layouts/*` or existing navigation partials for menu exposure, `tests/Feature/CourseTalks/*HttpTest.php`.
 
+### Slice 6 units
+
+The slice-level rows above are aggregate and cannot be checked until every workflow is delivered. Track progress through these units instead.
+
+- [x] 6.a Activities and editions HTTP surfaces: authenticated `course-talks` route group, activity index/show/create/store, edition create/store/show with teacher and session management, form requests, and Blade views. Evidence: `CourseActivityCreateHttpTest`, `CourseEditionCreateHttpTest`, `CourseEditionSessionsHttpTest`, `CourseEditionTeachersHttpTest`, `CourseTalksReadOnlyHttpTest` — 63 tests / 370 assertions passing. <!-- sdd-owner: implementation -->
+- [ ] 6.b Enrollments and participants UI: per-edition enrollment list, participant linking and creation, group payer enrollment, and payment status display. <!-- sdd-owner: implementation -->
+- [ ] 6.c Attendance matrix: per-session attendance marking for courses and informational attendance for talks. <!-- sdd-owner: implementation -->
+- [ ] 6.d Grade matrix: course grade recording and correction, with grades blocked for talks. <!-- sdd-owner: implementation -->
+- [ ] 6.e Academic document actions: generate, regenerate, annul, email, WhatsApp handoff, confirm sent, and discard. <!-- sdd-owner: implementation -->
+- [ ] 6.f Commercial document actions: register, upload, send, and discard, plus certificate template settings. <!-- sdd-owner: implementation -->
+- [ ] 6.g Navigation exposure for authorized users only. <!-- sdd-owner: implementation -->
+
 - [ ] RED: add HTTP feature tests for module index filters, activity CRUD, edition CRUD/state transitions, sessions/teachers, enrollment, attendance matrix, course grade matrix, talks hiding/blocking grades, document generate/regenerate/annul/send/open WhatsApp/confirm/discard, commercial document register/upload/send/discard, and template settings permissions. <!-- sdd-owner: implementation -->
 - [ ] GREEN: add authenticated `course-talks` route group and public `/certificate/qr/{token}` route with named routes, middleware, authorization calls, and no route exposure for unauthorized users. <!-- sdd-owner: implementation -->
 - [ ] GREEN: implement thin controllers and form requests delegating to services for activities, editions, sessions, participants/enrollments, attendance, grades, academic documents, commercial documents, deliveries, and templates. <!-- sdd-owner: implementation -->

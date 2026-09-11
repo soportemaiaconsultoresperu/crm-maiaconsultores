@@ -1601,3 +1601,12 @@ All runs used `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test
 - Parent removed the `recipient` property so the WhatsApp confirmation activity carries only `delivery_id`, mirroring the earlier email/privacy correction. No behavior or assertion changed; ledger `recipient_ref` remains the single recipient store.
 - Post-fix focused verification (parent-run): `CourseDocumentWhatsAppDeliveryTest` 7/33, `CourseCommercialDocumentDeliveryTest` 12/79, `CourseDocumentEmailDeliveryTest` 11/60, `CourseCertificateQrSecurityTest` 9/125 — all passed.
 - This closes the verifier FAIL; the Slice 5 REFACTOR/no-secrets checkbox is now truthful.
+
+## Slice 6 recovery and unit planning
+
+- Recovered state: Slice 6 was partially implemented in a previous session that was closed before the OpenSpec bookkeeping was written. `tasks.md` showed every Slice 6 row unchecked and this progress file had no Slice 6 entry at all, so the real state had to be reconstructed from the filesystem.
+- Confirmed on disk before any new edit: controllers `CourseActivityController`, `CourseActivityReadController`, `CourseEditionController`; six form requests under `app/Http/Requests/CourseTalks`; views for activities index/create/show, editions create/show, and the certificate reference template; the authenticated `course-talks.` route group plus three public certificate/commercial streaming routes.
+- Focused verification of the recovered work: `CourseActivityCreateHttpTest`, `CourseEditionCreateHttpTest`, `CourseEditionSessionsHttpTest`, `CourseEditionTeachersHttpTest`, `CourseTalksReadOnlyHttpTest` — 63 tests / 370 assertions passed.
+- Repository risk found and closed: no Slice work was committed. Only `main` existed, with 8,273 untracked course lines and 562 tracked insertions, so the approved `stacked-to-main` chain had never started. Three recovery commits were created on branch `feat/course-talks-slice-6-ui`: production deployment chore, provider permission-race fix, and the course-talks domain/service/document/HTTP accumulation. No push or pull request was created.
+- Planning correction: Slice 6 aggregate rows cannot be checked per workflow, so the slice is now tracked as units 6.a through 6.g in `tasks.md`. Unit 6.a is complete; 6.b through 6.g remain open.
+- Next unit: 6.b, enrollments and participants UI, implemented under strict TDD with a focused RED/GREEN/TRIANGULATE/REFACTOR cycle and reviewed as its own commit.
