@@ -134,14 +134,18 @@ Route::middleware(['auth', 'active'])
 
         // Slice 6.f-1 — commercial documents of one edition (register an
         // external factura/boleta/recibo for one enrollment, upload its private
-        // attachment and list the edition's documents). The enrollment-scoped
-        // and document-scoped actions post to their own endpoints so each
-        // payload keeps its own FormRequest, and the static
-        // `commercial-documents` segment is registered before the read-only
-        // group's `editions/{edition}` binding so it is never shadowed by it.
+        // attachment and list the edition's documents). The enrollment-scoped,
+        // group-scoped and document-scoped actions post to their own endpoints so
+        // each payload keeps its own target and FormRequest (same split as
+        // `enrollments.groups.store` and `editions.teachers.sync`), and the static
+        // `commercial-documents` and `enrollment-groups` segments are registered
+        // before the read-only group's `editions/{edition}` binding so none of
+        // them is shadowed by it.
         Route::controller(CourseCommercialDocumentController::class)->group(function (): void {
             Route::get('editions/{edition}/commercial-documents', 'index')->name('commercial-documents.index');
             Route::post('enrollments/{enrollment}/commercial-documents', 'store')->name('commercial-documents.store');
+            Route::post('enrollment-groups/{group}/commercial-documents', 'storeGroup')
+                ->name('commercial-documents.groups.store');
             Route::post('commercial-documents/{commercialDocument}/file', 'upload')->name('commercial-documents.file');
         });
 

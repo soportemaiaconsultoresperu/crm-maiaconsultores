@@ -151,7 +151,7 @@
         <h2 class="h5 mt-4">Registrar comprobante por matrícula</h2>
         <p class="text-secondary small">
             El desglose lo calcula el sistema con el precio de la actividad, el cargo por certificado y el descuento de cada
-            matrícula. La compra de un grupo con un solo pagador se factura aparte y todavía no está disponible en esta pantalla.
+            matrícula. La compra de un grupo con un solo pagador se factura en la sección de grupos.
         </p>
 
         @forelse ($enrollments as $enrollment)
@@ -249,6 +249,112 @@
             </div>
         @empty
             <x-alert type="info" data-testid="course-talks-commercial-enrollments-empty">Todavía no hay participantes inscritos en esta edición.</x-alert>
+        @endforelse
+
+        <h2 class="h5 mt-4" id="grupos-de-matricula">Registrar comprobante por grupo</h2>
+        <p class="text-secondary small">
+            El desglose lo calcula el sistema sumando el precio de la actividad, el cargo por certificado y el descuento de
+            las matrículas facturables de cada grupo. El pagador es el propio grupo.
+        </p>
+
+        @forelse ($groups as $group)
+            <div class="card mb-3" data-testid="course-talks-commercial-group-{{ $group->id }}">
+                <div class="card-header">
+                    <h3 class="card-title mb-0">{{ $group->payer_name }}</h3>
+                </div>
+                <div class="card-body">
+                    @if (isset($groupBreakdownFailures[$group->id]))
+                        {{-- The service refuses to bill this group and says why, so
+                             the surface shows the reason instead of a control that
+                             could only answer with an error. --}}
+                        <x-alert type="warning" :data-testid="'course-talks-commercial-group-error-'.$group->id">
+                            {{ $groupBreakdownFailures[$group->id] }}
+                        </x-alert>
+                    @else
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-3">
+                                <caption class="visually-hidden">Desglose calculado por el sistema para cada tipo de comprobante del grupo</caption>
+                                <thead class="table-light">
+                                    <tr>
+                                        <th scope="col">Comprobante</th>
+                                        <th scope="col" class="text-end">Subtotal</th>
+                                        <th scope="col" class="text-end">Tasa IGV</th>
+                                        <th scope="col" class="text-end">IGV</th>
+                                        <th scope="col" class="text-end">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($types as $type)
+                                        @php $groupBreakdown = $groupBreakdowns[$group->id][$type->value]; @endphp
+                                        <tr data-testid="course-talks-commercial-group-breakdown-{{ $group->id }}-{{ $type->value }}">
+                                            <td>{{ $typeLabels[$type->value] ?? $type->value }}</td>
+                                            <td class="text-end">{{ $groupBreakdown['subtotal_amount'] }}</td>
+                                            <td class="text-end">{{ $groupBreakdown['igv_rate'] }}</td>
+                                            <td class="text-end">{{ $groupBreakdown['igv_amount'] }}</td>
+                                            <td class="text-end fw-semibold">{{ $groupBreakdown['total_amount'] }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <form method="POST" action="{{ route('course-talks.commercial-documents.groups.store', $group) }}" data-testid="course-talks-commercial-group-form-{{ $group->id }}">
+                            @csrf
+                            {{-- The endpoint already owns the target, and the request
+                                 contract still validates it, so the both/neither rule
+                                 stays where Slice 4 put it. --}}
+                            <input type="hidden" name="course_enrollment_group_id" value="{{ $group->id }}">
+
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label" for="commercial-group-type-{{ $group->id }}">Tipo de comprobante</label>
+                                    <select class="form-select" id="commercial-group-type-{{ $group->id }}" name="type" required>
+                                        @foreach ($types as $type)
+                                            <option value="{{ $type->value }}" @selected(old('type', 'factura') === $type->value)>{{ $typeLabels[$type->value] ?? $type->value }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div class="col-md-8">
+                                    <label class="form-label" for="commercial-group-payer-name-{{ $group->id }}">Pagador (nombre o razón social)</label>
+                                    <input type="text" class="form-control" id="commercial-group-payer-name-{{ $group->id }}" name="payer_name" maxlength="255" required value="{{ old('payer_name', $group->payer_name) }}">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label" for="commercial-group-payer-document-type-{{ $group->id }}">Tipo de documento</label>
+                                    <input type="text" class="form-control" id="commercial-group-payer-document-type-{{ $group->id }}" name="payer_document_type" maxlength="30" value="{{ old('payer_document_type', $group->payer_document_type) }}">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label" for="commercial-group-payer-document-number-{{ $group->id }}">Número de documento</label>
+                                    <input type="text" class="form-control" id="commercial-group-payer-document-number-{{ $group->id }}" name="payer_document_number" maxlength="50" value="{{ old('payer_document_number', $group->payer_document_number) }}">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label" for="commercial-group-series-{{ $group->id }}">Serie</label>
+                                    <input type="text" class="form-control" id="commercial-group-series-{{ $group->id }}" name="series" maxlength="30" value="{{ old('series') }}">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label" for="commercial-group-number-{{ $group->id }}">Número</label>
+                                    <input type="text" class="form-control" id="commercial-group-number-{{ $group->id }}" name="number" maxlength="50" value="{{ old('number') }}">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label" for="commercial-group-issue-date-{{ $group->id }}">Fecha de emisión</label>
+                                    <input type="date" class="form-control" id="commercial-group-issue-date-{{ $group->id }}" name="issue_date" value="{{ old('issue_date') }}">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label" for="commercial-group-currency-{{ $group->id }}">Moneda</label>
+                                    <input type="text" class="form-control" id="commercial-group-currency-{{ $group->id }}" name="currency" maxlength="3" value="{{ old('currency', $currency) }}">
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label" for="commercial-group-observations-{{ $group->id }}">Observaciones</label>
+                                    <textarea class="form-control" id="commercial-group-observations-{{ $group->id }}" name="observations" rows="2">{{ old('observations') }}</textarea>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary mt-3">Registrar comprobante del grupo</button>
+                        </form>
+                    @endif
+                </div>
+            </div>
+        @empty
+            <x-alert type="info" data-testid="course-talks-commercial-groups-empty">Todavía no hay grupos de matrícula en esta edición.</x-alert>
         @endforelse
     @endif
 @endsection

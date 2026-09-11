@@ -9,6 +9,7 @@ use App\Http\Requests\CourseTalks\UploadCommercialDocumentRequest;
 use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Courses\CourseEdition;
 use App\Models\Courses\CourseEnrollment;
+use App\Models\Courses\CourseEnrollmentGroup;
 use App\Services\Courses\CourseCommercialDocumentService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -26,14 +27,17 @@ use InvalidArgumentException;
  * `course-talks.commercial-documents.manage` authorizes registration and upload
  * (both FormRequests ask for it and CourseCommercialDocumentService re-asks it
  * for the actor it writes for), and the service owns every rule — IGV rate
- * selection, subtotal arithmetic over the enrollment charges, the
- * enrollment-or-group constraint, the private file storage. Nothing here
- * reimplements money, and nothing renders money the service did not return.
+ * selection, subtotal arithmetic over the enrollment charges, the aggregation
+ * of a group purchase, the enrollment-or-group constraint, the private file
+ * storage. Nothing here reimplements money, and nothing renders money the
+ * service did not return.
  *
- * The group purchase path is intentionally not offered: the service computes
- * charges for ONE payer and exposes no method that aggregates a group's
- * enrollments, so this unit registers for a single enrollment and the group
- * breakdown stays an explicit domain gap for a follow-up.
+ * A group purchase registers through its own endpoint (the same split as
+ * `enrollments.groups.store`): the payload keeps its own target field and the
+ * bound group always wins, while the money comes from
+ * CourseCommercialDocumentService::calculateGroupCharges(). A group the service
+ * refuses (no billable enrollments, zero aggregated subtotal) shows the
+ * service's reason instead of a control that cannot succeed.
  *
  * Commercial delivery actions (email, WhatsApp handoff, confirmation) belong to
  * unit 6.f-2 and are not part of this surface.
@@ -67,15 +71,25 @@ class CourseCommercialDocumentController extends Controller
             ->orderBy('id')
             ->get();
 
-        [$breakdowns, $breakdownFailures] = $this->breakdowns($enrollments);
+        [$breakdowns, $breakdownFailures] = $this->breakdowns($enrollments, $this->enrollmentBreakdown(...));
+
+        $groups = CourseEnrollmentGroup::query()
+            ->where('course_edition_id', $edition->id)
+            ->orderBy('id')
+            ->get();
+
+        [$groupBreakdowns, $groupBreakdownFailures] = $this->breakdowns($groups, $this->groupBreakdown(...));
 
         return view('course-talks.editions.commercial-documents', [
             'edition' => $edition->load('activity'),
             'enrollments' => $enrollments,
+            'groups' => $groups,
             'commercialDocuments' => $commercialDocuments,
             'types' => CommercialDocumentType::cases(),
             'breakdowns' => $breakdowns,
             'breakdownFailures' => $breakdownFailures,
+            'groupBreakdowns' => $groupBreakdowns,
+            'groupBreakdownFailures' => $groupBreakdownFailures,
             'currency' => (string) config('courses.default_currency'),
         ]);
     }
@@ -106,6 +120,34 @@ class CourseCommercialDocumentController extends Controller
             ->with('status', 'Comprobante registrado. Adjunte el archivo emitido para completarlo.');
     }
 
+    public function storeGroup(StoreCommercialDocumentRequest $request, CourseEnrollmentGroup $group): RedirectResponse
+    {
+        $group->loadMissing('edition');
+
+        try {
+            $this->commercialDocuments->register(
+                CommercialDocumentType::from($request->validated('type')),
+                // The endpoint owns the target: the bound group always wins, so a
+                // tampered payload cannot retarget another payer, while any extra
+                // target it carries still reaches the domain rule that refuses
+                // two payers. The charges are never part of the payload: the
+                // service aggregates them from the group's own enrollments.
+                ['course_enrollment_group_id' => $group->id] + $request->validated(),
+                $request->user(),
+            );
+        } catch (InvalidArgumentException $exception) {
+            // Includes the groups the service refuses to bill at all (no
+            // billable enrollments, zero aggregated subtotal): the user reads
+            // the service's own reason and no zero-value row is written.
+            return $this->backToListing($group->edition)
+                ->withInput()
+                ->withErrors(['commercial_document' => $exception->getMessage()]);
+        }
+
+        return $this->backToListing($group->edition)
+            ->with('status', 'Comprobante del grupo registrado. Adjunte el archivo emitido para completarlo.');
+    }
+
     public function upload(UploadCommercialDocumentRequest $request, CourseCommercialDocument $commercialDocument): RedirectResponse
     {
         $edition = $this->editionOf($commercialDocument);
@@ -124,27 +166,33 @@ class CourseCommercialDocumentController extends Controller
     }
 
     /**
-     * The pre-submit breakdown of every enrollment, produced only by the
-     * service: this method selects no rate and does no arithmetic.
+     * The pre-submit breakdown of every target, produced only by the service:
+     * this method selects no rate and does no arithmetic.
      *
-     * An enrollment whose stored charges cannot produce a valid subtotal (a
-     * discount larger than the charged total) keeps the service's own message
-     * instead of a server error, and the surface then offers no registration
-     * form for it.
+     * A target whose stored charges cannot produce a valid breakdown (a discount
+     * larger than the charged total, a group with nothing billable) keeps the
+     * service's own message instead of a server error, and the surface then
+     * offers no registration form for it.
      *
-     * @param  Collection<int, CourseEnrollment>  $enrollments
+     * @param  Collection<int, CourseEnrollment|CourseEnrollmentGroup>  $targets
+     * @param  callable(CourseEnrollment|CourseEnrollmentGroup, CommercialDocumentType): array<string, string>  $ofType
      * @return array{0: array<int, array<string, array<string, string>>>, 1: array<int, string>}
      */
-    private function breakdowns(Collection $enrollments): array
+    private function breakdowns(Collection $targets, callable $ofType): array
     {
         $breakdowns = [];
         $failures = [];
 
-        foreach ($enrollments as $enrollment) {
-            try {
-                $breakdowns[$enrollment->id] = $this->breakdownFor($enrollment);
-            } catch (InvalidArgumentException $exception) {
-                $failures[$enrollment->id] = $exception->getMessage();
+        foreach ($targets as $target) {
+            foreach (CommercialDocumentType::cases() as $type) {
+                try {
+                    $breakdowns[$target->id][$type->value] = $ofType($target, $type);
+                } catch (InvalidArgumentException $exception) {
+                    $failures[$target->id] = $exception->getMessage();
+                    unset($breakdowns[$target->id]);
+
+                    break;
+                }
             }
         }
 
@@ -155,22 +203,27 @@ class CourseCommercialDocumentController extends Controller
      * The service's own result for that enrollment's charges and every supported
      * document type, keyed by type value and rendered without transformation.
      *
-     * @return array<string, array<string, string>>
+     * @return array<string, string>
      */
-    private function breakdownFor(CourseEnrollment $enrollment): array
+    private function enrollmentBreakdown(CourseEnrollment $enrollment, CommercialDocumentType $type): array
     {
-        $breakdown = [];
+        return $this->commercialDocuments->calculateCharges(
+            $type,
+            (string) $enrollment->activity_price_amount,
+            (string) $enrollment->certificate_charge_amount,
+            (string) $enrollment->discount_amount,
+        );
+    }
 
-        foreach (CommercialDocumentType::cases() as $type) {
-            $breakdown[$type->value] = $this->commercialDocuments->calculateCharges(
-                $type,
-                (string) $enrollment->activity_price_amount,
-                (string) $enrollment->certificate_charge_amount,
-                (string) $enrollment->discount_amount,
-            );
-        }
-
-        return $breakdown;
+    /**
+     * The service's own result for that group purchase — the aggregation of its
+     * billable enrollments — for every supported document type.
+     *
+     * @return array<string, string>
+     */
+    private function groupBreakdown(CourseEnrollmentGroup $group, CommercialDocumentType $type): array
+    {
+        return $this->commercialDocuments->calculateGroupCharges($type, $group);
     }
 
     private function editionOf(CourseCommercialDocument $commercial): CourseEdition

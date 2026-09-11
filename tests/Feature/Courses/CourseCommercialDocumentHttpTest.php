@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use InvalidArgumentException;
 use Tests\TestCase;
 
 /**
@@ -80,6 +81,7 @@ class CourseCommercialDocumentHttpTest extends TestCase
         string $discount = '0.00',
         string $lastName = 'Ramos',
         string $documentNumber = '11111111',
+        ?CourseEnrollmentGroup $group = null,
     ): CourseEnrollment {
         $participant = CourseParticipant::factory()->create([
             'first_name' => 'Luz',
@@ -92,10 +94,17 @@ class CourseCommercialDocumentHttpTest extends TestCase
             ->for($this->edition, 'edition')
             ->for($participant, 'participant')
             ->create([
+                'course_enrollment_group_id' => $group?->id,
                 'activity_price_amount' => $activityPrice,
                 'certificate_charge_amount' => $certificateCharge,
                 'discount_amount' => $discount,
             ]);
+    }
+
+    /** @param array<string, mixed> $overrides */
+    private function group(array $overrides = []): CourseEnrollmentGroup
+    {
+        return CourseEnrollmentGroup::factory()->for($this->edition, 'edition')->create($overrides);
     }
 
     /** @param array<string, mixed> $overrides */
@@ -139,26 +148,43 @@ class CourseCommercialDocumentHttpTest extends TestCase
             ]);
     }
 
+    /** @param array<string, mixed> $payload */
+    private function postGroupRegistration(CourseEnrollmentGroup $group, array $payload, ?User $actor = null): TestResponse
+    {
+        return $this->actingAs($actor ?? $this->manager)
+            ->from($this->indexUrl())
+            ->post(route('course-talks.commercial-documents.groups.store', $group), $payload);
+    }
+
     private function listingHtml(?User $actor = null): string
     {
         return (string) $this->actingAs($actor ?? $this->manager)->get($this->indexUrl())->assertOk()->getContent();
     }
 
     /**
-     * The rendered breakdown row of one document type for one enrollment, so the
+     * The rendered breakdown row of one document type for one payer, so the
      * amounts the user saw before submitting can be asserted value by value
      * instead of by bare substring presence on the whole page.
      */
-    private function breakdownRow(string $html, CourseEnrollment $enrollment, string $type): string
+    private function rowBlock(string $html, string $marker): string
     {
-        $marker = 'data-testid="course-talks-commercial-breakdown-'.$enrollment->id.'-'.$type.'"';
         $start = strpos($html, $marker);
-        $this->assertNotFalse($start, "The {$type} breakdown row was not rendered for enrollment {$enrollment->id}.");
+        $this->assertNotFalse($start, "The row {$marker} was not rendered.");
 
         $end = strpos($html, '</tr>', $start);
-        $this->assertNotFalse($end, "The {$type} breakdown row is not a complete table row.");
+        $this->assertNotFalse($end, "The row {$marker} is not a complete table row.");
 
         return substr($html, $start, $end - $start);
+    }
+
+    private function breakdownRow(string $html, CourseEnrollment $enrollment, string $type): string
+    {
+        return $this->rowBlock($html, 'data-testid="course-talks-commercial-breakdown-'.$enrollment->id.'-'.$type.'"');
+    }
+
+    private function groupRow(string $html, CourseEnrollmentGroup $group, string $type): string
+    {
+        return $this->rowBlock($html, 'data-testid="course-talks-commercial-group-breakdown-'.$group->id.'-'.$type.'"');
     }
 
     public function test_guests_are_redirected_to_login_from_the_commercial_document_routes(): void
@@ -618,5 +644,112 @@ class CourseCommercialDocumentHttpTest extends TestCase
 
         $this->assertSame('pending_file', $document->fresh()->status);
         $this->assertDatabaseCount('course_commercial_documents', 1);
+    }
+
+    public function test_the_group_section_shows_the_service_group_breakdown_and_registers_the_group_comprobante(): void
+    {
+        $group = $this->group([
+            'payer_name' => 'Empresa Grupo SAC',
+            'payer_document_type' => 'ruc',
+            'payer_document_number' => '20999999999',
+        ]);
+        $this->enrollment('100.00', '20.00', '0.00', 'Ramos', '11111111', $group);
+        $this->enrollment('50.00', '0.00', '10.00', 'Diaz', '22222222', $group);
+        $service = app(CourseCommercialDocumentService::class);
+
+        $html = $this->listingHtml();
+        $shown = $this->groupRow($html, $group, 'factura');
+        foreach ($service->calculateGroupCharges(CommercialDocumentType::Factura, $group) as $value) {
+            $this->assertStringContainsString($value, $shown, "The group breakdown must show the service value {$value}.");
+        }
+
+        // The group form carries the group's own payer and posts to the group endpoint.
+        $this->assertStringContainsString('value="Empresa Grupo SAC"', $html);
+        $this->assertStringContainsString('value="20999999999"', $html);
+        $this->assertStringContainsString(route('course-talks.commercial-documents.groups.store', $group), $html);
+        // The breakdown is informational: nothing is registered until the user submits.
+        $this->assertDatabaseCount('course_commercial_documents', 0);
+
+        $this->postGroupRegistration($group, [
+            'type' => 'factura',
+            'course_enrollment_group_id' => $group->id,
+            'payer_name' => 'Empresa Grupo SAC',
+            'payer_document_type' => 'ruc',
+            'payer_document_number' => '20999999999',
+            'series' => 'F001',
+            'number' => '00005678',
+        ])->assertRedirect($this->indexUrl())->assertSessionHas('status');
+
+        $document = CourseCommercialDocument::query()->sole();
+        $this->assertSame($group->id, $document->course_enrollment_group_id);
+        $this->assertNull($document->course_enrollment_id);
+        $this->assertSame('160.00', $document->subtotal_amount);
+        $this->assertSame('0.1800', $document->igv_rate);
+        $this->assertSame('28.80', $document->igv_amount);
+        $this->assertSame('188.80', $document->total_amount);
+        $this->assertSame('Empresa Grupo SAC', $document->payer_name);
+        $this->assertSame('pending_file', $document->status);
+
+        foreach ([
+            $document->subtotal_amount,
+            $document->igv_rate,
+            $document->igv_amount,
+            $document->total_amount,
+        ] as $value) {
+            $this->assertStringContainsString($value, $shown, "The pre-submit group breakdown must show {$value} as it was persisted.");
+        }
+    }
+
+    public function test_a_group_that_cannot_be_billed_shows_the_service_reason_instead_of_a_registration_form(): void
+    {
+        $group = $this->group(['payer_name' => 'Grupo sin matrículas']);
+
+        try {
+            app(CourseCommercialDocumentService::class)->calculateGroupCharges(CommercialDocumentType::Factura, $group);
+            $this->fail('A group without billable enrollments must not produce a breakdown.');
+        } catch (InvalidArgumentException $exception) {
+            $reason = $exception->getMessage();
+        }
+
+        $html = $this->listingHtml();
+        $this->assertStringContainsString('data-testid="course-talks-commercial-group-error-'.$group->id.'"', $html);
+        $this->assertStringContainsString($reason, $html);
+        $this->assertStringNotContainsString('data-testid="course-talks-commercial-group-form-'.$group->id.'"', $html);
+        $this->assertStringNotContainsString('data-testid="course-talks-commercial-group-breakdown-'.$group->id.'-factura"', $html);
+
+        // The same group cannot be written through the endpoint either.
+        $this->postGroupRegistration($group, [
+            'type' => 'factura',
+            'course_enrollment_group_id' => $group->id,
+            'payer_name' => 'Grupo sin matrículas',
+        ])->assertRedirect($this->indexUrl())->assertSessionHasErrors('commercial_document');
+
+        $this->assertDatabaseCount('course_commercial_documents', 0);
+    }
+
+    public function test_the_group_registration_is_denied_and_not_offered_without_the_commercial_permission(): void
+    {
+        $viewer = $this->userWith(['course-talks.view']);
+        $group = $this->group(['payer_name' => 'Empresa Grupo SAC']);
+        $this->enrollment('100.00', '20.00', '0.00', 'Ramos', '11111111', $group);
+
+        $this->actingAs($viewer)->get($this->indexUrl())->assertOk();
+
+        $this->postGroupRegistration($group, [
+            'type' => 'factura',
+            'course_enrollment_group_id' => $group->id,
+            'payer_name' => 'Intento sin permiso',
+        ], $viewer)->assertForbidden();
+
+        $this->assertDatabaseCount('course_commercial_documents', 0);
+
+        $html = $this->listingHtml($viewer);
+        foreach ([
+            'Registrar comprobante por grupo',
+            'data-testid="course-talks-commercial-group-form-'.$group->id.'"',
+            'data-testid="course-talks-commercial-group-breakdown-'.$group->id.'-factura"',
+        ] as $control) {
+            $this->assertStringNotContainsString($control, $html, "A viewer without the commercial permission must not be offered {$control}.");
+        }
     }
 }
