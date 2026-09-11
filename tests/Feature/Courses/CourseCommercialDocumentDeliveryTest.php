@@ -13,9 +13,12 @@ use App\Models\Document;
 use App\Models\Notification\OutboundDelivery;
 use App\Models\User;
 use App\Services\Courses\CourseDocumentDeliveryService;
+use App\Services\Email\EmailService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use InvalidArgumentException;
 use RuntimeException;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -251,6 +254,159 @@ class CourseCommercialDocumentDeliveryTest extends TestCase
         }
 
         $this->assertDatabaseMissing('outbound_deliveries', ['idempotency_key' => 'commercial-email-007']);
+    }
+
+    /**
+     * The commercial channel had no queued email path at all: the only mail
+     * operation was the injected-closure stub that marks a comprobante SENT
+     * without sending anything. This guard fails as a real assertion (not a PHP
+     * fatal) while the method is missing, so the RED run proves the gap.
+     */
+    private function assertQueuedCommercialEmailPathExists(): void
+    {
+        $this->assertTrue(
+            method_exists(CourseDocumentDeliveryService::class, 'queueCommercialEmail'),
+            'CourseDocumentDeliveryService must expose a queued commercial email path.'
+        );
+    }
+
+    public function test_the_queued_commercial_email_carries_the_document_through_a_working_signed_link(): void
+    {
+        $this->assertQueuedCommercialEmailPathExists();
+        Queue::fake();
+        Storage::fake('docs');
+        $this->travelTo(now()->startOfSecond());
+        $commercial = $this->commercialDocumentWithPdf();
+
+        $delivery = (new CourseDocumentDeliveryService(static fn (): bool => true))
+            ->queueCommercialEmail($commercial, ' Billing@Example.Test ', $this->actor, 'commercial-email-content', app(EmailService::class));
+
+        $this->assertSame(OutboundDelivery::STATUS_QUEUED, $delivery->status);
+        $this->assertSame('billing@example.test', $delivery->recipient_ref);
+        $this->assertSame(CourseCommercialDocument::class, $delivery->related_entity_type);
+        $this->assertSame($commercial->id, $delivery->related_entity_id);
+        $this->assertNotNull($delivery->email_message_id);
+
+        $message = $delivery->emailMessage;
+        $this->assertSame('billing@example.test', $message->participants()->where('kind', 'to')->value('email'));
+
+        // The subject identifies the specific comprobante instead of a placeholder.
+        $this->assertNotSame('Comprobante comercial disponible', $message->subject);
+        $this->assertStringContainsString('Boleta', $message->subject);
+        $this->assertStringContainsString('B001-000123', $message->subject);
+
+        $body = $message->body_text[0];
+        // A real person-readable message, not a placeholder line.
+        $this->assertNotSame('Comprobante comercial disponible.', $body);
+        $this->assertStringContainsString('Hola,', $body);
+        $this->assertStringContainsString('/commercial-documents/'.$commercial->id, $body);
+        $this->assertStringContainsString('signature=', $body);
+
+        // The emailed link is usable hours or days later, through the same
+        // configurable validity the academic email uses.
+        preg_match('#https?://[^\s]+#', $body, $matches);
+        $this->assertNotEmpty($matches, 'The email body must carry a download URL.');
+        $query = [];
+        parse_str((string) parse_url($matches[0], PHP_URL_QUERY), $query);
+        $this->assertArrayHasKey('expires', $query);
+        $this->assertSame(now()->addMinutes((int) config('courses.email_document_link_minutes'))->timestamp, (int) $query['expires']);
+        $this->assertGreaterThan(now()->addHour()->timestamp, (int) $query['expires']);
+
+        // No private storage path or unrelated PII in the payload.
+        $this->assertStringNotContainsString('course-commercial-documents/', $body);
+        $this->assertStringNotContainsString('20123456789', $body);
+        $this->assertStringContainsString('/commercial-documents/'.$commercial->id, $message->body_html[0]);
+    }
+
+    /**
+     * Triangulation: the subject/body name the specific comprobante type through
+     * a real mapping instead of a single hard-coded string.
+     */
+    public function test_the_queued_commercial_email_names_the_specific_document_type(): void
+    {
+        $this->assertQueuedCommercialEmailPathExists();
+        Queue::fake();
+        Storage::fake('docs');
+        $commercial = $this->commercialDocumentWithPdf();
+        $commercial->forceFill(['type' => CommercialDocumentType::Recibo, 'series' => 'R001', 'number' => '000777'])->save();
+
+        $delivery = (new CourseDocumentDeliveryService(static fn (): bool => true))
+            ->queueCommercialEmail($commercial->fresh(), 'billing@example.test', $this->actor, 'commercial-email-type-label', app(EmailService::class));
+
+        $message = $delivery->emailMessage;
+        $this->assertStringContainsString('Recibo', $message->subject);
+        $this->assertStringContainsString('R001-000777', $message->subject);
+        $this->assertStringNotContainsString('Boleta', $message->subject);
+        $this->assertStringContainsString('Recibo', $message->body_text[0]);
+        $this->assertStringContainsString('R001-000777', $message->body_text[0]);
+    }
+
+    /**
+     * A group comprobante has no series/number, so the message must still be
+     * document-specific and must still carry the signed link.
+     */
+    public function test_a_group_commercial_document_email_carries_its_signed_document_link(): void
+    {
+        $this->assertQueuedCommercialEmailPathExists();
+        Queue::fake();
+        Storage::fake('docs');
+        $commercial = $this->groupCommercialDocumentWithPdf();
+
+        $delivery = (new CourseDocumentDeliveryService(static fn (): bool => true))
+            ->queueCommercialEmail($commercial, 'billing@example.test', $this->actor, 'commercial-email-group-content', app(EmailService::class));
+
+        $this->assertSame(OutboundDelivery::STATUS_QUEUED, $delivery->status);
+        $this->assertSame(CourseCommercialDocument::class, $delivery->related_entity_type);
+        $this->assertSame($commercial->id, $delivery->related_entity_id);
+        $this->assertStringContainsString('Boleta', $delivery->emailMessage->subject);
+        $this->assertStringContainsString('/commercial-documents/'.$commercial->id, $delivery->emailMessage->body_text[0]);
+        $this->assertStringContainsString('signature=', $delivery->emailMessage->body_text[0]);
+    }
+
+    /**
+     * The queued path must refuse an undeliverable comprobante before any ledger
+     * row or queued message exists, exactly like the academic channel.
+     */
+    public function test_a_non_deliverable_commercial_document_is_refused_before_any_ledger_row_or_queued_message(): void
+    {
+        $this->assertQueuedCommercialEmailPathExists();
+        Queue::fake();
+        Storage::fake('docs');
+        $service = new CourseDocumentDeliveryService(static fn (): bool => true);
+
+        $notRegistered = $this->commercialDocumentWithPdf();
+        $notRegistered->forceFill(['status' => 'pending_file'])->save();
+
+        $withoutFile = $this->commercialDocumentWithPdf();
+        Storage::disk('docs')->delete($withoutFile->document->path);
+
+        foreach ([[$notRegistered, 'refused-not-registered-commercial-email'], [$withoutFile, 'refused-missing-file-commercial-email']] as [$commercial, $key]) {
+            try {
+                $service->queueCommercialEmail($commercial, 'billing@example.test', $this->actor, $key, app(EmailService::class));
+                $this->fail('A non-deliverable commercial document must be refused by the service.');
+            } catch (InvalidArgumentException $exception) {
+                $this->assertNotSame('', $exception->getMessage());
+            }
+        }
+
+        $this->assertDatabaseCount('outbound_deliveries', 0);
+        $this->assertDatabaseCount('email_messages', 0);
+    }
+
+    public function test_a_queued_commercial_email_operation_is_reused_without_duplicating_the_message(): void
+    {
+        $this->assertQueuedCommercialEmailPathExists();
+        Queue::fake();
+        Storage::fake('docs');
+        $commercial = $this->commercialDocumentWithPdf();
+        $service = new CourseDocumentDeliveryService(static fn (): bool => true);
+
+        $first = $service->queueCommercialEmail($commercial, 'Billing@Example.Test', $this->actor, 'commercial-email-idempotent', app(EmailService::class));
+        $duplicate = $service->queueCommercialEmail($commercial, 'billing@example.test', $this->actor, 'commercial-email-idempotent', app(EmailService::class));
+
+        $this->assertSame($first->id, $duplicate->id);
+        $this->assertDatabaseCount('outbound_deliveries', 1);
+        $this->assertDatabaseCount('email_messages', 1);
     }
 
     private function groupCommercialDocument(): CourseCommercialDocument

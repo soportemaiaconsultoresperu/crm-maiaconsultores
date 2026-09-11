@@ -2671,3 +2671,121 @@ This is the one product judgment in this unit and it is recorded as a risk for b
 - No commit was made. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit/pre-push/pre-PR/release) was validated.
 - Evidence revision SHA-256: `5a78fdae574b55630d00e9d3943aa2eef903084d8bc0504c854f690f4f3ee029` (SHA-256 over the ordered `sha256sum` manifest of the six code/test files above, taken before this evidence entry).
 
+## Slice 6 unit 6.f-2a — commercial email delivery domain path
+
+- Authorized work unit: `slice-6-6f-2a-commercial-email-domain-path` (owner-approved). Strict TDD active; runner `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH). Every test run was executed sequentially — never two `artisan test` processes at once. No commit, no branch/worktree, no migrations, no policy/permission/enum/model/controller/view/route change. Parent retains attempt and delivery authority.
+- Artifact store: `openspec`. This change has no `state.yaml`, so status is resolved from the persisted task rows and the change artifacts, not from a native dispatcher. Warning (unchanged): `openspec/config.yaml` still documents the unrelated `b12-ui` change and its bare `php artisan test` command; the absolute PHP executable was used instead and `config.yaml` was not rewritten.
+- Review Workload Gate: `tasks.md` still forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent resolved the delivery path for this bounded stacked-to-main unit, so no `Decision needed` blocker remained.
+- Workload / PR boundary: the commercial email **domain** path only. No commercial delivery UI (6.f-2b depends on this and is NOT delivered), no certificate template settings, no `discard` (Slice 7), no schema/migration, no controller/view/route/policy/permission/enum/model change, no academic-channel behavior change.
+
+### Why this unit exists (the domain gap, restated at its source)
+
+- `CourseDocumentDeliveryService` had **no** `queueCommercialEmail()`. The only commercial email path was `sendCommercialEmail(...)`, which builds no message: it calls the injected closure and throws when `($this->mailOperation)() !== true`.
+- The only constructions of the service in `app/` inject the always-true stub `static fn (): bool => true`: `app/Http/Controllers/CourseTalks/CourseAcademicDocumentDeliveryController.php:58` and `app/Jobs/Courses/SendCourseDocumentEmail.php:39`.
+- Therefore the only pre-existing commercial email path would mark a comprobante SENT without sending anything — a false send confirmation. The commercial delivery UI (6.f-2b) is blocked on a real domain path; this unit provides it.
+
+### Behavior delivered
+
+- **A real message, not a stub.** `queueCommercialEmail()` records the attempt as a `queued` `outbound_deliveries` row and calls `EmailService::send()` with an `EmailMessage` whose subject names the concrete comprobante (`Comprobante: Boleta B001-000123`) and whose `body_text`/`body_html` carry the signed temporary/read link returned by `secureCommercialDocumentUrl()`. `EmailService` writes the `email_message_id` correlation (`['outbound_delivery_id' => $delivery->id]`), exactly as `queueAcademicEmail()` does.
+- **Single-sourced authorization/validation.** The method reuses `authorizeEnrollmentCommercialDelivery()`, so the `send` ability, the exactly-one-target rule (enrollment XOR group), the recipient rule and the operation-key rule are unchanged and single-sourced with the WhatsApp handoff and the direct path.
+- **Single-sourced deliverability rule.** `hasStreamableCommercialDocument()` is now the one predicate and `assertStreamableCommercialDocument()` its throwing wrapper (mirroring the academic `hasDeliverableAcademicDocument()` / `assertDeliverableAcademicDocument()` pair). `loadMissing('document')` moved from `secureCommercialDocumentUrl()` into the predicate so the predicate is self-sufficient, exactly like the academic predicate.
+- **Refusal before any row.** An undeliverable comprobante (status not `registered`/`sent`, or its private file missing, or the `documents` row not pointing back at it) is refused by `secureCommercialDocumentUrl()`'s assertion **before** the ledger insert and before any `EmailMessage` exists. A rejected send leaves `outbound_deliveries = 0` and `email_messages = 0`.
+- **Idempotency preserved.** The existing-delivery lookup runs first (`matchingCommercialDelivery()` with channel `mail` and the normalized recipient), so a replay of the same operation key returns the existing row and writes no second ledger row and no second message.
+- **Shared link validity, no second setting.** The emailed link uses the private `emailDocumentLinkMinutes()` helper the academic email already uses (`courses.email_document_link_minutes`, default 10080). The WhatsApp handoff keeps its 60-minute default (`openCommercialWhatsAppHandoff()` still calls `secureCommercialDocumentUrl($commercial)`).
+
+### Exact place the deliverability predicate now lives, and its call sites
+
+- `app/Services/Courses/CourseDocumentDeliveryService.php:512` — private `hasStreamableCommercialDocument(CourseCommercialDocument): bool` (`document !== null && status in {registered, sent} && document->docable_type === CourseCommercialDocument::class && (int) document->docable_id === (int) id && Storage::disk(document->disk)->exists(document->path)`), now loading its own relation.
+- `app/Services/Courses/CourseDocumentDeliveryService.php:523` — private `assertStreamableCommercialDocument()` throwing `InvalidArgumentException('A registered private commercial document is required.')`.
+- Call sites (**3**, all read the one rule, none re-implements it): (1) `secureCommercialDocumentUrl():438` asserts then builds the signed route; (2) `queueCommercialEmail()` via that builder — refused before any ledger row/message; (3) `openCommercialWhatsAppHandoff()` via `secureCommercialDocumentUrl($commercial)` before its ledger insert. `hasStreamableCommercialDocument()` has no other callers.
+
+### New signature
+
+```php
+public function queueCommercialEmail(
+    CourseCommercialDocument $commercial,
+    string $recipient,
+    User $actor,
+    string $operationKey,
+    EmailService $email,
+): OutboundDelivery
+```
+
+- Unchanged public signatures (verified by `git diff`): `sendCommercialEmail`, `openCommercialWhatsAppHandoff`, `confirmCommercialWhatsAppSent`, `secureCommercialDocumentUrl`, `queueAcademicEmail`, `sendAcademicEmail`. `secureCommercialDocumentUrl`'s behavior is identical (same predicate, same message, same default `60`). `sendCommercialEmail` was NOT deleted.
+
+### TDD Cycle Evidence
+
+| Task | Test file | Layer | RED (observed) | GREEN | TRIANGULATE / REFACTOR |
+|---|---|---|---|---|---|
+| `queueCommercialEmail()` exists and records a ledger row plus a persisted message whose body carries the link (message content, not just status) | `CourseCommercialDocumentDeliveryTest::test_the_queued_commercial_email_carries_the_document_through_a_working_signed_link` | Feature / service | `--filter=CourseCommercialDocumentDeliveryTest` -> `result: failed, tests 17, passed 12, failed 5, assertions 84`; this test failed at line 273 with `CourseDocumentDeliveryService must expose a queued commercial email path.` / `Failed asserting that false is true.` — a real assertion failure, **not** a PHP fatal, because the test guards `method_exists()` first | After the service change: `{"tool":"phpunit","result":"passed","tests":17,"passed":17,"assertions":122}` | The same RED run failed all five new tests at the same guard line, proving the gap is the missing method, not a broken fixture. Content is asserted on the persisted `EmailMessage` (subject `Boleta` + `B001-000123`; body `Hola,`, `/commercial-documents/{id}`, `signature=`; parsed `expires` equals `courses.email_document_link_minutes` and is greater than one hour; no `course-commercial-documents/` path and no `20123456789` payer document) |
+| The subject/body name the specific comprobante type through a real mapping, not a hard-coded string | `CourseCommercialDocumentDeliveryTest::test_the_queued_commercial_email_names_the_specific_document_type` | Feature / service | same RED (guard line 325) | passed | `Recibo R001-000777` names `Recibo`, never `Boleta`; asserted in both subject and body |
+| A group comprobante (no series/number) is still document-specific and still carries the signed link | `CourseCommercialDocumentDeliveryTest::test_a_group_commercial_document_email_carries_its_signed_document_link` | Feature / service | same RED (guard line 348) | passed | Group target proven end to end: `related_entity_type`/`id` on the ledger plus the signed link in the persisted body |
+| An undeliverable comprobante is refused before any ledger row or queued message | `CourseCommercialDocumentDeliveryTest::test_a_non_deliverable_commercial_document_is_refused_before_any_ledger_row_or_queued_message` | Feature / service | same RED (guard line 370) | passed | Covered by two rejected shapes (`status=pending_file` and a deleted private file); asserts `outbound_deliveries = 0` **and** `email_messages = 0` |
+| The idempotency contract is preserved: a matching existing delivery for the same key is returned instead of duplicated | `CourseCommercialDocumentDeliveryTest::test_a_queued_commercial_email_operation_is_reused_without_duplicating_the_message` | Feature / service | same RED (guard line 396) | passed | Same key + normalized recipient returns the same ledger row (`assertSame($first->id, $duplicate->id)`) with `outbound_deliveries = 1` and `email_messages = 1` |
+
+- New tests: **5**, all in `tests/Feature/Courses/CourseCommercialDocumentDeliveryTest.php` (suite grows 12 -> 17). No existing test was modified or weakened; no assertion was removed anywhere.
+
+### Commands and results (exact, sequential)
+
+1. RED (before implementation): `--filter=CourseCommercialDocumentDeliveryTest` -> `{"tool":"phpunit","result":"failed","tests":17,"passed":12,"assertions":84,"duration_ms":1918,"failed":5}` (five assertion failures at the `method_exists` guard, one per new test).
+2. GREEN: `--filter=CourseCommercialDocumentDeliveryTest` -> `{"tool":"phpunit","result":"passed","tests":17,"passed":17,"assertions":122,"duration_ms":2022}`.
+3. `--filter=CourseDocumentEmailDeliveryTest` (academic channel) -> `{"result":"passed","tests":14,"passed":14,"assertions":82,"duration_ms":1802}` — no regression.
+4. `--filter=CourseDocumentWhatsAppDeliveryTest` -> `{"result":"passed","tests":9,"passed":9,"assertions":38,"duration_ms":1486}` — the shared predicate extraction did not regress the handoff.
+5. `--filter=CourseCommercialDocumentHttpTest` -> `{"result":"passed","tests":19,"passed":19,"assertions":231,"duration_ms":2760}`.
+6. `--filter=Course` (final regression) -> `{"tool":"phpunit","result":"passed","tests":311,"passed":311,"assertions":2249,"duration_ms":23786}` — **new totals 311 tests / 2,249 assertions against the 306 / 2,206 baseline (+5 tests, +43 assertions)**, exactly this unit's 5 new tests.
+- Hygiene: `php.exe -l` reported no syntax errors for both changed PHP files; `git diff --check` is clean; `git diff --cached --name-only` is empty, so nothing is staged and no commit was made. Branch is `feat/course-talks-slice-6-ui` (unchanged); no migration, reset or database operation other than the in-memory test database ran.
+
+### Files changed (honest line counts, `git diff --numstat`)
+
+- `app/Services/Courses/CourseDocumentDeliveryService.php` — **+136 / -4** (new `queueCommercialEmail()`, the extracted predicate/assert pair, and the commercial email subject/body helpers).
+- `tests/Feature/Courses/CourseCommercialDocumentDeliveryTest.php` — **+156 / -0** (5 new tests plus the `assertQueuedCommercialEmailPathExists()` guard helper and 4 new imports).
+- `openspec/changes/course-talks-management/tasks.md` — +4 / -0, bookkeeping only (new 6.f-2a row and one correction note; no checkbox removed or modified).
+- `openspec/changes/course-talks-management/apply-progress.md` — this section (bookkeeping).
+
+### Changed-line count / review workload
+
+- Code + tests: **292 added / 4 deleted = 296 changed lines**, well **under the 400-line budget** (production 140, tests 156). `openspec` bookkeeping files are excluded, as in the previous units. No overage.
+- Evidence revision SHA-256: `f2bd2133c1087ed97282038184e9d209273d9beff474d94dce7e980722b3964e` (SHA-256 over the ordered `sha256sum` manifest of the two code/test files above, taken before this evidence entry).
+
+### Stub `mailOperation` closure and the `sendAcademicEmail` / `sendCommercialEmail` pair — latent false-send risk (REPORTED, NOT fixed here)
+
+- **Yes, the risk remains.** `sendCommercialEmail()` (`app/Services/Courses/CourseDocumentDeliveryService.php`) and `sendAcademicEmail()` still mark `OutboundDelivery::STATUS_SENT` + `delivery_status = Sent` + `last_sent_at` purely on the verdict of the injected `Closure $mailOperation`, which builds no message at all. The two places in `app/` that construct the service inject the always-true stub:
+  - `app/Http/Controllers/CourseTalks/CourseAcademicDocumentDeliveryController.php:58` — `new CourseDocumentDeliveryService(static fn (): bool => true)`;
+  - `app/Jobs/Courses/SendCourseDocumentEmail.php:39` — `new CourseDocumentDeliveryService(static fn (): bool => true)`.
+- **Current reachability:** no `app/` code calls `sendCommercialEmail()` or `sendAcademicEmail()` today (grep over `app/` finds zero callers; only tests do), and the academic surface/job route through `queueAcademicEmail()`. So the stub is inert at HEAD of this branch — but it is a live trap for any future caller: a `static fn (): bool => true` injection plus a `sendCommercialEmail()` call would again record SENT with nothing sent. **A future 6.f-2b commercial delivery UI MUST call `queueCommercialEmail()`, never `sendCommercialEmail()`.** Fixing/removing the direct path is out of this unit's scope and was left untouched, as instructed.
+
+### Task persistence
+
+- Added one new implementation-owned row, clearly labelled and marked: `- [x] 6.f-2a Commercial email delivery domain path (split from 6.f-2): ... <!-- sdd-owner: implementation -->`.
+- The aggregate rows were **NOT** checked: `- [ ] 6.f Commercial document actions: register, upload, send, and discard, plus certificate template settings.` stays open (commercial delivery UI 6.f-2b, `discard` and certificate template settings are still missing) and `- [ ] 6.e ...` is untouched.
+- Added one `> Correction note (unit `6.f-2a`, recorded in `apply-progress.md`)` line recording the domain gap and the deliberate retention of the injected-closure path.
+- The persisted `tasks.md` was re-read after the edit: `6.f-2a` is visibly `- [x]`, `6.f` and `6.e` are visibly `- [ ]`, all 9 `<!-- sdd-owner: parent -->` rows are byte-for-byte unchanged (`git diff --numstat` shows +4 / -0, i.e. nothing removed or rewritten), and a marker audit found no malformed or duplicate `sdd-owner` marker.
+
+### Deviations (every one)
+
+1. **The method guard lives in the test, not in production.** The RED test asserts `method_exists(CourseDocumentDeliveryService::class, 'queueCommercialEmail')` before calling it, so the RED run yields genuine assertion failures instead of a `Call to undefined method` fatal — the instructed RED shape.
+2. **The precondition runs after the idempotency lookup, mirroring `queueAcademicEmail()`.** This keeps both guarantees literal: a rejected new attempt creates nothing, and a replay of an already-accepted operation still returns its existing delivery. Same ordering rationale recorded by the `academic-email-document-and-precondition` corrective unit.
+3. **`queueCommercialEmail()` reuses `secureCommercialDocumentUrl()` as its precondition** (the builder asserts via the shared predicate) exactly as `queueAcademicEmail()` reuses `secureAcademicDocumentUrl()`. The rule stays single-sourced; the builder is where the assert already lived.
+4. **`loadMissing('document')` moved from `secureCommercialDocumentUrl()` into `hasStreamableCommercialDocument()`.** Needed so the predicate is self-sufficient for every reader (the same shape as the academic predicate). `secureCommercialDocumentUrl`'s observable behavior and public signature are unchanged. This is the only change to the URL helper, and it is the minimum the single-sourced predicate requires.
+5. **A group comprobante's label omits series/number.** `CourseCommercialDocument.series`/`number` are nullable and the group fixture leaves them null, so `commercialDocumentLabel()` falls back to the bare type (`Boleta`) instead of rendering a dangling separator. The subject is still document-specific (it names the type) and the body still carries the per-document signed link; the group case is triangulated explicitly.
+6. **The email carries a link, not an attachment.** Same evidenced choice as the academic corrective unit: `EmailService::send()`'s third parameter is template vars, there is no attachment parameter, `EmailAttachment` rows are created only by a controller outside the service, and `SmtpProvider` ignores attachments — and `design.md:137` explicitly allows a controlled temporary/read route as the alternative.
+7. **The body does not include the payer name/document number or the amount.** Deliberate minimal PII: the comprobante is identified by type + series/number and reached through the signed link. The test asserts the payer document number is absent from the payload.
+8. Out of scope and untouched, as instructed: the commercial delivery UI (6.f-2b), certificate template settings, `discard` (Slice 7), controllers, views, routes, policies, permissions, enums, models, migrations, `openspec/config.yaml`, Docker/docs and the academic document surfaces. No file outside the four authorized surfaces was changed.
+
+### Risks and gaps for the parent
+
+1. **No user-visible surface yet.** This unit is domain-only; the commercial delivery UI (6.f-2b) is the follow-up. Human acceptance therefore remains **pending** and must be derived against 6.f-2b, where the message content is observable through the screen. Automated evidence (above) is the readiness signal for 6.f-2b, not a substitute for human acceptance.
+2. **The stub-closure trap** described above: a future 6.f-2b must call `queueCommercialEmail()` and must not reuse `sendCommercialEmail()` with the always-true closure.
+3. **The signed URL travels in the message body** — a controlled temporary route with independent currency/revocation re-validation and rate limiting, carrying no personal data, but bearer-ish by nature.
+4. **Residual idempotency edge case** (same as the academic channel): a replay whose comprobante has since become non-deliverable still returns the original delivery on the email path (lookup-first). That is the intended idempotency contract — a replay must never turn an already-accepted operation into an error or a duplicate row.
+
+### Remaining work and deferred lifecycle actions
+
+- The persisted tasks artifact now reads `- [x] 6.f-2a Commercial email delivery domain path (split from 6.f-2): ...` (this unit, visibly marked, terminal implementation marker) and `- [ ] 6.f Commercial document actions: register, upload, send, and discard, plus certificate template settings. <!-- sdd-owner: implementation -->` (correctly left unchecked — the commercial delivery UI 6.f-2b, `discard` and the certificate template settings are still missing).
+- Deferred parent lifecycle actions, unchanged and byte-for-byte intact: `- [ ] Review Slice 6 for UI completeness, authorization coverage, route naming, and adherence to existing Laravel/AdminLTE/Bootstrap patterns. <!-- sdd-owner: parent -->` plus every other `<!-- sdd-owner: parent -->` row (9 total).
+- No commit was made. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit, pre-push, pre-PR, release) was validated.
+
+### Next step
+
+- Unit 6.f-2b (commercial delivery actions UI) now has the domain path it was blocked on. It should call `CourseDocumentDeliveryService::queueCommercialEmail($commercial, $recipient, $actor, $operationKey, $email)` exactly as `CourseAcademicDocumentDeliveryController` calls `queueAcademicEmail()`, map the channel's Spanish refusal to the screen, and render the per-comprobante delivery history from `outbound_deliveries`. It must NOT call `sendCommercialEmail()`. Certificate template settings and the Slice 7 `discard`/alerts/audit work remain.
+

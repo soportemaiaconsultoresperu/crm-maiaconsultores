@@ -6,6 +6,7 @@ namespace App\Services\Courses;
 
 use App\Enums\Courses\AcademicDocumentStatus;
 use App\Enums\Courses\AcademicDocumentType;
+use App\Enums\Courses\CommercialDocumentType;
 use App\Enums\Courses\DeliveryStatus;
 use App\Models\Courses\CourseAcademicDocument;
 use App\Models\Courses\CourseCommercialDocument;
@@ -307,6 +308,71 @@ class CourseDocumentDeliveryService
         return $delivery->fresh();
     }
 
+    /**
+     * The queued commercial email path: the real counterpart of
+     * {@see queueAcademicEmail()} for the commercial channel. It records the
+     * attempt, then hands a real message carrying the signed private-document
+     * link to `EmailService`. The direct injected-closure path
+     * ({@see sendCommercialEmail()}) is deliberately kept beside it.
+     */
+    public function queueCommercialEmail(
+        CourseCommercialDocument $commercial,
+        string $recipient,
+        User $actor,
+        string $operationKey,
+        EmailService $email,
+    ): OutboundDelivery {
+        $recipient = strtolower(trim($recipient));
+        // Authorization, the exactly-one-target rule, the recipient rule and the
+        // operation-key rule stay single-sourced on the commercial channel.
+        $this->authorizeEnrollmentCommercialDelivery($commercial, $actor, $recipient, $operationKey);
+
+        $existing = $this->matchingCommercialDelivery($commercial, $operationKey, OutboundDelivery::CHANNEL_MAIL, $recipient);
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        // The deliverability rule is the domain's, not the HTTP surface's: an
+        // unregistered, non-streamable or file-less comprobante is refused before
+        // any ledger row or queued message exists. `secureCommercialDocumentUrl()`
+        // asserts exactly that rule and returns the controlled temporary/read
+        // route the design allows as the email payload. The emailed link is valid
+        // for days, not minutes: it is opened hours or days after the message was
+        // sent.
+        $documentUrl = $this->secureCommercialDocumentUrl($commercial, $this->emailDocumentLinkMinutes());
+
+        try {
+            $delivery = DB::transaction(function () use ($commercial, $recipient, $operationKey, $email, $actor, $documentUrl): OutboundDelivery {
+                $delivery = OutboundDelivery::query()->create([
+                    'channel' => OutboundDelivery::CHANNEL_MAIL,
+                    'recipient_ref' => $recipient,
+                    'related_entity_type' => CourseCommercialDocument::class,
+                    'related_entity_id' => $commercial->id,
+                    'status' => OutboundDelivery::STATUS_QUEUED,
+                    'attempts' => 1,
+                    'idempotency_key' => $operationKey,
+                ]);
+
+                $email->send(new EmailMessage([
+                    'from_email' => (string) config('mail.from.address'),
+                    'from_name' => config('mail.from.name'),
+                    'subject' => $this->commercialEmailSubject($commercial),
+                    'body_html' => [$this->commercialEmailBodyHtml($commercial, $documentUrl)],
+                    'body_text' => [$this->commercialEmailBodyText($commercial, $documentUrl)],
+                ]), [$recipient], [], ['outbound_delivery_id' => $delivery->id], $actor);
+
+                return $delivery;
+            });
+        } catch (QueryException $exception) {
+            $delivery = OutboundDelivery::query()->where('idempotency_key', $operationKey)->first();
+            if ($delivery === null) {
+                throw $exception;
+            }
+        }
+
+        return $delivery->fresh();
+    }
+
     public function sendCommercialEmail(CourseCommercialDocument $commercial, string $recipient, User $actor, string $operationKey): OutboundDelivery
     {
         $recipient = strtolower(trim($recipient));
@@ -369,10 +435,7 @@ class CourseDocumentDeliveryService
 
     public function secureCommercialDocumentUrl(CourseCommercialDocument $commercial, int $minutes = 60): string
     {
-        $commercial->loadMissing('document');
-        if (! $this->hasStreamableCommercialDocument($commercial)) {
-            throw new InvalidArgumentException('A registered private commercial document is required.');
-        }
+        $this->assertStreamableCommercialDocument($commercial);
 
         return URL::temporarySignedRoute('commercial-documents.documents.show', now()->addMinutes($minutes), [
             'commercialDocument' => $commercial->id,
@@ -439,13 +502,29 @@ class CourseDocumentDeliveryService
         }
     }
 
+    /**
+     * The single deliverability predicate for a commercial document: it must be
+     * registered/sent, still point at its own private upload and that file must
+     * actually exist on the configured disk. Every entry point (the signed URL
+     * builder, the queued email and the WhatsApp handoff) reads the rule from
+     * here, so it lives in exactly one place.
+     */
     private function hasStreamableCommercialDocument(CourseCommercialDocument $commercial): bool
     {
+        $commercial->loadMissing('document');
+
         return $commercial->document !== null
             && in_array($commercial->status, ['registered', 'sent'], true)
             && $commercial->document->docable_type === CourseCommercialDocument::class
             && (int) $commercial->document->docable_id === (int) $commercial->id
             && Storage::disk($commercial->document->disk)->exists($commercial->document->path);
+    }
+
+    private function assertStreamableCommercialDocument(CourseCommercialDocument $commercial): void
+    {
+        if (! $this->hasStreamableCommercialDocument($commercial)) {
+            throw new InvalidArgumentException('A registered private commercial document is required.');
+        }
     }
 
     /**
@@ -522,5 +601,58 @@ class CourseDocumentDeliveryService
     private function academicEmailBodyHtml(CourseAcademicDocument $academic, string $documentUrl): string
     {
         return nl2br((string) e($this->academicEmailBodyText($academic, $documentUrl)));
+    }
+
+    /**
+     * `Factura`/`Boleta`/`Recibo` plus the series-number identifier when the
+     * comprobante has one (a group comprobante may not), so the email subject and
+     * body name the concrete document instead of a generic label.
+     */
+    private function commercialDocumentLabel(CourseCommercialDocument $commercial): string
+    {
+        $type = match ($commercial->type) {
+            CommercialDocumentType::Factura => 'Factura',
+            CommercialDocumentType::Boleta => 'Boleta',
+            CommercialDocumentType::Recibo => 'Recibo',
+        };
+
+        $series = trim((string) $commercial->series);
+        $number = trim((string) $commercial->number);
+        if ($series === '' || $number === '') {
+            return $type;
+        }
+
+        return $type.' '.$series.'-'.$number;
+    }
+
+    private function commercialEmailSubject(CourseCommercialDocument $commercial): string
+    {
+        return 'Comprobante: '.$this->commercialDocumentLabel($commercial);
+    }
+
+    /**
+     * Person-readable Spanish message carrying the controlled temporary/read
+     * route. It never includes the raw private storage path or unrelated PII.
+     */
+    private function commercialEmailBodyText(CourseCommercialDocument $commercial, string $documentUrl): string
+    {
+        return implode("\n", [
+            'Hola,',
+            '',
+            'Le compartimos su comprobante: '.$this->commercialDocumentLabel($commercial).'.',
+            '',
+            'Puede descargarlo de forma segura desde el siguiente enlace:',
+            $documentUrl,
+            '',
+            'Por seguridad, el enlace de descarga tiene vigencia limitada. Si ya venció o necesita una nueva copia, responda a este correo y se lo enviaremos nuevamente.',
+            '',
+            'Atentamente,',
+            'Maia Consultores',
+        ]);
+    }
+
+    private function commercialEmailBodyHtml(CourseCommercialDocument $commercial, string $documentUrl): string
+    {
+        return nl2br((string) e($this->commercialEmailBodyText($commercial, $documentUrl)));
     }
 }
