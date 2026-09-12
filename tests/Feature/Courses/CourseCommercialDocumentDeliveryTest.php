@@ -14,7 +14,10 @@ use App\Models\Notification\OutboundDelivery;
 use App\Models\User;
 use App\Services\Courses\CourseDocumentDeliveryService;
 use App\Services\Email\EmailService;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -407,6 +410,114 @@ class CourseCommercialDocumentDeliveryTest extends TestCase
         $this->assertSame($first->id, $duplicate->id);
         $this->assertDatabaseCount('outbound_deliveries', 1);
         $this->assertDatabaseCount('email_messages', 1);
+    }
+
+    /**
+     * Defect B — the commercial WhatsApp handoff created its ledger row without
+     * the recovery the academic handoff has, so a concurrent double submit
+     * escaped as an unhandled QueryException (an HTTP 500 through
+     * CourseCommercialDocumentDeliveryController, which only catches
+     * InvalidArgumentException) instead of returning the handoff that already
+     * exists.
+     */
+    public function test_a_commercial_whatsapp_handoff_survives_an_operation_key_collision_and_returns_the_existing_row(): void
+    {
+        Storage::fake('docs');
+        $commercial = $this->commercialDocumentWithPdf();
+        $operationKey = 'commercial-whatsapp-collision-001';
+        $this->simulateConcurrentDeliveryWinner($operationKey, $commercial, '51999123456', OutboundDelivery::STATUS_QUEUED);
+
+        $service = new CourseDocumentDeliveryService(static fn (): bool => true);
+
+        try {
+            $handoff = $service->openCommercialWhatsAppHandoff($commercial, '+51 999 123 456', $this->actor, $operationKey);
+        } catch (QueryException $exception) {
+            $this->fail('Una colisión de clave debe devolver el traspaso ya registrado en lugar de propagar el error: '.$exception->getMessage());
+        }
+
+        $this->assertSame($this->deliveryIdForOperationKey($operationKey), $handoff['delivery']->id);
+        $this->assertSame(OutboundDelivery::STATUS_QUEUED, $handoff['delivery']->status);
+        $this->assertSame('51999123456', $handoff['phone']);
+        $this->assertStringStartsWith('https://wa.me/51999123456?text=', $handoff['url']);
+        $this->assertDatabaseCount('outbound_deliveries', 1);
+    }
+
+    /**
+     * Defect B — the confirmation path writes inside a transaction, so the
+     * loser must still resolve to the row the concurrent request committed
+     * instead of surfacing a 500 to the user who clicked twice.
+     */
+    public function test_a_commercial_whatsapp_confirmation_survives_an_operation_key_collision_and_returns_the_existing_row(): void
+    {
+        Storage::fake('docs');
+        $commercial = $this->commercialDocumentWithPdf();
+        $service = new CourseDocumentDeliveryService(static fn (): bool => true, static fn () => now()->startOfSecond());
+        $handoff = $service->openCommercialWhatsAppHandoff($commercial, '+51 999 123 456', $this->actor, 'commercial-whatsapp-collision-002');
+
+        $confirmationKey = 'commercial-whatsapp-collision-003';
+        $this->simulateConcurrentDeliveryWinner($confirmationKey, $commercial, '51999123456', OutboundDelivery::STATUS_SENT);
+
+        try {
+            $confirmation = $service->confirmCommercialWhatsAppSent(
+                $commercial,
+                $handoff['delivery'],
+                '+51 999 123 456',
+                $this->actor,
+                $confirmationKey,
+            );
+        } catch (QueryException $exception) {
+            $this->fail('Una colisión de clave en la confirmación debe devolver el registro ya emitido en lugar de propagar el error: '.$exception->getMessage());
+        }
+
+        $this->assertSame($this->deliveryIdForOperationKey($confirmationKey), $confirmation->id);
+        $this->assertSame(OutboundDelivery::STATUS_SENT, $confirmation->status);
+        $this->assertDatabaseCount('outbound_deliveries', 2);
+    }
+
+    /**
+     * Simulates the winning side of a concurrent double submit: the other
+     * request commits its ledger row between this request's replay lookup and
+     * its own insert, so the unique index on `idempotency_key` rejects the
+     * second write. The winner is written from a query listener right after
+     * the replay lookup ran; an Eloquent `creating` hook would be rolled back
+     * with the transaction the confirmation opens and would leave the recovery
+     * with nothing to find.
+     */
+    private function simulateConcurrentDeliveryWinner(
+        string $operationKey,
+        CourseCommercialDocument $commercial,
+        string $recipient,
+        string $status,
+    ): void {
+        $listened = false;
+
+        DB::listen(function (QueryExecuted $query) use ($operationKey, $commercial, $recipient, $status, &$listened): void {
+            if ($listened || ! str_contains($query->sql, 'outbound_deliveries')) {
+                return;
+            }
+
+            if (! in_array($operationKey, array_map('strval', $query->bindings), true)) {
+                return;
+            }
+
+            $listened = true;
+            DB::table('outbound_deliveries')->insert([
+                'channel' => OutboundDelivery::CHANNEL_WHATSAPP,
+                'recipient_ref' => $recipient,
+                'related_entity_type' => CourseCommercialDocument::class,
+                'related_entity_id' => $commercial->id,
+                'status' => $status,
+                'attempts' => 1,
+                'idempotency_key' => $operationKey,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        });
+    }
+
+    private function deliveryIdForOperationKey(string $operationKey): int
+    {
+        return (int) OutboundDelivery::query()->where('idempotency_key', $operationKey)->value('id');
     }
 
     private function groupCommercialDocument(): CourseCommercialDocument

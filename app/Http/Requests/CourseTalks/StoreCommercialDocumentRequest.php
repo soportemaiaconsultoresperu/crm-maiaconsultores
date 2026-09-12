@@ -27,6 +27,10 @@ class StoreCommercialDocumentRequest extends FormRequest
     {
         return [
             'type' => ['required', Rule::enum(CommercialDocumentType::class)],
+            // The request mirrors the service's authoritative bound (the column
+            // is CHAR(64)) so an over-long key is a visible field error; the
+            // service still re-asks because direct callers never pass here.
+            'operation_key' => ['nullable', 'string', 'max:64'],
             'course_enrollment_id' => ['nullable', 'integer', 'exists:course_enrollments,id', 'required_without:course_enrollment_group_id'],
             'course_enrollment_group_id' => ['nullable', 'integer', 'exists:course_enrollment_groups,id', 'required_without:course_enrollment_id'],
             'payer_name' => ['required', 'string', 'max:255'],

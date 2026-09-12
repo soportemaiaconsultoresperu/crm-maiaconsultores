@@ -417,16 +417,31 @@ class CourseDocumentDeliveryService
         $phone = preg_replace('/\D+/', '', $recipientPhone) ?? '';
         $this->authorizeEnrollmentCommercialDelivery($commercial, $actor, $phone, $operationKey, true);
         $documentUrl = $this->secureCommercialDocumentUrl($commercial);
-        $delivery = $this->matchingCommercialDelivery($commercial, $operationKey, OutboundDelivery::CHANNEL_WHATSAPP, $phone)
-            ?? OutboundDelivery::query()->create([
-                'channel' => OutboundDelivery::CHANNEL_WHATSAPP,
-                'recipient_ref' => $phone,
-                'related_entity_type' => CourseCommercialDocument::class,
-                'related_entity_id' => $commercial->id,
-                'status' => OutboundDelivery::STATUS_QUEUED,
-                'attempts' => 1,
-                'idempotency_key' => $operationKey,
-            ]);
+        $delivery = $this->matchingCommercialDelivery($commercial, $operationKey, OutboundDelivery::CHANNEL_WHATSAPP, $phone);
+
+        if ($delivery === null) {
+            try {
+                $delivery = OutboundDelivery::query()->create([
+                    'channel' => OutboundDelivery::CHANNEL_WHATSAPP,
+                    'recipient_ref' => $phone,
+                    'related_entity_type' => CourseCommercialDocument::class,
+                    'related_entity_id' => $commercial->id,
+                    'status' => OutboundDelivery::STATUS_QUEUED,
+                    'attempts' => 1,
+                    'idempotency_key' => $operationKey,
+                ]);
+            } catch (QueryException $exception) {
+                // A concurrent double submit can commit the other request's
+                // handoff between the lookup above and this insert: the loser of
+                // the race returns the handoff that already exists, exactly like
+                // the academic channel, instead of escaping as an error.
+                $delivery = $this->matchingCommercialDelivery($commercial, $operationKey, OutboundDelivery::CHANNEL_WHATSAPP, $phone);
+                if ($delivery === null) {
+                    throw $exception;
+                }
+            }
+        }
+
         $text = 'Hola, le escribimos de Maia Consultores. Puede descargar su comprobante aquí: '
             .$documentUrl;
 
@@ -455,11 +470,23 @@ class CourseDocumentDeliveryService
         }
 
         $sentAt = ($this->clock)();
-        $confirmation = DB::transaction(function () use ($commercial, $phone, $operationKey, $sentAt): OutboundDelivery {
-            $confirmation = OutboundDelivery::query()->create(['channel' => OutboundDelivery::CHANNEL_WHATSAPP, 'recipient_ref' => $phone, 'related_entity_type' => CourseCommercialDocument::class, 'related_entity_id' => $commercial->id, 'status' => OutboundDelivery::STATUS_SENT, 'attempts' => 1, 'idempotency_key' => $operationKey]);
-            $commercial->forceFill(['delivery_status' => DeliveryStatus::Sent, 'last_sent_at' => $sentAt])->save();
-            return $confirmation;
-        });
+
+        try {
+            $confirmation = DB::transaction(function () use ($commercial, $phone, $operationKey, $sentAt): OutboundDelivery {
+                $confirmation = OutboundDelivery::query()->create(['channel' => OutboundDelivery::CHANNEL_WHATSAPP, 'recipient_ref' => $phone, 'related_entity_type' => CourseCommercialDocument::class, 'related_entity_id' => $commercial->id, 'status' => OutboundDelivery::STATUS_SENT, 'attempts' => 1, 'idempotency_key' => $operationKey]);
+                $commercial->forceFill(['delivery_status' => DeliveryStatus::Sent, 'last_sent_at' => $sentAt])->save();
+
+                return $confirmation;
+            });
+        } catch (QueryException $exception) {
+            // Same recovery as the academic confirmation: a concurrent submit
+            // that committed its confirmation first wins the unique index, and
+            // the loser returns that row instead of surfacing an error.
+            $confirmation = OutboundDelivery::query()->where('idempotency_key', $operationKey)->first();
+            if ($confirmation === null) {
+                throw $exception;
+            }
+        }
 
         activity()->performedOn($commercial)->causedBy($actor)->event('course-commercial-document-whatsapp-confirmed')->withProperties(['delivery_id' => $confirmation->id])->log('Confirmación manual de entrega de comprobante por WhatsApp');
 

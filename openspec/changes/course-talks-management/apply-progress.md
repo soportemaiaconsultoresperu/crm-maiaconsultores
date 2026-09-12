@@ -2975,3 +2975,136 @@ The guard lives in `generateDocument()` right after the eligibility gate and bef
 - No commit, push, branch or worktree was created; `git diff --cached --name-only` is empty.
 - This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate was validated.
 - Human acceptance remains **pending / not run** (acceptance-checklist skill): the automated suite proves the contract, but no human has watched a commercial email reach a terminal state on screen or attempted a duplicate generate in a browser.
+
+## Corrective unit R1 — commercial registration idempotency and the commercial WhatsApp handoff race
+
+**Date:** 2025-09-12 (corrective follow-up to the commercial delivery cycle, branch `feat/course-talks-slice-6-ui`, HEAD `c74251c`).
+**Status:** complete on the two P1 findings. Nothing staged, nothing committed, no branch or worktree created, no real database touched.
+**Artifact store:** openspec. Artifacts read before work: `tasks.md`, `spec.md`, `design.md`, this file (read in full, merged, appended — never overwritten).
+**Skill resolution:** `paths-injected` — loaded `C:\Users\JEANPIERRE\.pi\agent\skills\database-change-safety\SKILL.md` and `C:\Users\JEANPIERRE\.pi\agent\skills\acceptance-checklist\SKILL.md` before writing code (no fallback registry lookup, no extra skill discovery).
+
+### Structured status consumed (native, authoritative)
+
+`gentle-ai sdd-status course-talks-management --cwd . --json --instructions` → `schemaName=gentle-ai.sdd-status`, `artifactStore=openspec`, `planningHome.mode=repo-local`, `applyState=ready`, `nextRecommended=apply`, `blockedReasons=[]`, `dependencies.apply=ready`, `actionContext.mode=repo-local`, `workspaceRoot=C:\laragon\www\crm-maia-consultores`, `allowedEditRoots=[C:\laragon\www\crm-maia-consultores]`. Every edited path is inside that root, so no unsafe `actionContext` and no edit-root violation occurred. Warning (unchanged, not fixed here): `openspec/config.yaml` is stale for the unrelated `b12-ui` change; the absolute PHP executable was used instead of its bare `php artisan test` command.
+
+Review Workload Gate: `tasks.md` forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent resolved this corrective unit R1 as one bounded work-unit slice with an explicit under-400-line aim; the real total is reported honestly below. One PR boundary: the 8 tracked files plus the new migration.
+
+Runtime observation (not acted on — attempt lifecycle belongs to the parent): `gentle-ai sdd-attempt status` reports a pre-existing active attempt `slice-5-delivery-closure` (`sha256:d072d16e…`, `max_changed_lines: 400`, candidate tree `f47a2009`). It is stale relative to HEAD `c74251c` and unrelated to this unit; no attempt was acquired, settled or reset by this phase.
+
+### Attribute name standardised on
+
+**Request field and service attribute: `operation_key`. Persisted column: `idempotency_key`.** The two registration forms post `name="operation_key"` (the same hidden-input name the three delivery forms in the same view already use), `StoreCommercialDocumentRequest` validates `operation_key`, `register()` reads `$attributes['operation_key']` and maps it explicitly to the `idempotency_key` column in its `create()` payload — exactly the shape the delivery channel already has (`openCommercialWhatsAppHandoff(..., string $operationKey)` → `outbound_deliveries.idempotency_key`). The rename is explicit in the service's create array, so `operation_key` can never leak into a column implicitly.
+
+### How the replay is recognised (Defect A)
+
+1. `Gate::forUser($actor)->authorize('manage', CourseCommercialDocument::class)` still runs first, so a replay never bypasses authorization.
+2. The key is trimmed and bounded by the service: `strlen($operationKey) > 64` throws the Spanish `La clave de operación no puede superar los 64 caracteres.` The bound is authoritative in the service because the column is `CHAR(64)` and a longer key would not survive persistence (MySQL strict mode rejects it; SQLite would store it and silently break idempotency). The request mirrors `max:64` only so the user reads a field error instead of a domain rejection, and because direct callers (jobs, commands) never pass through the request.
+3. With a non-empty key the service looks the key up and **returns the existing document** instead of re-running the target/payer/money rules or inserting; with no key (`''`, absent, or whitespace-only) nothing changes at all.
+4. The `create()` is wrapped in `try/catch (QueryException)`: if a concurrent request committed its document between the lookup and the insert, the loser re-looks the key up and returns that row (`existingForOperationKey()`), and rethrows only when there is no row to return. With no key the `QueryException` is always rethrown — the pre-idempotency behavior is untouched.
+5. The concurrent-collision branch is reached deliberately in tests by writing the racing winner from a `DB::listen()` callback that fires right after the service's own replay `SELECT` — the exact interleaving two real requests produce (see "Deviations" 3 for why a model `creating` hook could not be used for the confirmation path).
+
+**Deliberate, reported non-goal:** the replay lookup is by key alone, so a key that exists on a *different* target would return that other document rather than refusing. The delivery channel's `matchingDelivery()` additionally refuses cross-entity/key reuse and it was NOT mirrored here, because (a) the task specifies "an existing document with that key must be RETURNED rather than duplicated", (b) the key is minted per rendered form per target (`Str::uuid()` inside each form), and (c) a validation re-render mints a fresh key because the hidden input is never pre-filled from old input, so no legitimate flow can reuse a key across targets. Documented as a residual risk in the report; not a widening of scope.
+
+### Migration — name, forward and rollback effect (database-change-safety)
+
+- **File:** `database/migrations/2026_08_26_000005_add_course_commercial_document_idempotency_key.php` (38 lines).
+- **Target classification:** the migration is written for the project's production connection (MySQL, `DB_CONNECTION=mysql`, `DB_DATABASE=crm_maia` in `.env`) but was **only** executed against the test suite's own connection (sqlite `:memory:` via `phpunit.xml`). No real, staging or production database was migrated, reset or modified.
+- **Forward effect (additive, non-destructive):** `course_commercial_documents` gains one nullable `CHAR(64)` `idempotency_key` column placed after `document_id`, plus the named unique index `uq_course_commercial_documents_idempotency_key`. No column is altered, no row is rewritten, no data is deleted, no lock beyond the index build. It mirrors the platform's existing nullable idempotency columns (`2026_08_22_110000_add_gmail_phase2_fields_to_email_messages_table.php`: nullable `CHAR(64)` + named unique; `create_whatsapp_messages_table`: nullable `CHAR(64)` + `uq_whatsapp_messages_idempotency`) and follows the course migrations' non-destructive `down()` convention.
+- **Rollback effect:** `down()` drops the unique index and then the column. Only idempotency keys are discarded; documents, amounts, payers and attachments are untouched. Verified: `migrate:rollback --step=1` reported `2026_08_26_000005_add_course_commercial_document_idempotency_key ... DONE`, the column became absent, and the 2 pre-existing rows (including their `118.00` totals) survived.
+- **Existing rows:** every current row keeps `NULL`, which the unique index treats as distinct, so **no existing row is invalidated** by the new constraint (also proven at row level, below).
+- **Backup status:** `unknown` — the owner runs this migration; a backup before applying it to any real environment remains the owner's call.
+- **Post-change verification for the owner:** after `migrate`, `SHOW CREATE TABLE course_commercial_documents` must show `idempotency_key` as nullable and `UNIQUE KEY uq_course_commercial_documents_idempotency_key (idempotency_key)`, and `SELECT COUNT(*) FROM course_commercial_documents WHERE idempotency_key IS NULL` must equal the pre-migration row count. This assessment is advisory: production execution stays with the owner workflow.
+
+### NULLs versus the unique index — what was actually verified
+
+Verified empirically on the connection the test suite uses (sqlite `:memory:`, `phpunit.xml` `DB_CONNECTION=sqlite` + `DB_DATABASE=:memory:`), through a throw-away script outside the repository (no repo file added, no real DB touched):
+
+```
+driver: sqlite
+hasColumn: yes
+index: uq_course_commercial_documents_idempotency_key unique=1
+index sql: CREATE UNIQUE INDEX "uq_course_commercial_documents_idempotency_key" on "course_commercial_documents" ("idempotency_key")
+index column: idempotency_key
+rows with NULL key: 3
+duplicate non-null key: REJECTED by the unique index
+```
+
+So on this project's test connection the index is strictly UNIQUE over that single column, three key-less rows coexist under it, and a duplicate non-null key is rejected. The same behavior is asserted end-to-end by `test_the_unique_index_on_the_new_column_still_allows_many_documents_without_a_key` (three documents registered through the service, three `NULL` keys) and by the two collision/replay tests (a duplicate non-null key cannot be written twice). For the **production** connection (MySQL/InnoDB) the equivalent property — a `UNIQUE` index permitting multiple `NULL`s because `NULL` is never equal to `NULL` — is documented behavior, not something verified here, because the brief forbids running the migration against any real database.
+
+### Strict TDD evidence (RED → GREEN → TRIANGULATE → REFACTOR)
+
+Runner: `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (`php` is not on PATH). Every run sequential, one command per shell block.
+
+| Defect | RED command | RED result (real) | GREEN command | GREEN result (real) |
+| --- | --- | --- | --- | --- |
+| A — duplicate commercial documents | `--filter=CourseCommercialDocumentHttpTest` | `{"tool":"phpunit","result":"failed","tests":22,"passed":19,"assertions":258,"failed":3}` — `Failed asserting that table [course_commercial_documents] matches expected entries count of 1. Entries found: 2.` (both registration forms) and `Failed asserting that two strings are not identical.` on the re-render key | same filter | `{"tool":"phpunit","result":"passed","tests":22,"passed":22,"assertions":288}` |
+| A — replay / collision / nullable column (domain) | `--filter=CourseCommercialDocumentRegistrationTest` | `{"tool":"phpunit","result":"failed","tests":16,"passed":12,"assertions":61,"failed":4}` — `Failed asserting that 2 is identical to 1.` (replay wrote a second factura), `Failed asserting that false is true.` (the `idempotency_key` column and the concurrent-collision fixture), `Failed asserting that an array has the key 'operation_key'.` (no bound in the request) | same filter | `{"tool":"phpunit","result":"passed","tests":16,"passed":16,"assertions":72}` |
+| B — WhatsApp handoff / confirmation collision | `--filter=CourseCommercialDocumentDeliveryTest` | `{"tool":"phpunit","result":"failed","tests":19,"passed":17,"assertions":124,"failed":2}` — both `Una colisión de clave … : SQLSTATE[23000]: Integrity constraint violation: 19 UNIQUE constraint failed: outbound_deliveries.idempotency_key`, i.e. the uncaught `QueryException` that becomes the HTTP 500 | same filter | `{"tool":"phpunit","result":"passed","tests":19,"passed":19,"assertions":130}` |
+
+Both RED runs are real assertion failures (`$this->fail(...)` after the escaping exception), not PHP fatals and not unreadable errors. The RED for defect A asserts the **end** state the defect is about — `Entries found: 2`, i.e. two financial documents after a double click — and not the state where the defect begins (the tests deliberately keep going when the form carries no key, so the duplicate write is reproduced instead of stopping at a missing input). The RED for defect B asserts that the collision response is the already-registered row instead of an escaping exception.
+
+**TDD Cycle Evidence**
+
+| Task | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE / REFACTOR |
+|---|---|---|---|---|---|---|
+| Defect A — replay returns the existing document | `CourseCommercialDocumentRegistrationTest` | Feature / service | Pre-edit baselines of the three commercial suites as recorded by the previous unit (12 / 56, 19 / 231, 17 / 122) | `Failed asserting that 2 is identical to 1.` | `assertSame` on id + key + total, `assertDatabaseCount(1)` | Group replay exercised through the HTTP double submit; key-less coexistence kept as the "legitimate second purchase" lock |
+| Defect A — concurrent collision | `CourseCommercialDocumentRegistrationTest` | Feature / service + query listener | as above | `Failed asserting that false is true.` (no column yet) | returns the winner's id, payer and a single row | Winner written via `DB::listen` immediately after the service's replay `SELECT` |
+| Defect A — nullable unique column | `CourseCommercialDocumentRegistrationTest` | Feature / schema | as above | `Failed asserting that false is true.` (`Schema::hasColumn`) | three key-less documents coexist, all `NULL` | Cross-checked at SQL level with `PRAGMA index_list` outside the suite (evidence above) |
+| Defect A — key bound | `CourseCommercialDocumentRegistrationTest` | Validation + service | as above | `Failed asserting that an array has the key 'operation_key'.` | request rejects 65 chars, accepts 64; service throws its Spanish message and writes nothing | Two validators + the service rule in one test |
+| Defect A — double submit (both forms) | `CourseCommercialDocumentHttpTest` | Feature / HTTP + Blade | 19 / 231 | `Entries found: 2` | one document with the rendered key; both responses flash success | Group form double submit; one hidden input per form; distinct keys per form; fresh key per render |
+| Defect B — handoff collision | `CourseCommercialDocumentDeliveryTest` | Feature / service | 17 / 122 | escaping `UNIQUE constraint failed: outbound_deliveries.idempotency_key` | returns the existing `queued` row id, phone and `wa.me` URL, one ledger row | — |
+| Defect B — confirmation collision | `CourseCommercialDocumentDeliveryTest` | Feature / service | 17 / 122 | escaping `UNIQUE constraint failed: outbound_deliveries.idempotency_key` | returns the existing `sent` row id, two ledger rows | — |
+
+**REFACTOR:** `CourseDocumentDeliveryService::openCommercialWhatsAppHandoff()`'s `??` expression became an explicit `if ($delivery === null)` so the `try/catch` has exactly the shape of `openAcademicWhatsAppHandoff()`; `confirmCommercialWhatsAppSent()` now reads line-for-line like `confirmAcademicWhatsAppSent()`. `register()` extracted one private `existingForOperationKey()` used by both the replay lookup and the collision recovery. No existing public signature changed. Style parity checked the way the previous unit did: `pint --test` on the changed files reports the **same or a strictly smaller** fixer set than the HEAD copies of the same files (`CourseCommercialDocumentService` identical six fixers; `CourseDocumentDeliveryService` a subset — HEAD had `blank_line_before_statement`, the new version does not; the request, the migration and the minified model add nothing new). `php -l` reports no syntax error in any of the 8 changed PHP files and `git diff --check` is clean.
+
+### Files changed (`git diff --numstat`, plus the new migration)
+
+- `database/migrations/2026_08_26_000005_add_course_commercial_document_idempotency_key.php` — **38 added / 0 deleted** (new, untracked).
+- `app/Services/Courses/CourseCommercialDocumentService.php` — **+63 / -18** (replay lookup, key bound, collision recovery, `existingForOperationKey()`, docblocks, one import).
+- `app/Services/Courses/CourseDocumentDeliveryService.php` — **+42 / -15** (the two `try/catch` recoveries; guard order and signatures unchanged).
+- `resources/views/course-talks/editions/commercial-documents.blade.php` — **+17 / -0** (per-render key + hidden input in both registration forms).
+- `app/Http/Requests/CourseTalks/StoreCommercialDocumentRequest.php` — **+4 / -0** (`operation_key` rule).
+- `app/Models/Courses/CourseCommercialDocument.php` — **+1 / -1** (`idempotency_key` in `$fillable`; no cast added — the column returns a plain string, so a cast would be a no-op).
+- `tests/Feature/Courses/CourseCommercialDocumentRegistrationTest.php` — **+184 / -0** (4 tests + 2 helpers + 4 imports).
+- `tests/Feature/Courses/CourseCommercialDocumentHttpTest.php` — **+138 / -0** (3 tests + 2 helpers).
+- `tests/Feature/Courses/CourseCommercialDocumentDeliveryTest.php` — **+111 / -0** (2 tests + 2 helpers + 3 imports).
+- `openspec/changes/course-talks-management/tasks.md`, `openspec/changes/course-talks-management/apply-progress.md` — bookkeeping only.
+
+### Changed-line count / review workload
+
+**569 added / 34 deleted = 603 changed lines tracked, + 38 lines of new untracked migration = 641 changed lines.** Over the 400-line aim. Composition: tests **433** changed lines (9 new tests covering both defects at service, HTTP, concurrency and Blade-wiring level), production code **127**, migration **38**, bookkeeping the rest; nothing was deleted from the test suites. The overrun is driven by the assertion surface the brief demanded (a double submit that must reach the end state, a replay, a nullable-column lock, two concurrent-collision paths, both registration forms and the per-render key minting) rather than by production code, which is 127 lines for two defects. Reported as-is; no test was thinned to fit the budget.
+
+### Verification commands and real results (sequential, in the brief's order)
+
+1. `artisan test --filter=CourseCommercialDocumentRegistrationTest` → `{"tool":"phpunit","result":"passed","tests":16,"passed":16,"assertions":72,"duration_ms":3721}`.
+2. `artisan test --filter=CourseCommercialDocumentHttpTest` → `{"result":"passed","tests":22,"passed":22,"assertions":288,"duration_ms":8240}`.
+3. `artisan test --filter=CourseCommercialDocumentDeliveryTest` → `{"result":"passed","tests":19,"passed":19,"assertions":130,"duration_ms":5079}`.
+4. `artisan test --filter=CourseCommercialDocument` (all commercial suites) → `{"result":"passed","tests":78,"passed":78,"assertions":706,"duration_ms":21232}`.
+5. `artisan test --filter=Course` (final regression) → `{"result":"passed","tests":341,"passed":341,"assertions":2559,"duration_ms":83946}`. Baseline 332 tests / 2,478 assertions → **new totals 341 tests / 2,559 assertions** (+9 tests, +81 assertions, exactly this unit's 4 + 3 + 2 new tests).
+6. `artisan test --filter=SendEmailMessageCorrelationTest` (shared-infrastructure neighbour) → `{"result":"passed","tests":8,"passed":8,"assertions":50,"duration_ms":2527}`.
+7. Migration forward/rollback verification on the test connection → column present after `up`, absent after `migrate:rollback --step=1`, 2/2 rows and their `118.00` totals preserved.
+8. NULL/unique-index verification at SQL level on the test connection → output quoted above.
+9. Hygiene: `php -l` clean on all 8 changed PHP files; `git diff --check` clean; `git status --short` shows no staged entries and one untracked file (the migration); `pint --test` fixer sets equal-or-smaller than the HEAD copies.
+
+### Deviations (every one)
+
+1. **`operation_key` (not `idempotency_key`) is the posted and service attribute name**, with an explicit mapping to the `idempotency_key` column, matching the delivery forms' hidden input and the delivery service's `$operationKey` parameter in the same codebase. The brief allowed either; the chosen one keeps the whole view internally consistent.
+2. **The replay lookup runs before the domain validations** (right after authorization and the key bound), mirroring the delivery channel's "replay lookup first, work after" order, so a replay does not re-run money math. Discovered while writing the tests: the query listener that simulates the racing winner must be able to fire *before* the insert, which this order makes deterministic.
+3. **The concurrent winner is simulated with `DB::listen`, not a model `creating` hook.** The first attempt used `CourseCommercialDocument::creating()`, which worked for the registration path but could not work for the confirmation path: `confirmCommercialWhatsAppSent()` writes inside `DB::transaction()`, so a row inserted from a model hook is rolled back with the same transaction and the recovery would have found nothing. Firing the winner insert right after the replay `SELECT` (which happens outside the transaction) reproduces the real interleaving for all three collision tests. Also discovered: in this Laravel version the listener receives `Illuminate\Database\Events\QueryExecuted`, not `Illuminate\Database\QueryExecuted` (the first RED run errored on the wrong type import).
+4. **`Schema::hasColumn` is asserted inside the two schema-dependent registration tests.** Before the migration exists an insert against `idempotency_key` is an unreadable error, not an assertion failure; guarding first keeps the pre-fix state a real `Failed asserting that false is true.` with a message that names the missing column.
+5. **The request-bound test asserts through a complete valid payload.** The first GREEN run failed because `Validator::make(['operation_key' => …])` alone also fails `required` on `payer_name`, so the at-bound case looked rejected for the wrong reason. The fixture now supplies `type`, `payer_name` and a real `course_enrollment_id`, and the failure was corrected in the test, not in production code.
+6. **No delivery HTTP test was added.** `CourseCommercialDocumentDeliveryHttpTest.php` is outside the allowed edit surfaces, so defect B is proven at the service boundary (returns the existing row, no escaping exception) and the 500 is explained by the controller's code (it only catches `InvalidArgumentException`). The brief's phrase "instead of a 500" is therefore evidenced by the service contract plus that citation, not by an HTTP assertion.
+7. **The cross-target key-reuse refusal of the delivery channel was deliberately not mirrored** (see the non-goal above). This is a conscious difference from `matchingDelivery()`, reported as a residual risk.
+8. **No cast was added to the model.** The brief said "any cast needed": the `CHAR(64)` column round-trips as a plain string, so `$fillable` needed the only change.
+9. **`openspec/config.yaml` was not touched** (stale for the unrelated `b12-ui` change, as the brief states), and no existing task row, aggregate row, policy, permission, enum, seeder, route or academic/commercial dedup code was modified.
+10. **A small refactor beyond the strict minimum**: the `??` chain in `openCommercialWhatsAppHandoff()` was expanded into an explicit `if`, which changes no behavior but is required for the `try/catch` to wrap only the insert.
+
+### Remaining work / deferred lifecycle actions
+
+- **No aggregate row was marked `[x]`.** Rows `6.e` and `6.f` remain open exactly as before this unit; every previously existing row (implementation and parent) is byte-for-byte unchanged (`git diff` on `tasks.md` = 10 insertions, 0 deletions).
+- The unit's new rows in `tasks.md`: four `- [x]` implementation rows (defect A, defect B, migration safety, verify) and one `- [ ]` `<!-- sdd-owner: parent -->` review row, intentionally left unchecked.
+- Unchecked lines still pending in the persisted tasks artifact (unchanged by this unit): the four aggregate Slice 6 rows, the five Slice 7 RED/GREEN/TRIANGULATE/REFACTOR/verify rows, `6.e`, `6.f`, the Slice 6 `RED`/`GREEN`/`TRIANGULATE`/`REFACTOR`/`Run focused verification`/`Review Slice 6` rows, the Slice 0/1/4/5 parent review rows, the four `Cross-slice guardrails` rows, and this unit's own parent review row.
+- Explicitly out of scope for this unit and untouched (tracked for the next one): the bypassable group zero guard, the false regenerate message, the delivery controls shown without a file, the stale comment in `AnnulAcademicDocumentRequest`, and all academic/commercial deduplication.
+- No commit, push, branch or worktree was created; `git status --short` shows 8 modified files and 1 untracked migration, with **nothing staged**.
+- This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit/pre-push/pre-PR/release gate was validated.
+- Human acceptance remains **pending / not run** (acceptance-checklist skill): the automated suite proves the contract, but no human has double-clicked a registration form in a browser to watch a single factura appear, nor attempted a duplicate WhatsApp handoff on screen.

@@ -6,13 +6,17 @@ use App\Enums\Courses\CommercialDocumentType;
 use App\Enums\Courses\CourseEnrollmentState;
 use App\Http\Requests\CourseTalks\StoreCommercialDocumentRequest;
 use App\Http\Requests\CourseTalks\UploadCommercialDocumentRequest;
+use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\Courses\CourseEnrollmentGroup;
 use App\Models\Document;
 use App\Models\User;
 use App\Services\Courses\CourseCommercialDocumentService;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use InvalidArgumentException;
@@ -53,6 +57,38 @@ class CourseCommercialDocumentRegistrationTest extends TestCase
             'certificate_charge_amount' => $certificateCharge,
             'discount_amount' => $discount,
         ]);
+    }
+
+    /**
+     * Simulates the winning side of a concurrent double submit: the other
+     * request commits its own document between this request's replay lookup and
+     * its own insert, so the unique index on `idempotency_key` rejects the
+     * second write. The winner is written from a query listener right after the
+     * replay lookup ran — the exact interleaving two real requests produce.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function simulateConcurrentRegistrationWinner(string $operationKey, array $row): void
+    {
+        $listened = false;
+
+        DB::listen(function (QueryExecuted $query) use ($operationKey, $row, &$listened): void {
+            if ($listened || ! str_contains($query->sql, 'course_commercial_documents')) {
+                return;
+            }
+
+            if (! in_array($operationKey, array_map('strval', $query->bindings), true)) {
+                return;
+            }
+
+            $listened = true;
+            DB::table('course_commercial_documents')->insert($row);
+        });
+    }
+
+    private function registeredIdForOperationKey(string $operationKey): int
+    {
+        return (int) CourseCommercialDocument::query()->where('idempotency_key', $operationKey)->value('id');
     }
 
     /** @param array<string, mixed> $attributes */
@@ -334,5 +370,153 @@ class CourseCommercialDocumentRegistrationTest extends TestCase
         $this->assertArrayHasKey('file', $upload->errors()->toArray());
         $this->assertTrue($conflictValidator->fails());
         $this->assertArrayHasKey('course_enrollment_id', $conflictValidator->errors()->toArray());
+    }
+
+    /**
+     * Defect A — a double submit of the registration form registered the very
+     * same financial document twice. A replay of one operation must return the
+     * document the operation already registered instead of writing a second
+     * factura with the same total.
+     */
+    public function test_a_replayed_registration_operation_key_returns_the_existing_document_instead_of_duplicating_it(): void
+    {
+        $enrollment = CourseEnrollment::factory()->create([
+            'activity_price_amount' => '100.00',
+            'certificate_charge_amount' => '20.00',
+            'discount_amount' => '0.00',
+        ]);
+        $service = app(CourseCommercialDocumentService::class);
+        $operation = [
+            'course_enrollment_id' => $enrollment->id,
+            'payer_name' => 'Maia Consultores SAC',
+            'series' => 'F001',
+            'number' => '00001234',
+            'operation_key' => 'commercial-registration-replay-001',
+        ];
+
+        $registered = $service->register(CommercialDocumentType::Factura, $operation, $this->actor);
+        $replayed = $service->register(CommercialDocumentType::Factura, $operation, $this->actor);
+
+        $this->assertSame($registered->id, $replayed->id);
+        $this->assertSame('commercial-registration-replay-001', $replayed->idempotency_key);
+        $this->assertSame('141.60', $replayed->total_amount);
+        $this->assertDatabaseCount('course_commercial_documents', 1);
+    }
+
+    /**
+     * Defect A — the two requests of a double submit race each other: both miss
+     * the replay lookup and both try to insert. The loser of the race must
+     * resolve to the row the winner registered (like the delivery channel
+     * does), never escape as an error and never add a second document.
+     */
+    public function test_a_concurrent_registration_collision_resolves_to_the_row_the_other_request_registered(): void
+    {
+        $enrollment = CourseEnrollment::factory()->create([
+            'activity_price_amount' => '100.00',
+            'certificate_charge_amount' => '20.00',
+            'discount_amount' => '0.00',
+        ]);
+        $operationKey = 'commercial-registration-collision-001';
+        // The column under test is the only place a replay can be recognised:
+        // without it the racing winner cannot even be written. Asserting its
+        // existence first keeps the pre-fix state an assertion failure instead
+        // of an unreadable insert error.
+        $this->assertTrue(
+            Schema::hasColumn('course_commercial_documents', 'idempotency_key'),
+            'La colisión concurrente sólo puede reproducirse sobre la columna idempotency_key.',
+        );
+        $this->simulateConcurrentRegistrationWinner($operationKey, [
+            'course_enrollment_id' => $enrollment->id,
+            'type' => CommercialDocumentType::Factura->value,
+            'currency' => 'PEN',
+            'subtotal_amount' => '120.00',
+            'igv_rate' => '0.1800',
+            'igv_amount' => '21.60',
+            'total_amount' => '141.60',
+            'payer_name' => 'Comprobante del request ganador',
+            'status' => 'pending_file',
+            'idempotency_key' => $operationKey,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $registered = app(CourseCommercialDocumentService::class)->register(
+            CommercialDocumentType::Factura,
+            [
+                'course_enrollment_id' => $enrollment->id,
+                'payer_name' => 'Maia Consultores SAC',
+                'operation_key' => $operationKey,
+            ],
+            $this->actor,
+        );
+
+        $this->assertSame($this->registeredIdForOperationKey($operationKey), $registered->id);
+        $this->assertSame('Comprobante del request ganador', $registered->payer_name);
+        $this->assertDatabaseCount('course_commercial_documents', 1);
+    }
+
+    /**
+     * The new column is additive and nullable: a document registered by a path
+     * that supplies no operation key must keep registering exactly as before,
+     * and the unique index must not turn two key-less documents into a
+     * conflict. This is also the behavioural proof of the NULL-vs-unique-index
+     * semantics on the connection the test suite runs on.
+     */
+    public function test_the_unique_index_on_the_new_column_still_allows_many_documents_without_a_key(): void
+    {
+        $this->assertTrue(
+            Schema::hasColumn('course_commercial_documents', 'idempotency_key'),
+            'La columna idempotency_key debe existir en course_commercial_documents.',
+        );
+
+        $enrollment = CourseEnrollment::factory()->create();
+        $service = app(CourseCommercialDocumentService::class);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $service->register(CommercialDocumentType::Boleta, [
+                'course_enrollment_id' => $enrollment->id,
+                'payer_name' => 'Compra '.$attempt,
+            ], $this->actor);
+        }
+
+        $this->assertSame(3, CourseCommercialDocument::query()->count());
+        $this->assertSame(3, CourseCommercialDocument::query()->whereNull('idempotency_key')->count());
+    }
+
+    /**
+     * The bound lives in the service (the only writer of the CHAR(64) column,
+     * which a longer key would break on a strict database) and the request
+     * mirrors it so the user reads a field error instead of a domain rejection.
+     */
+    public function test_the_registration_operation_key_is_bounded_by_the_service_rule(): void
+    {
+        $enrollment = CourseEnrollment::factory()->create();
+        $tooLong = str_repeat('a', 65);
+        $validPayload = [
+            'type' => 'factura',
+            'payer_name' => 'Pagador',
+            'course_enrollment_id' => $enrollment->id,
+        ];
+        $rules = (new StoreCommercialDocumentRequest())->rules();
+
+        $overBound = Validator::make($validPayload + ['operation_key' => $tooLong], $rules);
+        $this->assertTrue($overBound->fails());
+        $this->assertArrayHasKey('operation_key', $overBound->errors()->toArray());
+
+        $atBound = Validator::make($validPayload + ['operation_key' => str_repeat('a', 64)], $rules);
+        $this->assertFalse($atBound->fails());
+
+        try {
+            app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Boleta, [
+                'course_enrollment_id' => $enrollment->id,
+                'payer_name' => 'Clave demasiado larga',
+                'operation_key' => $tooLong,
+            ], $this->actor);
+            $this->fail('El servicio debe rechazar una clave de operación mayor a 64 caracteres.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertSame('La clave de operación no puede superar los 64 caracteres.', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('course_commercial_documents', 0);
     }
 }

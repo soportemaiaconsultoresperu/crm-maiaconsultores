@@ -187,6 +187,32 @@ class CourseCommercialDocumentHttpTest extends TestCase
         return $this->rowBlock($html, 'data-testid="course-talks-commercial-group-breakdown-'.$group->id.'-'.$type.'"');
     }
 
+    /**
+     * The hidden idempotency key of one rendered registration form, read from
+     * the HTML the browser actually received: the double submit must reuse the
+     * key the server rendered, so the test never invents one. It returns an
+     * empty string when the form carries no key, so the double-submit test can
+     * still reproduce the duplicate write and assert the end state (one
+     * document) instead of stopping at the missing input.
+     */
+    private function registrationOperationKey(string $html, string $marker): string
+    {
+        preg_match('/name="operation_key" value="([^"]*)"/', $this->registrationFormHtml($html, $marker), $matches);
+
+        return $matches[1] ?? '';
+    }
+
+    private function registrationFormHtml(string $html, string $marker): string
+    {
+        $start = strpos($html, $marker);
+        $this->assertNotFalse($start, "The registration form {$marker} was not rendered.");
+
+        $end = strpos($html, '</form>', $start);
+        $this->assertNotFalse($end, "The registration form {$marker} is not a complete form.");
+
+        return substr($html, $start, $end - $start);
+    }
+
     public function test_guests_are_redirected_to_login_from_the_commercial_document_routes(): void
     {
         $enrollment = $this->enrollment();
@@ -751,5 +777,117 @@ class CourseCommercialDocumentHttpTest extends TestCase
         ] as $control) {
             $this->assertStringNotContainsString($control, $html, "A viewer without the commercial permission must not be offered {$control}.");
         }
+    }
+
+    /**
+     * Defect A — the registration forms carried only `@csrf`, so a double click
+     * wrote two identical facturas with the same total. The double submit is
+     * reproduced with the key the browser actually received, so the assertion
+     * covers the end state (one document) and not the state where the defect
+     * begins.
+     */
+    public function test_a_double_submit_of_the_registration_form_leaves_exactly_one_commercial_document(): void
+    {
+        $enrollment = $this->enrollment();
+        $formMarker = 'data-testid="course-talks-commercial-form-'.$enrollment->id.'"';
+        $operationKey = $this->registrationOperationKey($this->listingHtml(), $formMarker);
+        $payload = [
+            'type' => 'factura',
+            'course_enrollment_id' => $enrollment->id,
+            'payer_name' => 'Maia Consultores SAC',
+            'payer_document_type' => 'ruc',
+            'payer_document_number' => '20123456789',
+            'series' => 'F001',
+            'number' => '00001234',
+            'operation_key' => $operationKey,
+        ];
+
+        $this->postRegistration($enrollment, $payload)
+            ->assertRedirect($this->indexUrl())
+            ->assertSessionHas('status');
+        $second = $this->postRegistration($enrollment, $payload);
+
+        $second->assertRedirect($this->indexUrl());
+        $second->assertSessionHas('status');
+        $second->assertSessionHasNoErrors();
+
+        // The end state the defect is about: ONE factura, not one per click.
+        $this->assertDatabaseCount('course_commercial_documents', 1);
+        $document = CourseCommercialDocument::query()->sole();
+        $this->assertSame('120.00', $document->subtotal_amount);
+        $this->assertSame('21.60', $document->igv_amount);
+        $this->assertSame('141.60', $document->total_amount);
+        $this->assertSame($operationKey, $document->idempotency_key);
+
+        // The form the browser received carried that very key (and exactly one).
+        $this->assertNotSame('', $operationKey, 'El formulario de matrícula debe acuñar su clave de operación por render.');
+        $this->assertSame(1, substr_count($this->registrationFormHtml($this->listingHtml(), $formMarker), 'name="operation_key"'));
+
+        // The second response is not a duplicate row: the listing still shows a
+        // single comprobante for this payer.
+        $html = $this->listingHtml();
+        $this->assertSame(1, substr_count($html, 'data-testid="course-talks-commercial-row-'.$document->id.'"'));
+    }
+
+    /**
+     * Triangulation of the double submit on the money-heavy path: a group
+     * purchase is registered once, not once per click.
+     */
+    public function test_a_double_submit_of_the_group_registration_form_leaves_exactly_one_group_comprobante(): void
+    {
+        $group = $this->group(['payer_name' => 'Empresa Grupo SAC']);
+        $this->enrollment('100.00', '20.00', '0.00', 'Ramos', '11111111', $group);
+        $formMarker = 'data-testid="course-talks-commercial-group-form-'.$group->id.'"';
+        $operationKey = $this->registrationOperationKey($this->listingHtml(), $formMarker);
+        $payload = [
+            'type' => 'factura',
+            'course_enrollment_group_id' => $group->id,
+            'payer_name' => 'Empresa Grupo SAC',
+            'operation_key' => $operationKey,
+        ];
+
+        $this->postGroupRegistration($group, $payload)->assertRedirect($this->indexUrl());
+        $this->postGroupRegistration($group, $payload)
+            ->assertRedirect($this->indexUrl())
+            ->assertSessionHas('status')
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseCount('course_commercial_documents', 1);
+        $document = CourseCommercialDocument::query()->sole();
+        $this->assertSame($group->id, $document->course_enrollment_group_id);
+        $this->assertSame('120.00', $document->subtotal_amount);
+        $this->assertSame('141.60', $document->total_amount);
+        $this->assertSame($operationKey, $document->idempotency_key);
+        $this->assertNotSame('', $operationKey, 'El formulario de grupo debe acuñar su clave de operación por render.');
+    }
+
+    /**
+     * The key must be minted once per rendered form: one key per form (an
+     * enrollment form and a group form never share it) and a fresh key per
+     * render, so two legitimate purchases of the same enrollment are never
+     * collapsed into one by the idempotency rule.
+     */
+    public function test_each_registration_form_mints_its_own_operation_key_once_per_render(): void
+    {
+        $enrollment = $this->enrollment();
+        $group = $this->group(['payer_name' => 'Empresa Grupo SAC']);
+        $this->enrollment('100.00', '20.00', '0.00', 'Diaz', '22222222', $group);
+        $enrollmentMarker = 'data-testid="course-talks-commercial-form-'.$enrollment->id.'"';
+        $groupMarker = 'data-testid="course-talks-commercial-group-form-'.$group->id.'"';
+
+        $html = $this->listingHtml();
+        $enrollmentKey = $this->registrationOperationKey($html, $enrollmentMarker);
+        $groupKey = $this->registrationOperationKey($html, $groupMarker);
+
+        $this->assertNotSame('', $enrollmentKey);
+        $this->assertNotSame('', $groupKey);
+        $this->assertNotSame($enrollmentKey, $groupKey);
+        $this->assertSame(1, substr_count($this->registrationFormHtml($html, $enrollmentMarker), 'name="operation_key"'));
+        $this->assertSame(1, substr_count($this->registrationFormHtml($html, $groupMarker), 'name="operation_key"'));
+        $this->assertMatchesRegularExpression('/^[0-9a-f-]{36}$/', $enrollmentKey);
+        $this->assertMatchesRegularExpression('/^[0-9a-f-]{36}$/', $groupKey);
+
+        $rereadKey = $this->registrationOperationKey($this->listingHtml(), $enrollmentMarker);
+        $this->assertNotSame($enrollmentKey, $rereadKey);
     }
 }

@@ -318,8 +318,18 @@
                             </table>
                         </div>
 
+                        @php
+                            // The idempotency key is minted once per rendered form, so a
+                            // double submit reuses the key the server already recorded
+                            // instead of writing a second financial document. It is
+                            // deliberately NOT pre-filled from old input: a re-rendered
+                            // page mints a fresh key, so two legitimate purchases of the
+                            // same enrollment are never collapsed into one.
+                            $registrationOperationKey = (string) \Illuminate\Support\Str::uuid();
+                        @endphp
                         <form method="POST" action="{{ route('course-talks.commercial-documents.store', $enrollment) }}" data-testid="course-talks-commercial-form-{{ $enrollment->id }}">
                             @csrf
+                            <input type="hidden" name="operation_key" value="{{ $registrationOperationKey }}">
                             {{-- The endpoint already owns the target, and the request
                                  contract still validates it, so the both/neither rule
                                  stays where Slice 4 put it. --}}
@@ -424,8 +434,15 @@
                             </table>
                         </div>
 
+                        @php
+                            // The group form mints its own key: the group path is the
+                            // money-heavy one, and one key per rendered form keeps a
+                            // double click from registering the group comprobante twice.
+                            $groupRegistrationOperationKey = (string) \Illuminate\Support\Str::uuid();
+                        @endphp
                         <form method="POST" action="{{ route('course-talks.commercial-documents.groups.store', $group) }}" data-testid="course-talks-commercial-group-form-{{ $group->id }}">
                             @csrf
+                            <input type="hidden" name="operation_key" value="{{ $groupRegistrationOperationKey }}">
                             {{-- The endpoint already owns the target, and the request
                                  contract still validates it, so the both/neither rule
                                  stays where Slice 4 put it. --}}

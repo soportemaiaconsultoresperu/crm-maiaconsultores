@@ -9,6 +9,7 @@ use App\Models\Courses\CourseEnrollment;
 use App\Models\Courses\CourseEnrollmentGroup;
 use App\Models\User;
 use App\Services\DocumentService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 use InvalidArgumentException;
@@ -106,6 +107,26 @@ class CourseCommercialDocumentService
     {
         Gate::forUser($actor)->authorize('manage', CourseCommercialDocument::class);
 
+        // The writer owns the key rule: the column is CHAR(64), so a longer key
+        // would not survive persistence and would silently break idempotency.
+        // The request mirrors the same bound only so the user reads a field
+        // error instead of a domain rejection.
+        $operationKey = trim((string) ($attributes['operation_key'] ?? ''));
+        if (strlen($operationKey) > 64) {
+            throw new InvalidArgumentException('La clave de operación no puede superar los 64 caracteres.');
+        }
+
+        // A replay of one operation returns the document that operation already
+        // registered instead of writing a second factura with the same total.
+        // Without a key nothing changes, so a registration coming from an
+        // external or legacy path keeps working exactly as before.
+        if ($operationKey !== '') {
+            $existing = $this->existingForOperationKey($operationKey);
+            if ($existing !== null) {
+                return $existing;
+            }
+        }
+
         $enrollmentId = $attributes['course_enrollment_id'] ?? null;
         $groupId = $attributes['course_enrollment_group_id'] ?? null;
 
@@ -149,24 +170,48 @@ class CourseCommercialDocumentService
             ),
         };
 
-        return CourseCommercialDocument::query()->create([
-            'course_enrollment_id' => $enrollmentId,
-            'course_enrollment_group_id' => $groupId,
-            'type' => $type,
-            'series' => $attributes['series'] ?? null,
-            'number' => $attributes['number'] ?? null,
-            'issue_date' => $attributes['issue_date'] ?? null,
-            'currency' => $attributes['currency'] ?? config('courses.default_currency'),
-            'subtotal_amount' => $money['subtotal_amount'],
-            'igv_rate' => $money['igv_rate'],
-            'igv_amount' => $money['igv_amount'],
-            'total_amount' => $money['total_amount'],
-            'payer_name' => $payerName,
-            'payer_document_type' => $attributes['payer_document_type'] ?? null,
-            'payer_document_number' => $attributes['payer_document_number'] ?? null,
-            'observations' => $attributes['observations'] ?? null,
-            'status' => $status,
-        ]);
+        try {
+            return CourseCommercialDocument::query()->create([
+                'course_enrollment_id' => $enrollmentId,
+                'course_enrollment_group_id' => $groupId,
+                'idempotency_key' => $operationKey === '' ? null : $operationKey,
+                'type' => $type,
+                'series' => $attributes['series'] ?? null,
+                'number' => $attributes['number'] ?? null,
+                'issue_date' => $attributes['issue_date'] ?? null,
+                'currency' => $attributes['currency'] ?? config('courses.default_currency'),
+                'subtotal_amount' => $money['subtotal_amount'],
+                'igv_rate' => $money['igv_rate'],
+                'igv_amount' => $money['igv_amount'],
+                'total_amount' => $money['total_amount'],
+                'payer_name' => $payerName,
+                'payer_document_type' => $attributes['payer_document_type'] ?? null,
+                'payer_document_number' => $attributes['payer_document_number'] ?? null,
+                'observations' => $attributes['observations'] ?? null,
+                'status' => $status,
+            ]);
+        } catch (QueryException $exception) {
+            // The two requests of a double submit can both miss the replay
+            // lookup above and both try to insert; the unique index then lets
+            // only one of them win. The loser resolves to the document the
+            // winner registered, exactly like the delivery ledger does, instead
+            // of duplicating money or surfacing an error.
+            if ($operationKey === '') {
+                throw $exception;
+            }
+
+            $existing = $this->existingForOperationKey($operationKey);
+            if ($existing === null) {
+                throw $exception;
+            }
+
+            return $existing;
+        }
+    }
+
+    private function existingForOperationKey(string $operationKey): ?CourseCommercialDocument
+    {
+        return CourseCommercialDocument::query()->where('idempotency_key', $operationKey)->first();
     }
 
     public function upload(CourseCommercialDocument $commercial, UploadedFile $file, User $actor): \App\Models\Document
