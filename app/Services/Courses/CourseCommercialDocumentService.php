@@ -154,14 +154,19 @@ class CourseCommercialDocumentService
             throw new InvalidArgumentException('El pagador es obligatorio.');
         }
 
-        // A group target has no single payer's charges to inherit, so its money
-        // comes from the group's own enrollments: the aggregation refuses a zero
-        // result instead of writing a zero-value document, and the payload can
-        // never fabricate the group's charges. An enrollment target keeps the
-        // Slice 4 behavior, and an explicit `subtotal_amount` still wins for both.
+        // A group target's money is not the caller's to supply: it is the
+        // aggregation of the group's own enrollments (the decision of unit
+        // 6.f-1b). The group branch is therefore evaluated FIRST, so an explicit
+        // `subtotal_amount` can neither override the aggregation nor bypass it by
+        // pinning a zero on a group: `calculate()` accepts a zero subtotal, so
+        // evaluating the explicit branch first left the zero-total hole one rule
+        // away from reopening. A group whose own enrollments aggregate to zero is
+        // still refused by calculateGroupCharges() instead of being written
+        // silently. An enrollment target keeps the Slice 4 behavior, where an
+        // explicit subtotal still wins because there is no aggregation to protect.
         $money = match (true) {
-            isset($attributes['subtotal_amount']) => $this->calculate($type, (string) $attributes['subtotal_amount']),
             $group !== null => $this->calculateGroupCharges($type, $group),
+            isset($attributes['subtotal_amount']) => $this->calculate($type, (string) $attributes['subtotal_amount']),
             default => $this->calculateCharges(
                 $type,
                 (string) ($attributes['activity_price_amount'] ?? $enrollment?->activity_price_amount ?? '0'),

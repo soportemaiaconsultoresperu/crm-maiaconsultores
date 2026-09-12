@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CourseTalks;
 
 use App\Enums\Courses\AcademicDocumentStatus;
+use App\Exceptions\Courses\InvalidCourseDocumentState;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CourseTalks\AnnulAcademicDocumentRequest;
 use App\Http\Requests\CourseTalks\RegenerateAcademicDocumentRequest;
@@ -11,6 +12,7 @@ use App\Models\Courses\CourseEdition;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\Notification\OutboundDelivery;
 use App\Services\Courses\CertificateQrTokenService;
+use App\Services\Courses\CourseDocumentDeliveryService;
 use App\Services\Courses\CourseDocumentGenerationService;
 use App\Services\Courses\CourseEligibilityService;
 use Illuminate\Contracts\View\View;
@@ -35,11 +37,18 @@ use InvalidArgumentException;
 class CourseAcademicDocumentController extends Controller
 {
     /**
-     * User-facing wording for a rejection raised by a domain guard whose own
-     * message is developer-facing English. The decision to reject stays in the
+     * User-facing wording for a rejection raised by the not-current guard, whose
+     * own message is developer-facing English. The decision to reject stays in the
      * service; only the displayed sentence is owned here.
      */
-    private const REGENERATE_REJECTION = 'No se pudo regenerar el documento: solo un documento vigente puede regenerarse.';
+    private const REGENERATE_ONLY_CURRENT = 'No se pudo regenerar el documento: solo un documento vigente puede regenerarse.';
+
+    /**
+     * Wording for a regeneration refused for a reason this surface cannot name. It
+     * never claims a cause it does not know, so a rejection caused by something
+     * else can never be reported as the not-current one.
+     */
+    private const REGENERATE_FALLBACK = 'No se pudo regenerar el documento. Actualice la página, verifique el estado de la matrícula y del documento, y vuelva a intentarlo.';
 
     private const ANNULMENT_REJECTION = 'No se pudo anular el documento: el motivo de anulación es obligatorio.';
 
@@ -57,9 +66,19 @@ class CourseAcademicDocumentController extends Controller
 
         $enrollments = CourseEnrollment::query()
             ->where('course_edition_id', $edition->id)
-            ->with(['participant', 'academicDocuments' => fn ($query) => $query->orderByDesc('id')])
+            ->with(['participant', 'academicDocuments' => fn ($query) => $query->orderByDesc('id')->with('document')])
             ->orderBy('id')
             ->get();
+
+        // Every listed document, read once: the deliverability verdict and the
+        // delivery history are both keyed by document id.
+        $documents = $enrollments->flatMap->academicDocuments;
+
+        // The read-only face of the delivery service. This surface only asks its
+        // deliverability predicate, which touches no transport, but the service
+        // requires a mail closure in its constructor: the same unused placeholder
+        // the delivery controllers pass.
+        $deliveryService = new CourseDocumentDeliveryService(static fn (): bool => true);
 
         return view('course-talks.editions.documents', [
             'edition' => $edition->load('activity'),
@@ -70,12 +89,22 @@ class CourseAcademicDocumentController extends Controller
             'eligibility' => $enrollments
                 ->mapWithKeys(fn (CourseEnrollment $enrollment): array => [$enrollment->id => $this->eligibility->evaluate($enrollment)])
                 ->all(),
+            // The verdict of the domain's own deliverability predicate, read from
+            // the service instead of reimplemented here: the delivery controls are
+            // offered only for a document it would actually accept, so a current
+            // document whose private file is missing gets no action that could
+            // only be refused.
+            'deliverability' => $documents
+                ->mapWithKeys(fn (CourseAcademicDocument $document): array => [
+                    $document->id => $deliveryService->hasDeliverableAcademicDocument($document),
+                ])
+                ->all(),
             // Delivery history is read once for the whole edition. The append-only
             // ledger is the only source of delivery truth and this surface never
             // writes it: the service records every attempt.
             'deliveries' => OutboundDelivery::query()
                 ->where('related_entity_type', CourseAcademicDocument::class)
-                ->whereIn('related_entity_id', $enrollments->flatMap->academicDocuments->pluck('id'))
+                ->whereIn('related_entity_id', $documents->pluck('id'))
                 ->orderByDesc('id')
                 ->get()
                 ->groupBy('related_entity_id'),
@@ -112,8 +141,11 @@ class CourseAcademicDocumentController extends Controller
                 $request->user(),
                 (string) $request->validated('reason'),
             );
-        } catch (InvalidArgumentException) {
-            return $this->backToIndex($edition)->withInput()->withErrors(['documents' => self::REGENERATE_REJECTION]);
+        } catch (InvalidArgumentException $exception) {
+            // The service owns the reason, and it tags it: this surface only
+            // translates the reason it knows, so a regeneration refused for
+            // something else is never reported as a currency problem.
+            return $this->backToIndex($edition)->withInput()->withErrors(['documents' => $this->regenerationRejection($exception)]);
         }
 
         return $this->backToIndex($edition)
@@ -168,6 +200,28 @@ class CourseAcademicDocumentController extends Controller
         return $document->fresh()?->status === AcademicDocumentStatus::Current
             ? self::ANNULMENT_REJECTION
             : self::ONLY_CURRENT_CAN_BE_ANNULLED;
+    }
+
+    /**
+     * Spanish wording for a refused regeneration, chosen from the domain's own
+     * reason tag instead of the message text. The not-current guard has its own
+     * sentence; the eligibility refusal is already reported in Spanish by the
+     * service and keeps exactly the wording the generation surface shows, so the
+     * two surfaces can never drift apart. Anything unclassified gets a fallback
+     * that never claims a cause, replacing the single constant that used to tell
+     * every refused user the document was not current.
+     */
+    private function regenerationRejection(InvalidArgumentException $exception): string
+    {
+        if (! $exception instanceof InvalidCourseDocumentState) {
+            return self::REGENERATE_FALLBACK;
+        }
+
+        return match ($exception->reason()) {
+            InvalidCourseDocumentState::NOT_CURRENT => self::REGENERATE_ONLY_CURRENT,
+            InvalidCourseDocumentState::NOT_ELIGIBLE => $exception->getMessage(),
+            default => self::REGENERATE_FALLBACK,
+        };
     }
 
     private function backToIndex(CourseEdition $edition): RedirectResponse

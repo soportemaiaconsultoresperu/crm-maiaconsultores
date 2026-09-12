@@ -4,6 +4,7 @@ namespace App\Services\Courses;
 
 use App\Contracts\Courses\PdfRenderer;
 use App\Enums\Courses\{AcademicDocumentStatus, AcademicDocumentType, DeliveryStatus};
+use App\Exceptions\Courses\InvalidCourseDocumentState;
 use App\Models\Courses\{CourseAcademicDocument, CourseEnrollment};
 use App\Models\{Document, User};
 use Illuminate\Support\Facades\DB;
@@ -42,7 +43,7 @@ class CourseDocumentGenerationService
         return $this->generateDocument($document->enrollment, $actor, function (CourseAcademicDocument $replacement) use ($document, $actor, $reason): void {
             $old = CourseAcademicDocument::query()->lockForUpdate()->findOrFail($document->id);
             if ($old->status !== AcademicDocumentStatus::Current || $old->qr_token_revoked_at !== null) {
-                throw new InvalidArgumentException('Only a current academic document may be regenerated.');
+                throw InvalidCourseDocumentState::notCurrent();
             }
 
             $old->forceFill([
@@ -63,7 +64,7 @@ class CourseDocumentGenerationService
         $enrollment->loadMissing('edition.activity', 'edition.sessions', 'participant', 'group');
         $eligibility = ($this->eligibility ?? new CourseEligibilityService())->evaluate($enrollment);
         if (! $eligibility->eligible || ! $eligibility->documentType instanceof AcademicDocumentType) {
-            throw new InvalidArgumentException('La matrícula todavía no es elegible para generar documento académico.');
+            throw InvalidCourseDocumentState::notEligible('La matrícula todavía no es elegible para generar documento académico.');
         }
 
         // The plain generate path must never mint a second current certificate
@@ -75,7 +76,7 @@ class CourseDocumentGenerationService
         // raised before any side effect and in Spanish, so the controller can
         // surface it verbatim, exactly like the eligibility rejection above.
         if ($afterAcademicCreated === null && $this->hasCurrentDocument($enrollment)) {
-            throw new InvalidArgumentException('La matrícula ya cuenta con un documento académico vigente. Para emitir uno nuevo, regenere el documento vigente indicando el motivo.');
+            throw InvalidCourseDocumentState::currentAlreadyExists('La matrícula ya cuenta con un documento académico vigente. Para emitir uno nuevo, regenere el documento vigente indicando el motivo.');
         }
 
         $filename = ($this->filenames ?? new CourseCertificateFilenameService())->build(

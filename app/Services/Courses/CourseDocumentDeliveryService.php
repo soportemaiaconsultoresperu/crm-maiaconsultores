@@ -535,8 +535,13 @@ class CourseDocumentDeliveryService
      * actually exist on the configured disk. Every entry point (the signed URL
      * builder, the queued email and the WhatsApp handoff) reads the rule from
      * here, so it lives in exactly one place.
+     *
+     * Public and side-effect free on purpose: a listing surface reads the verdict
+     * to avoid offering a control this rule would refuse, without reloading or
+     * rebuilding the rule itself. It writes nothing, queues nothing, resolves no
+     * URL and chooses no transport.
      */
-    private function hasStreamableCommercialDocument(CourseCommercialDocument $commercial): bool
+    public function hasStreamableCommercialDocument(CourseCommercialDocument $commercial): bool
     {
         $commercial->loadMissing('document');
 
@@ -559,8 +564,12 @@ class CourseDocumentDeliveryService
      * status, QR not revoked and its private file actually present on the
      * configured disk. Every entry point (email, WhatsApp handoff and the signed
      * URL builder) reads the rule from here, so it lives in exactly one place.
+     *
+     * Public and side-effect free on purpose, exactly like its commercial
+     * counterpart: a listing surface reads the verdict to avoid offering a control
+     * this rule would refuse.
      */
-    private function hasDeliverableAcademicDocument(CourseAcademicDocument $academic): bool
+    public function hasDeliverableAcademicDocument(CourseAcademicDocument $academic): bool
     {
         $academic->loadMissing('document');
 

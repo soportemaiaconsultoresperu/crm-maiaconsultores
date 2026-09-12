@@ -12,6 +12,7 @@ use App\Models\Courses\CourseEnrollment;
 use App\Models\Courses\CourseEnrollmentGroup;
 use App\Models\Notification\OutboundDelivery;
 use App\Services\Courses\CourseCommercialDocumentService;
+use App\Services\Courses\CourseDocumentDeliveryService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Collection;
@@ -44,7 +45,10 @@ use InvalidArgumentException;
  * Commercial delivery actions (email, WhatsApp handoff, confirmation) are
  * implemented by CourseCommercialDocumentDeliveryController (unit 6.f-2b). This
  * surface supplies the listing data they need — the append-only delivery history
- * per comprobante and the payer data the controls are prefilled from.
+ * per comprobante, the payer data the controls are prefilled from, and the
+ * per-comprobante deliverability verdict read from
+ * CourseDocumentDeliveryService::hasStreamableCommercialDocument(), so no control
+ * is offered for a comprobante that predicate would refuse.
  */
 class CourseCommercialDocumentController extends Controller
 {
@@ -87,6 +91,12 @@ class CourseCommercialDocumentController extends Controller
 
         [$groupBreakdowns, $groupBreakdownFailures] = $this->breakdowns($groups, $this->groupBreakdown(...));
 
+        // The read-only face of the delivery service. This surface only asks its
+        // deliverability predicate, which touches no transport, but the service
+        // requires a mail closure in its constructor: the same unused placeholder
+        // the delivery controllers pass.
+        $deliveryService = new CourseDocumentDeliveryService(static fn (): bool => true);
+
         return view('course-talks.editions.commercial-documents', [
             'edition' => $edition->load('activity'),
             'enrollments' => $enrollments,
@@ -98,6 +108,16 @@ class CourseCommercialDocumentController extends Controller
             'groupBreakdowns' => $groupBreakdowns,
             'groupBreakdownFailures' => $groupBreakdownFailures,
             'currency' => (string) config('courses.default_currency'),
+            // The verdict of the domain's own deliverability predicate, read from
+            // the service instead of reimplemented here: the delivery controls are
+            // offered only for a comprobante it would actually accept, so a
+            // registered one whose private file is missing gets no action that
+            // could only be refused.
+            'deliverability' => $commercialDocuments
+                ->mapWithKeys(fn (CourseCommercialDocument $commercial): array => [
+                    $commercial->id => $deliveryService->hasStreamableCommercialDocument($commercial),
+                ])
+                ->all(),
             // Delivery history is read once for the whole edition. The append-only
             // ledger is the only source of delivery truth and this surface never
             // writes it: the domain service records every attempt.

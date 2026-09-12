@@ -10,6 +10,7 @@ use App\Enums\Courses\CourseActivityType;
 use App\Enums\Courses\DeliveryStatus;
 use App\Enums\Courses\FinalResult;
 use App\Enums\Courses\PaymentStatus;
+use App\Http\Requests\CourseTalks\AnnulAcademicDocumentRequest;
 use App\Models\Courses\CourseAcademicDocument;
 use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
@@ -523,5 +524,88 @@ class CourseAcademicDocumentHttpTest extends TestCase
         foreach (['Generar documento', 'Regenerar', 'Anular'] as $control) {
             $this->assertStringNotContainsString($control, $listHtml, "A viewer must not be offered the {$control} control.");
         }
+    }
+
+    /**
+     * A regeneration refused for a reason OTHER than "not current" must report
+     * that real reason. Here the document is still vigente and the refusal comes
+     * from the enrollment losing its payment condition after the certificate was
+     * issued, so the not-current sentence would be false.
+     */
+    public function test_regeneration_refused_by_eligibility_reports_the_real_reason_instead_of_the_not_current_constant(): void
+    {
+        $enrollment = $this->enrollment();
+        $this->generate($enrollment)->assertRedirect($this->indexUrl());
+        $document = CourseAcademicDocument::query()->sole();
+
+        // The payment was reversed after the certificate was issued: the document
+        // is still current, so eligibility — not currency — is what refuses.
+        $enrollment->forceFill(['payment_status' => PaymentStatus::Pending])->save();
+
+        $response = $this->actingAs($this->manager)->followingRedirects()
+            ->post(route('course-talks.documents.regenerate', $document), ['reason' => 'Corrección del nombre del participante']);
+
+        $response->assertSee('no es elegible');
+        $response->assertDontSee('solo un documento vigente puede regenerarse');
+
+        $this->assertSame(AcademicDocumentStatus::Current, $document->fresh()->status);
+        $this->assertDatabaseCount('course_academic_documents', 1);
+    }
+
+    /**
+     * The not-current sentence keeps its own case: a document that stopped being
+     * vigente is still reported as such, and the refused regeneration writes
+     * nothing at all.
+     */
+    public function test_regeneration_of_a_document_that_is_no_longer_current_keeps_its_own_sentence(): void
+    {
+        $enrollment = $this->enrollment();
+        $document = $this->currentDocument($enrollment);
+        $this->annul($document, 'Error en los datos del participante')->assertRedirect($this->indexUrl());
+
+        $response = $this->actingAs($this->manager)->followingRedirects()
+            ->post(route('course-talks.documents.regenerate', $document->fresh()), ['reason' => 'Reintento sobre un anulado']);
+
+        $response->assertSee('solo un documento vigente puede regenerarse');
+
+        $document = $document->fresh();
+        $this->assertSame(AcademicDocumentStatus::Annulled, $document->status);
+        $this->assertNull($document->replaced_by_id);
+        $this->assertSame('Error en los datos del participante', $document->annul_reason);
+        $this->assertDatabaseCount('course_academic_documents', 1);
+    }
+
+    /**
+     * A comment is only correct while the code it describes still matches it. The
+     * annul form's comment claimed the service has no status guard of its own,
+     * which stopped being true when CertificateQrTokenService::revoke() started
+     * re-reading the persisted status under a lock. Both halves of the corrected
+     * claim are asserted: the service really refuses on its own, and the comment
+     * says so instead of denying it.
+     */
+    public function test_the_annul_form_comment_matches_the_service_guard_that_actually_exists(): void
+    {
+        $enrollment = $this->enrollment();
+        $document = $this->currentDocument($enrollment);
+        $this->annul($document, 'Motivo original de anulación')->assertRedirect($this->indexUrl());
+        $document = $document->fresh();
+
+        // Reached without the controller's boundary check, the domain refuses the
+        // annulment by itself and the annulled row keeps its original reason.
+        try {
+            app(CertificateQrTokenService::class)->revoke($document, $this->manager, 'Segunda anulación');
+            $this->fail('CertificateQrTokenService::revoke() must refuse a document that is not current.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame('Only a current academic document may be annulled.', $exception->getMessage());
+        }
+
+        $document = $document->fresh();
+        $this->assertSame(AcademicDocumentStatus::Annulled, $document->status);
+        $this->assertSame('Motivo original de anulación', $document->annul_reason);
+
+        $comment = (new \ReflectionClass(AnnulAcademicDocumentRequest::class))->getDocComment();
+        $this->assertIsString($comment);
+        $this->assertStringNotContainsString('has no such guard', $comment);
+        $this->assertStringContainsString('CertificateQrTokenService', $comment);
     }
 }

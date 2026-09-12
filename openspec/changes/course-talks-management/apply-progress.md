@@ -3108,3 +3108,120 @@ Both RED runs are real assertion failures (`$this->fail(...)` after the escaping
 - No commit, push, branch or worktree was created; `git status --short` shows 8 modified files and 1 untracked migration, with **nothing staged**.
 - This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit/pre-push/pre-PR/release gate was validated.
 - Human acceptance remains **pending / not run** (acceptance-checklist skill): the automated suite proves the contract, but no human has double-clicked a registration form in a browser to watch a single factura appear, nor attempted a duplicate WhatsApp handoff on screen.
+
+## Corrective unit R2a — group money authority, real regeneration reason, deliverable-only controls, truthful annul comment
+
+Corrective unit for the four functional minor findings of the independent review of the delivered slices. Four defects, four fixes, no aggregate row (`6.e`, `6.f`) marked complete, no previously existing task row touched (`git diff --numstat` on `tasks.md`: 11 insertions, 0 deletions; the previously existing R1 unit recorded 10, so the two figures are separate units), no out-of-scope debt addressed (academic/commercial deduplication, the `mailOperation` stub and the `sendAcademicEmail`/`sendCommercialEmail` pair, certificate template settings, `discard`, the 30 pre-existing suite failures).
+
+### Structured status consumed
+
+The native dispatcher was not invoked for readiness (this unit was launched by the parent with the change, the artifact store `openspec` and the exact allowed edit surfaces already resolved). `openspec/changes/course-talks-management/tasks.md` was read directly as the authoritative instruction source: `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The resolved delivery path carried by the parent prompt is `auto-chain`/chained on an already-approved branch, so the unit ran as one bounded corrective slice on the existing branch (no branch, worktree or commit created). `actionContext` carried no workspace-planning mode and no `allowedEditRoots` restriction beyond the brief's explicit list, which this unit respected exactly: nothing outside the listed surfaces was written.
+
+### Finding 1 — handling decision (ignored vs refused) and its justification
+
+**Decision: an explicit `subtotal_amount` is IGNORED when a group target is present.** The group branch is now the first arm of the `match`, so a group target's money is always `calculateGroupCharges()` over its own billable enrollments; `calculate()`'s explicit-subtotal path is reached only when there is no group target.
+
+Justification:
+
+1. The group's money is a **derived domain value, not caller input** — that was the whole decision of `a8cf694`, and the invariant the finding asks to make authoritative. Honouring a caller-supplied subtotal for a group would re-introduce a second source of truth for the same number.
+2. **Ignoring is outcome-safe by construction**: the persisted money no longer depends on the ignored value at all (the branch is unconditional for a group target), whereas refusing would add a new rejection path for a payload that no legitimate surface can even produce: `StoreCommercialDocumentRequest` does not validate `subtotal_amount`, so `validated()` never carries it to `register()`, and both commercial endpoints force the bound target. The only caller that can reach this combination is a direct service caller.
+3. The **zero hole stays closed either way**: with the group branch authoritative, a group with no billable enrollment or a zero aggregated subtotal still throws the Spanish refusal from `calculateGroupCharges()` before any write, and a declared subtotal can no longer rescue it (covered by the new test).
+4. The reviewer's requirement was "must not be able to override or bypass the group aggregation, and a zero result must never be silently persisted" — both satisfied: override impossible, zero never written silently.
+5. The **enrollment target keeps its Slice 4 behaviour byte for byte** (explicit subtotal still wins there, because there is no aggregation to protect), locked by a new regression test.
+
+Residual honesty: a caller that supplies both a group target and a subtotal now gets no signal that its subtotal was dropped. Accepted deliberately (points 2 and 3) and documented in the code comment at the `match`; refusing would be the alternative and remains a one-line change if the reviewer prefers fail-closed.
+
+### Finding 2 — typed exceptions vs message matching, and its justification
+
+**Decision: typed domain exceptions; message matching was rejected as fragile.** New `app/Exceptions/Courses/InvalidCourseDocumentState` (extends `\InvalidArgumentException`, so every existing `catch` boundary — including `store()`'s verbatim surfacing — keeps working unchanged) carries a stable **reason tag** (`reason()`), the same convention `InvalidCourseEditionData::field()` already uses in that folder. `CourseDocumentGenerationService` tags all three refusal sites: `notCurrent()` (the replacement guard), `notEligible()` (eligibility), `currentAlreadyExists()` (the duplicate-generation guard). `CourseAcademicDocumentController::regenerationRejection()` branches on `reason()`, never on `getMessage()`:
+
+- `NOT_CURRENT` → the existing Spanish sentence (`REGENERATE_ONLY_CURRENT`), which is true exactly there;
+- `NOT_ELIGIBLE` → the service's own Spanish eligibility message, which is already the real reason the generate surface shows, so the two surfaces cannot drift apart (duplicating it into a second constant would create two sources for the same wording);
+- anything unclassified (including a plain, untagged `InvalidArgumentException`) → `REGENERATE_FALLBACK`, which claims no cause at all.
+
+Why not message matching: a message is presentation text that any copy edit, translation or wording change silently breaks, and the failure mode is exactly the defect being fixed (telling the user a false cause). The tag is a compile-time constant, greppable, and `match` on it is exhaustive-enough with a `default`. The service-level tag contract itself is locked by `CourseAcademicDocumentGenerationTest::test_academic_document_refusals_are_tagged_domain_exceptions` (all three tags), so a future throw site that forgets its tag is caught by the fallback path and by that test. The **annul path is untouched**: its `catch` and its `annulmentRejection()` status re-read are byte-for-byte unchanged, and `ANNULMENT_REJECTION` / `ONLY_CURRENT_CAN_BE_ANNULLED` keep their values.
+
+### Finding 3 — how the rule stays single-sourced
+
+The deliverability rule was **not copied into the views**. The two private predicates already living in `CourseDocumentDeliveryService` were surfaced as public, side-effect-free queries (`hasDeliverableAcademicDocument()`, `hasStreamableCommercialDocument()`), so there is still exactly one implementation and no second copy anywhere:
+
+- the two listing controllers call them once per listed document and pass a per-document boolean map (`$deliverability`) to the view;
+- the views read only that boolean (`($deliverability[$id] ?? false)`, fail-closed when the key is missing) and keep their previous status checks as **defence in depth** only (explicitly commented as "not the rule");
+- **no `Storage` call, no model query and no `exists()` in Blade** — verified by inspection of both views (only the passed flag was added);
+- the rejection path is intact: the new tests for finding 3 prove the service still refuses a stale/tampered request for a document whose file is missing (email and WhatsApp, no ledger row, no queued message, visible Spanish error, never a 500);
+- delivery behaviour itself is unchanged: the only edits inside the service are the two visibility keywords and their docblocks.
+
+### Finding 4 — the truth verified before rewriting the comment
+
+Claim checked against the code, not against the comment: `CertificateQrTokenService::revoke()` opens `DB::transaction(...)`, re-reads the row with `CourseAcademicDocument::query()->lockForUpdate()->findOrFail($document->getKey())`, and throws `'Only a current academic document may be annulled.'` when `$locked->status !== AcademicDocumentStatus::Current`, *before* any write. `git log --oneline -- app/Services/Courses/CertificateQrTokenService.php` shows that guard arrived in **`39596f2` "fix(courses): guard certificate qr revocation by persisted status"** (the previous, `d0960f1`, had no such guard), so the old sentence was written before the fix and was false at HEAD. Existing independent evidence in the suite: `CourseCertificateQrSecurityTest::test_revocation_keeps_the_reason_then_authorization_then_status_ordering` asserts the same message from the service on a non-current document (that file is outside this unit's allowed surfaces, so it was read as evidence, not edited). The comment now says: the service owns both the reason rule and the persisted-status guard, re-read under a lock; the controller's check is defence in depth alongside it (spares the user an attempted write and owns the Spanish sentence), not the only guard. Nothing was softened into vagueness — the guard and its mechanism are named.
+
+### Strict TDD evidence (RED → GREEN → TRIANGULATE → REFACTOR)
+
+All tests were written and executed BEFORE any production edit; the RED run below is the whole production tree still at HEAD `7355720`.
+
+| Finding | RED test (written first) | RED evidence at HEAD | GREEN after fix | TRIANGULATE / REFACTOR |
+| --- | --- | --- | --- | --- |
+| 1 — zero guard bypassable | `CourseCommercialDocumentRegistrationTest::test_a_group_registration_keeps_the_aggregated_group_money_even_when_the_payload_declares_a_subtotal` (rewrote the old `…still_wins_over_the_group_aggregation` test, which asserted the defect) | `Failed asserting that two strings are identical. -'120.00' +'200.00'` | subtotal `120.00`, IGV `21.60`, total `141.60` | extra test for the zero bypass and its refusal (`…and_a_zero_result_is_never_persisted`: a declared `0.00` on a billable group still stores `141.60`; a declared `120.00` on a zero group is refused with `subtotal del grupo es cero`, 1 row total) plus a lock test for the unchanged enrollment path |
+| 2 — false regenerate reason | `CourseAcademicDocumentHttpTest::test_regeneration_refused_by_eligibility_reports_the_real_reason_instead_of_the_not_current_constant` | the page did not contain `no es elegible` (the constant was shown instead) | real reason shown, the not-current sentence absent, document still `Current`, 1 row | `CourseAcademicDocumentGenerationTest::test_academic_document_refusals_are_tagged_domain_exceptions` RED: `-'App\Exceptions\Courses\InvalidCourseDocumentState' +'InvalidArgumentException'`; plus a lock test that a no-longer-current document still gets its own sentence and writes nothing (`replaced_by_id` null) |
+| 3 — control offered for an undeliverable document | `CourseAcademicDocumentDeliveryHttpTest::test_the_delivery_controls_are_not_offered_for_a_current_document_without_its_private_file` and `…_whose_private_file_is_gone_from_the_disk_is_offered_no_control_and_is_still_refused`; `CourseCommercialDocumentDeliveryHttpTest::test_delivery_is_refused_when_the_comprobante_is_not_registered_or_its_private_file_is_gone` (flipped its `assertStringContainsString` on the file-less comprobante to `assertStringNotContainsString`) | academic: `does not contain "course-talks-document-email-form-2"` (both new tests); commercial: `does not contain "course-talks-commercial-email-form-2"` | the deliverable document keeps both forms (count exactly 1), the file-less one renders none, and the service still refuses the stale/tampered request | the commercial test now also creates a deliverable comprobante, so the absence assertion cannot pass on a broken listing |
+| 4 — false comment | `CourseAcademicDocumentHttpTest::test_the_annul_form_comment_matches_the_service_guard_that_actually_exists` | `…because the service itself has no such guard.` `[ASCII](length: 447) does not contain …` | the service refuses on its own with `'Only a current academic document may be annulled.'`; the comment names `CertificateQrTokenService` and no longer denies the guard | the same test asserts both halves (behaviour and wording), so a future reword that re-denies the guard fails |
+
+No PHP fatal or error was used as RED evidence: every RED is an assertion failure (string diff, HTML assertion, docblock assertion) with the test file compiling at HEAD. The one test that references the new class compares `$exception::class` (a compile-time string literal) instead of catching or instantiating the class, precisely so the pre-fix state is an assertion failure rather than a "class not found" error.
+
+POST-GREEN hygiene (run after the fix, before the final regression): `php -l` clean on all 7 changed PHP files; both changed Blade views compiled successfully through the real `blade.compiler`; `git diff --check` clean; no production edit landed before the RED run.
+
+### Commands and real results (sequential, in the brief's order)
+
+1. `artisan test --filter=CourseCommercialDocumentRegistrationTest` → `{"result":"passed","tests":18,"passed":18,"assertions":80}` (baseline 16 / 72).
+2. `artisan test --filter=CourseAcademicDocumentGenerationTest` → `{"result":"passed","tests":13,"passed":13,"assertions":71}` (baseline 12 / 62).
+3. `artisan test --filter=CourseAcademicDocumentHttpTest` → `{"result":"passed","tests":20,"passed":20,"assertions":180}` (baseline 17 / 159).
+4. `artisan test --filter=CourseAcademicDocumentDeliveryHttpTest` → `{"result":"passed","tests":17,"passed":17,"assertions":195}` (baseline 15 / 178).
+5. `artisan test --filter=CourseCommercialDocumentDeliveryHttpTest` → `{"result":"passed","tests":18,"passed":18,"assertions":211}` (baseline 18 / 207 — this unit modified one existing test instead of adding one).
+6. `artisan test --filter=CourseCommercialDocumentHttpTest` → `{"result":"passed","tests":22,"passed":22,"assertions":288}` (unchanged).
+7. `artisan test --filter=Course` (final regression) → `{"result":"passed","tests":349,"passed":349,"assertions":2618}`. Baseline 341 / 2,559 → **new totals 349 tests / 2,618 assertions** (+8 tests, +59 assertions = exactly the 2 + 1 + 3 + 2 new tests this unit adds).
+
+RED-only intermediate runs (all five touched suites failed on their new tests before any production edit): registration `18 tests / 16 passed / 2 failed`; generation `13 / 12 / 1 failed`; academic HTTP `20 / 18 / 2 failed`; academic delivery HTTP `17 / 15 / 2 failed`; commercial delivery HTTP `18 / 17 / 1 failed`.
+
+### Files changed (`git diff --numstat`, plus the new exception)
+
+- `app/Exceptions/Courses/InvalidCourseDocumentState.php` — **58 added / 0 deleted** (new, untracked).
+- `app/Http/Controllers/CourseTalks/CourseAcademicDocumentController.php` — **+61 / -7** (regeneration mapping and `regenerationRejection()`, the deliverability map, the eager load of `document`, the read-only delivery-service instance, two constants split/renamed).
+- `app/Http/Controllers/CourseTalks/CourseCommercialDocumentController.php` — **+21 / -1** (deliverability map, read-only delivery-service instance, docblock).
+- `app/Http/Requests/CourseTalks/AnnulAcademicDocumentRequest.php` — **+10 / -3** (comment only, as allowed).
+- `app/Services/Courses/CourseCommercialDocumentService.php` — **+11 / -6** (the `match` arm reorder plus the decision comment).
+- `app/Services/Courses/CourseDocumentDeliveryService.php` — **+11 / -2** (two visibility keywords plus docblocks; no behaviour change).
+- `app/Services/Courses/CourseDocumentGenerationService.php` — **+4 / -3** (three tagged throw sites plus one import).
+- `resources/views/course-talks/editions/commercial-documents.blade.php` — **+12 / -5** (flag in the control gate, comments).
+- `resources/views/course-talks/editions/documents.blade.php` — **+11 / -1** (flag in the control gate, comments).
+- `tests/Feature/Courses/CourseAcademicDocumentDeliveryHttpTest.php` — **+55 / -0** (2 tests).
+- `tests/Feature/Courses/CourseAcademicDocumentGenerationTest.php` — **+57 / -0** (1 test with 3 scenarios plus an import).
+- `tests/Feature/Courses/CourseAcademicDocumentHttpTest.php` — **+84 / -0** (3 tests plus an import).
+- `tests/Feature/Courses/CourseCommercialDocumentDeliveryHttpTest.php` — **+12 / -1** (assertions flipped plus a deliverable fixture).
+- `tests/Feature/Courses/CourseCommercialDocumentRegistrationTest.php` — **+67 / -4** (2 new tests, 1 rewritten, 1 replaced by an enrollment-path lock).
+- `openspec/changes/course-talks-management/tasks.md`, `openspec/changes/course-talks-management/apply-progress.md` — bookkeeping only.
+
+### Changed-line count / review workload
+
+**416 added / 33 deleted = 449 changed lines tracked, plus 58 lines of new untracked exception = 507 changed lines.** Over the 400-line aim by 107 lines (27%). Composition: **tests 280** changed lines (8 new tests covering all four findings at service, HTTP and Blade-wiring level, plus regression locks); **production 169** — of which the new typed exception is 58 and comments/docblocks are a large part, because the findings explicitly require the decisions to be documented in code — including **views 29**; bookkeeping the rest. Nothing was thinned to fit the budget, and the only assertions removed are the ones that asserted a defect (finding 1's old positive test and finding 3's old positive assertion). Reported as-is.
+
+### Deviations (every one)
+
+1. **Finding 1 chose "ignore" over "refuse"** for an explicit `subtotal_amount` combined with a group target (full justification and the residual risk are in the section above). The finding allowed either.
+2. **The old test `test_an_explicit_subtotal_amount_still_wins_over_the_group_aggregation` was replaced, not kept.** It asserted the defect itself (a group document taking `200.00` from the payload); keeping it would have required keeping the bug. The enrollment-target half it implicitly stood for is preserved as a new test with the same intent.
+3. **Finding 3 also hides the WhatsApp confirmation for a non-deliverable document on the academic side**, because the confirmation sits inside the same gated block. Deliberate: a document whose private file is gone cannot be delivered at all, so offering "Marcar como enviado" for it would offer another action the domain cannot honour; the pending handoff itself stays visible in the append-only history, which is rendered outside the gate. `confirmAcademicWhatsAppSent()` and `confirmCommercialWhatsAppSent()` are unchanged and still accept a matching handoff, so no stored state was stranded by the presentation change.
+4. **The two listing controllers construct `CourseDocumentDeliveryService` with an unused `static fn (): bool => true` closure**, exactly as both delivery controllers and the `SendCourseDocumentEmail` job already do, because the service's constructor requires a mail closure and no container binding exists. Only the read-only predicates are called; the separately reported `mailOperation` stub debt is untouched.
+5. **`CourseDocumentGenerationService::regenerate()` still throws a plain `InvalidArgumentException` for an empty reason.** It is unreachable over HTTP (`RegenerateAcademicDocumentRequest` requires `reason`) and the new mapping routes it to the fallback, which claims no cause; tagging it would have changed a contract no surface depends on.
+6. **Finding 4's test asserts the docblock text** (`assertStringNotContainsString('has no such guard', …)` plus `assertStringContainsString('CertificateQrTokenService', …)`) in addition to the behaviour, because a comment-only defect has no behavioural RED. It is deliberately minimal and paired with the service-guard behaviour assertion in the same test; it is a documentation lock, not a wording lock.
+7. **The new exception lives in the pre-existing `app/Exceptions/Courses/` folder** with the `Invalid…` prefix of `InvalidCourseEditionData` and `InvalidCourseEditionTransition` and a tag accessor like `field()`, rather than a message-matching map in the controller. Extending `\InvalidArgumentException` (like `InvalidCourseEditionData`) was required so no existing `catch` boundary changed.
+8. **`openspec/config.yaml` was not touched** (stale for the unrelated `b12-ui` change, as the brief states), and no policy, permission, enum, seeder, route, migration or model was modified. The academic/commercial deduplication, the shared email job, `app/Jobs/` and the `mailOperation` stub were not touched.
+9. **No public signature changed**: the only service-surface change is two private predicates becoming public (an addition the finding explicitly requested), and both controllers' constructors are unchanged.
+
+### Remaining work / deferred lifecycle actions
+
+- **No aggregate row was marked `[x]`.** `6.e` and `6.f` stay open exactly as before; every pre-existing row is byte-for-byte unchanged (`git diff --numstat` on `tasks.md`: 11 insertions, 0 deletions). The unit added five `- [x]` implementation-owned rows and one `- [ ]` `<!-- sdd-owner: parent -->` review row, intentionally unchecked.
+- Unchecked `- [ ]` lines still pending in the persisted tasks artifact (unchanged by this unit): the four Slice 6 aggregate rows, `6.e`, `6.f`, the Slice 6 `RED`/`GREEN`/`TRIANGULATE`/`REFACTOR`/`Run focused verification`/`Review Slice 6` rows, the Slice 0/1/4/5 parent review rows, the Slice 7 rows, the four `Cross-slice guardrails` rows, the R1 parent review row, and this unit's own parent review row.
+- Explicitly out of scope and untouched: the academic/commercial duplication (separate unit), the `mailOperation` stub and the `sendAcademicEmail`/`sendCommercialEmail` pair, certificate template settings, `discard`, and the 30 pre-existing suite failures.
+- No commit, push, branch or worktree was created; `git status --short` shows 13 modified files and 1 untracked new exception, with **nothing staged**.
+- This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit/pre-push/pre-PR/release gate was validated.
+- Human acceptance remains **pending / not run** (acceptance-checklist skill): the suite proves the contract, but no human has opened the two listing screens in a browser to confirm that a file-less document shows no delivery buttons while a complete one does, nor read the regeneration error text on screen.
+- UX/accessibility note (advisory only, ux-accessibility-review skill): the change removes interactive controls for undeliverable documents, which is a keyboard and focus improvement (fewer dead actions), but it was asserted only through rendered HTML; the focus order, the on-screen absence of the block and the contrast of the remaining controls were **not** verified in a browser and remain unperformed checks.

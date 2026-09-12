@@ -10,9 +10,16 @@ use Illuminate\Foundation\Http\FormRequest;
  *
  * Only the form contract is validated here. Revoking the QR token, marking the
  * document annulled and persisting the actor, the timestamp and the reason are
- * owned by CertificateQrTokenService, which also keeps its own reason rule as the
- * authoritative one; the controller refuses a document that is no longer vigente
- * because the service itself has no such guard.
+ * owned by CertificateQrTokenService, which keeps its own reason rule and its own
+ * persisted-status guard as the authoritative ones: inside a locked transaction
+ * it re-reads the stored status and refuses to annul anything that is not still
+ * current, so a document that stopped being vigente between the check and the
+ * write keeps its original reason, actor and timestamp.
+ *
+ * The controller's boundary check is therefore defence in depth alongside that
+ * service guard, not the only one: it spares the user an attempted write and owns
+ * the Spanish sentence for the case, while the service remains the authority that
+ * can see the persisted status.
  */
 class AnnulAcademicDocumentRequest extends FormRequest
 {

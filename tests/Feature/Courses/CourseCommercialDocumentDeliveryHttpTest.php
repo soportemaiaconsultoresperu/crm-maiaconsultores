@@ -552,10 +552,21 @@ class CourseCommercialDocumentDeliveryHttpTest extends TestCase
         $withoutFile = $this->commercialDocument($this->enrollment('Vega', '33333333'), 'B004', '000999', withFile: false);
         Storage::disk('docs')->delete('course-commercial-documents/'.$withoutFile->id.'/B004-000999.pdf');
 
+        // A comprobante that really is deliverable keeps its controls, so the
+        // assertions below prove an absence and not a broken listing.
+        $deliverable = $this->commercialDocument($this->enrollment('Soto', '44444444'), 'B006', '001111');
+
         $html = $this->listingHtml();
         $this->assertStringNotContainsString('course-talks-commercial-email-form-'.$pendingFile->id, $html);
         $this->assertStringNotContainsString('course-talks-commercial-whatsapp-form-'.$pendingFile->id, $html);
-        $this->assertStringContainsString('course-talks-commercial-email-form-'.$withoutFile->id, $html);
+        // Registered, but its private file does not exist: the service predicate
+        // also requires the file, so the surface offers no control it would refuse.
+        $this->assertStringNotContainsString('course-talks-commercial-email-form-'.$withoutFile->id, $html);
+        $this->assertStringNotContainsString('course-talks-commercial-whatsapp-form-'.$withoutFile->id, $html);
+        $this->assertStringContainsString('course-talks-commercial-email-form-'.$deliverable->id, $html);
+        $this->assertStringContainsString('course-talks-commercial-whatsapp-form-'.$deliverable->id, $html);
+        // Exactly one comprobante of the listing is offered the controls.
+        $this->assertSame(1, substr_count($html, 'course-talks-commercial-email-form-'));
 
         $this->sendEmail($withoutFile, 'facturacion@example.test', 'refused-missing-file')
             ->assertSessionHasErrors('commercial_document');

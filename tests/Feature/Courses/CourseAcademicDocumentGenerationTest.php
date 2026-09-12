@@ -4,6 +4,7 @@ namespace Tests\Feature\Courses;
 
 use App\Contracts\Courses\{PdfRenderer, QrRenderer};
 use App\Enums\Courses\{AcademicDocumentStatus,AcademicDocumentType,CourseActivityType,CourseEnrollmentState,FinalResult,PaymentStatus};
+use App\Exceptions\Courses\InvalidCourseDocumentState;
 use App\Models\Courses\{CourseActivity,CourseAcademicDocument,CourseEdition,CourseEnrollment,CourseEnrollmentGroup,CourseParticipant,CourseSession};
 use App\Models\User;
 use App\Services\Courses\CertificateQrTokenService;
@@ -247,6 +248,62 @@ class CourseAcademicDocumentGenerationTest extends TestCase
 
         $this->assertTrue($documents->canDownload($academic->document, $enrollment->edition->responsible));
         $this->assertFalse($documents->canDownload($academic->document, User::factory()->create()));
+    }
+
+    /**
+     * Every refusal of the document lifecycle is a tagged domain exception, not a
+     * bare message: the reason travels as a stable tag, so the HTTP surface can
+     * pick the sentence for the case it knows without parsing text and without
+     * reporting one reason when another was the real cause. Each refusal site
+     * carries its own tag.
+     */
+    public function test_academic_document_refusals_are_tagged_domain_exceptions(): void
+    {
+        Storage::fake('docs');
+        $payloads = [];
+        $tokens = new CertificateQrTokenService($this->qrRenderer($payloads));
+        [$enrollment, $actor] = $this->eligibleEnrollment(FinalResult::Approved);
+        Permission::create(['name' => 'course-talks.documents.revoke']);
+        $actor->givePermissionTo('course-talks.documents.revoke');
+        $service = $this->service($tokens);
+        $first = $service->generate($enrollment, $actor);
+
+        // 1. Not current: the replacement guard refuses to regenerate a document
+        // that stopped being vigente.
+        $first->forceFill(['status' => AcademicDocumentStatus::Annulled, 'qr_token_revoked_at' => now()])->save();
+        try {
+            $service->regenerate($first->fresh(), $actor, 'Corrección');
+            $this->fail('Un documento que no está vigente no debe regenerarse.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame(InvalidCourseDocumentState::class, $exception::class);
+            $this->assertSame(InvalidCourseDocumentState::NOT_CURRENT, $exception->reason());
+        }
+
+        // 2. Not eligible: the enrollment lost its payment condition, and the tag
+        // says so instead of sharing a tag with the currency rule.
+        $enrollment->forceFill(['payment_status' => PaymentStatus::Pending])->save();
+        try {
+            $service->generate($enrollment->fresh(), $actor);
+            $this->fail('Una matrícula no elegible no debe generar documento.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame(InvalidCourseDocumentState::class, $exception::class);
+            $this->assertSame(InvalidCourseDocumentState::NOT_ELIGIBLE, $exception->reason());
+            $this->assertStringContainsString('no es elegible', $exception->getMessage());
+        }
+
+        // 3. A second current document: the duplicate guard has its own tag too.
+        $enrollment->forceFill(['payment_status' => PaymentStatus::Paid])->save();
+        $current = $service->generate($enrollment->fresh(), $actor);
+        try {
+            $service->generate($enrollment->fresh(), $actor);
+            $this->fail('No debe crearse un segundo documento académico vigente.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame(InvalidCourseDocumentState::class, $exception::class);
+            $this->assertSame(InvalidCourseDocumentState::CURRENT_ALREADY_EXISTS, $exception->reason());
+        }
+
+        $this->assertSame($current->id, CourseAcademicDocument::query()->where('status', AcademicDocumentStatus::Current)->sole()->id);
+        $this->assertSame(1, CourseAcademicDocument::query()->where('status', AcademicDocumentStatus::Current)->count());
     }
 
     private function service(?CertificateQrTokenService $qrTokens = null, ?array &$pdfCalls = null): CourseDocumentGenerationService

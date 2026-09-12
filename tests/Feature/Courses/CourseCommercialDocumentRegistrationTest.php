@@ -288,9 +288,16 @@ class CourseCommercialDocumentRegistrationTest extends TestCase
         $this->assertSame('141.60', $commercial->total_amount);
     }
 
-    public function test_an_explicit_subtotal_amount_still_wins_over_the_group_aggregation(): void
+    /**
+     * The group target is authoritative: the money of a group purchase is the
+     * aggregation of its own enrollments (the decision of unit 6.f-1b), so an
+     * explicit `subtotal_amount` in the payload can neither raise it nor replace
+     * it. The zero-total hole that unit closed must stay closed.
+     */
+    public function test_a_group_registration_keeps_the_aggregated_group_money_even_when_the_payload_declares_a_subtotal(): void
     {
         $group = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($group, '100.00', '20.00');
 
         $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Factura, [
             'course_enrollment_group_id' => $group->id,
@@ -298,9 +305,65 @@ class CourseCommercialDocumentRegistrationTest extends TestCase
             'subtotal_amount' => '200.00',
         ], $this->actor);
 
-        $this->assertSame('200.00', $commercial->subtotal_amount);
-        $this->assertSame('36.00', $commercial->igv_amount);
-        $this->assertSame('236.00', $commercial->total_amount);
+        $this->assertSame('120.00', $commercial->subtotal_amount);
+        $this->assertSame('21.60', $commercial->igv_amount);
+        $this->assertSame('141.60', $commercial->total_amount);
+    }
+
+    /**
+     * The bypass this unit closes: a payload declaring a subtotal used to be able
+     * to zero a billable group, and a declared subtotal used to be able to rescue
+     * a group with no billable money. Both go through the group aggregation.
+     */
+    public function test_a_declared_subtotal_cannot_bypass_the_group_aggregation_and_a_zero_result_is_never_persisted(): void
+    {
+        $billable = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($billable, '100.00', '20.00');
+        $zero = CourseEnrollmentGroup::factory()->create();
+        $this->groupEnrollment($zero, '0.00', '0.00');
+
+        // A declared zero cannot turn a billable group into a zero-value document.
+        $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Factura, [
+            'course_enrollment_group_id' => $billable->id,
+            'payer_name' => 'Grupo facturable',
+            'subtotal_amount' => '0.00',
+        ], $this->actor);
+
+        $this->assertSame('120.00', $commercial->subtotal_amount);
+        $this->assertSame('141.60', $commercial->total_amount);
+        $this->assertNotSame('0.00', $commercial->total_amount);
+
+        // A declared subtotal cannot rescue a group with nothing billable either:
+        // the zero result is refused, never persisted silently.
+        $this->assertGroupRegistrationRefused(
+            ['course_enrollment_group_id' => $zero->id, 'subtotal_amount' => '120.00'],
+            'subtotal del grupo es cero',
+        );
+
+        $this->assertDatabaseCount('course_commercial_documents', 1);
+    }
+
+    /**
+     * The enrollment target keeps its Slice 4 behavior byte for byte: with no
+     * aggregation to protect, an explicit subtotal still wins.
+     */
+    public function test_an_explicit_subtotal_amount_still_wins_for_an_enrollment_target(): void
+    {
+        $enrollment = CourseEnrollment::factory()->create([
+            'activity_price_amount' => '100.00',
+            'certificate_charge_amount' => '20.00',
+            'discount_amount' => '0.00',
+        ]);
+
+        $commercial = app(CourseCommercialDocumentService::class)->register(CommercialDocumentType::Factura, [
+            'course_enrollment_id' => $enrollment->id,
+            'payer_name' => 'Maia Consultores SAC',
+            'subtotal_amount' => '90.00',
+        ], $this->actor);
+
+        $this->assertSame('90.00', $commercial->subtotal_amount);
+        $this->assertSame('16.20', $commercial->igv_amount);
+        $this->assertSame('106.20', $commercial->total_amount);
     }
 
     public function test_it_rejects_missing_or_multiple_targets_negative_amounts_registered_without_a_file_and_unauthorized_actors(): void

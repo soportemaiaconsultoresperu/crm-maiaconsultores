@@ -625,4 +625,59 @@ class CourseAcademicDocumentDeliveryHttpTest extends TestCase
         $this->assertDatabaseCount('outbound_deliveries', 0);
         $this->assertSame(AcademicDocumentStatus::Current, $document->fresh()->status);
     }
+
+    /**
+     * The delivery controls are offered only for a document the service would
+     * accept. A current document with no private file is NOT deliverable (the
+     * service predicate asserts the file exists on disk), so it must render no
+     * control at all, while a streamable one keeps them.
+     */
+    public function test_the_delivery_controls_are_not_offered_for_a_current_document_without_its_private_file(): void
+    {
+        $deliverable = $this->currentDocument($this->enrollment(), 'CERT-APR-DEL-600');
+        $withoutFile = $this->currentDocument($this->enrollment('Vega', '33333333'), 'CERT-APR-DEL-601', withFile: false);
+
+        $html = $this->indexHtml();
+
+        $this->assertStringContainsString('course-talks-document-email-form-'.$deliverable->id, $html);
+        $this->assertStringContainsString('course-talks-document-whatsapp-form-'.$deliverable->id, $html);
+        $this->assertStringNotContainsString('course-talks-document-email-form-'.$withoutFile->id, $html);
+        $this->assertStringNotContainsString('course-talks-document-whatsapp-form-'.$withoutFile->id, $html);
+        // Exactly one document of the listing is offered the controls.
+        $this->assertSame(1, substr_count($html, 'course-talks-document-email-form-'));
+    }
+
+    /**
+     * A current document whose private file is gone from the disk is not
+     * deliverable either: its own row and document exist, so only the service's
+     * predicate can tell. The surface offers no control for it and the service
+     * still refuses a stale or tampered request.
+     */
+    public function test_a_document_whose_private_file_is_gone_from_the_disk_is_offered_no_control_and_is_still_refused(): void
+    {
+        $withoutFile = $this->currentDocument($this->enrollment(), 'CERT-APR-DEL-602');
+        Storage::disk('docs')->delete($withoutFile->document->path);
+
+        $html = $this->indexHtml();
+        $this->assertStringNotContainsString('course-talks-document-email-form-'.$withoutFile->id, $html);
+        $this->assertStringNotContainsString('course-talks-document-whatsapp-form-'.$withoutFile->id, $html);
+
+        $this->sendEmail($withoutFile, 'jefa@example.test', 'gone-file-tampered-email')
+            ->assertSessionHasErrors('documents');
+        $this->openWhatsApp($withoutFile, self::PARTICIPANT_MOBILE, 'gone-file-tampered-whatsapp')
+            ->assertSessionHasErrors('documents');
+
+        // The rejection is the service's own, visible and never an HTTP 500, and
+        // no attempt reached the ledger.
+        $this->actingAs($this->manager)->from($this->indexUrl())->followingRedirects()
+            ->post(route('course-talks.documents.email', $withoutFile), [
+                'recipient' => 'jefa@example.test',
+                'operation_key' => 'gone-file-tampered-visible',
+            ])
+            ->assertSee('Solo un documento vigente con su archivo privado disponible puede entregarse.');
+
+        $this->assertDatabaseCount('outbound_deliveries', 0);
+        $this->assertDatabaseCount('email_messages', 0);
+        $this->assertSame(AcademicDocumentStatus::Current, $withoutFile->fresh()->status);
+    }
 }

@@ -50,6 +50,9 @@
         // Same rule for the delivery actions: `course-talks.documents.send` is the
         // only ability their routes, their form contracts and the domain service
         // ask for, so the delivery controls are gated on exactly that ability.
+        // They are additionally gated on the service's per-document deliverability
+        // verdict ($deliverability): a document the domain would refuse gets no
+        // control at all.
         $canSend = Gate::allows('send', App\Models\Courses\CourseAcademicDocument::class);
 
         // Attempt-level presentation maps. The append-only outbound-delivery
@@ -216,7 +219,14 @@
                                         <p class="small text-secondary mb-0" data-testid="course-talks-document-delivery-none-{{ $document->id }}">Sin intentos de entrega registrados.</p>
                                     @endforelse
 
-                                    @if ($canSend && $document->status === App\Enums\Courses\AcademicDocumentStatus::Current)
+                                    @if ($canSend && $document->status === App\Enums\Courses\AcademicDocumentStatus::Current && ($deliverability[$document->id] ?? false))
+                                        {{-- The service's own deliverability verdict decides whether the
+                                             actions are offered at all: a current document whose
+                                             private file is missing (or whose document row is gone)
+                                             would be refused, so no control is offered for it. The
+                                             status check above stays as defence in depth, not as the
+                                             rule, and a stale page still reaches the service's own
+                                             refusal. --}}
                                         @php
                                             // The idempotency keys are minted once per rendered
                                             // form, so a double submit reuses the key the server

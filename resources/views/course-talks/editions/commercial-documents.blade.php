@@ -81,10 +81,11 @@
             return ['email' => (string) ($payer?->email ?? ''), 'phone' => (string) ($payer?->phone ?? '')];
         };
 
-        // Presentation-only guard: only a comprobante the service could accept
-        // offers delivery controls. Whether its private file is really streamable
-        // stays the service's rule, which refuses with a visible Spanish error
-        // instead of a silent failure.
+        // Presentation-only guard, kept as defence in depth: only a registered or
+        // sent comprobante could be accepted at all. Whether it really is
+        // deliverable — its private file must exist on disk — is the service's own
+        // verdict, passed in per document as $deliverability; this status check is
+        // not the rule, and a stale page still reaches the service's refusal.
         $deliverableStatuses = ['registered', 'sent'];
     @endphp
 
@@ -216,7 +217,13 @@
                             @endforelse
                         </div>
 
-                        @if ($canSend && in_array($commercial->status, $deliverableStatuses, true))
+                        @if ($canSend && in_array($commercial->status, $deliverableStatuses, true) && ($deliverability[$commercial->id] ?? false))
+                            {{-- The service's own deliverability verdict decides whether the
+                                 actions are offered at all: a registered comprobante whose
+                                 private file is missing would be refused, so no control is
+                                 offered for it. The status check above stays as defence in
+                                 depth, not as the rule, and a stale page still reaches the
+                                 service's own refusal. --}}
                             @php
                                 // The idempotency keys are minted once per rendered form, so a
                                 // double submit reuses the key the server already recorded
