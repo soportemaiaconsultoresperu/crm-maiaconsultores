@@ -20,13 +20,13 @@ class RolesAndPermissionsTest extends TestCase
         $this->seed(RolesAndPermissionsSeeder::class);
     }
 
-public function test_exactly_89_permissions_are_seeded(): void
+public function test_exactly_90_permissions_are_seeded(): void
     {
         // Current baseline includes the CRM module permissions, document,
         // campaign/automation-era permissions already present in this branch,
         // and the v1 customer financial permissions introduced by
         // customer-payments-invoices.
-        $this->assertSame(89, Permission::count());
+        $this->assertSame(90, Permission::count());
         $this->assertTrue(Permission::where('name', 'customer-payments.view')->exists());
         $this->assertTrue(Permission::where('name', 'customer-payments.manage')->exists());
     }
@@ -47,7 +47,7 @@ public function test_admin_role_holds_every_baseline_permission(): void
     {
         $admin = Role::where('name', 'admin')->first();
 
-        $this->assertSame(69, $admin->permissions()->count());
+        $this->assertSame(70, $admin->permissions()->count());
         $this->assertTrue($admin->hasPermissionTo('leads.view.any'));
         $this->assertTrue($admin->hasPermissionTo('quotations.accept'));
         $this->assertTrue($admin->hasPermissionTo('products.export'));
@@ -90,7 +90,7 @@ public function test_b08_admin_permissions_are_added_by_additional_seeder(): voi
         // permissions on top of the current branch baseline.
         $this->seed(\Database\Seeders\AdditionalPermissionsSeeder::class);
 
-        $this->assertSame(106, Permission::count(), 'AdditionalPermissionsSeeder brings the current branch baseline to 106 permissions including customer-payments.view/manage.');
+        $this->assertSame(107, Permission::count(), 'AdditionalPermissionsSeeder brings the current branch baseline to 107 permissions including customer-payments.view/manage.');
     }
 
     public function test_admin_gets_every_new_b08_permission(): void
@@ -127,7 +127,7 @@ public function test_b08_admin_permissions_are_added_by_additional_seeder(): voi
         $this->assertTrue($admin->hasPermissionTo('customer-payments.view'));
         $this->assertTrue($admin->hasPermissionTo('customer-payments.manage'));
 
-        $this->assertSame(81, $admin->permissions()->count());
+        $this->assertSame(82, $admin->permissions()->count());
     }
 
     public function test_supervisor_gets_read_only_admin_perms_plus_manage_for_teams_catalogs_settings(): void

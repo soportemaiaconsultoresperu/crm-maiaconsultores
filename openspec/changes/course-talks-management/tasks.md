@@ -153,7 +153,7 @@ The slice-level rows above are aggregate and cannot be checked until every workf
 - [ ] GREEN: add rollout seeding/assignment path for permissions and menu enablement, leaving safe rollback guidance in code comments/config only where existing project conventions support it. <!-- sdd-owner: implementation -->
 - [ ] TRIANGULATE: test rollback controls: hiding route/menu by permissions, stopping eligibility jobs through queue/config if introduced, preserving rows/files, and revoking QR links only through explicit document annul/replacement paths. <!-- sdd-owner: implementation -->
 - [ ] REFACTOR: consolidate dashboard query scopes on models/services and remove duplication between main dashboard and module dashboard. <!-- sdd-owner: implementation -->
-- [ ] Run full verification with `php artisan test`, then rerun focused failing tests if any. <!-- sdd-owner: implementation -->
+- [ ] Run full verification with `php artisan test` and confirm NO NEW failures beyond the documented external baseline in `openspec/changes/course-talks-management/suite-baseline.md` (11 pre-existing failures owned by the in-flight B12/B14, settings and email/calendar work — proven against `main`, not attributable to this change), then rerun the module's focused tests. A whole-suite-green claim is NOT reachable while those 11 stay open, so this row asserts "no regressions against the documented baseline" plus a green `--filter=Course`. <!-- sdd-owner: implementation -->
 - [ ] Review Slice 7 for alerts, audit completeness, rollout safety, and full-test evidence before archive/next SDD gate. <!-- sdd-owner: parent -->
 
 ## Cross-slice guardrails
