@@ -35,20 +35,31 @@ delete. That is the most invasive of the open items and belongs with its own rev
 
 Related: `CourseEditionChanged` exists but no listener consumes it anywhere.
 
-## 3. Two migrations are NOT applied to any real database
+## 3. ALL SIX course migrations are NOT applied — the module has no tables on a real database
 
-| Migration | What it adds | Forward / rollback |
-|---|---|---|
-| `2026_08_26_000005_add_course_commercial_document_idempotency_key` | nullable unique `idempotency_key` on `course_commercial_documents` | additive, existing rows keep NULL; rollback drops index then column |
-| `2026_08_26_000006_add_delivery_discard_reason_to_course_commercial_documents` | nullable `delivery_discard_reason` on the same table | additive; rollback drops the column |
+`php artisan migrate:status` against the real MySQL database reports every course migration
+`Pending`:
 
-Both were validated against the in-memory test connection only. **`php artisan migrate` is a
-pending owner action.** Until it runs, commercial registration idempotency and commercial
-follow-up discard will fail on a real database with a missing-column error.
+| Migration | What it creates / adds |
+|---|---|
+| `2026_08_26_000001_create_course_domain_foundation_tables` | ALL 12 domain tables (activities, editions, teachers, sessions, participants, groups, enrollments, attendances, grades, templates, academic and commercial documents) |
+| `2026_08_26_000002_add_course_academic_document_qr_token_hash_index` | the public QR lookup index |
+| `2026_08_26_000003_add_email_message_id_to_outbound_deliveries` | the delivery-to-email correlation column |
+| `2026_08_26_000004_add_delivery_status_to_course_commercial_documents` | the commercial delivery status |
+| `2026_08_26_000005_add_course_commercial_document_idempotency_key` | the commercial idempotency key |
+| `2026_08_26_000006_add_delivery_discard_reason_to_course_commercial_documents` | the commercial discard reason |
+
+**This entry previously said TWO migrations and materially understated the problem — the
+independent verification measured it and corrected it.** Because the FOUNDATION migration is
+also pending, the module has NO TABLES at all on that database: every route, dashboard card and
+sidebar entry fails on a missing table, not merely commercial idempotency and discard.
+
+**`php artisan migrate` is a pending owner action and a deploy prerequisite.** All six are
+additive and were validated against the in-memory test connection only, because running them
+against a real database was out of scope in every unit.
 
 Note: the unique-index-permits-many-NULLs behaviour was measured on SQLite and is only
-DOCUMENTED for MySQL/InnoDB — not measured, because running the migration against a real
-database was out of scope.
+DOCUMENTED for MySQL/InnoDB — not measured, for the same reason.
 
 ## 4. The `mailOperation` stub is a live trap
 
