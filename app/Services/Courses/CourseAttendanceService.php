@@ -30,7 +30,7 @@ final class CourseAttendanceService
             throw new InvalidCourseEditionData('Attendance status is invalid.');
         }
 
-        $attendance = DB::transaction(function () use ($session, $enrollment, $status, $actor): CourseAttendance {
+        $attendance = CourseAuditActor::asActor($actor, fn (): CourseAttendance => DB::transaction(function () use ($session, $enrollment, $status, $actor): CourseAttendance {
             $session->loadMissing('edition.activity');
             $enrollment->loadMissing('edition.activity');
 
@@ -55,7 +55,7 @@ final class CourseAttendanceService
             }
 
             return $attendance->refresh();
-        });
+        }));
 
         if ($enrollment->fresh()->edition->activity->type === CourseActivityType::Talk) {
             app(CourseEligibilityTriggerService::class)->participationChanged($enrollment->fresh());

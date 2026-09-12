@@ -176,7 +176,7 @@ class CourseCommercialDocumentService
         };
 
         try {
-            return CourseCommercialDocument::query()->create([
+            return CourseAuditActor::asActor($actor, fn (): CourseCommercialDocument => CourseCommercialDocument::query()->create([
                 'course_enrollment_id' => $enrollmentId,
                 'course_enrollment_group_id' => $groupId,
                 'idempotency_key' => $operationKey === '' ? null : $operationKey,
@@ -194,7 +194,7 @@ class CourseCommercialDocumentService
                 'payer_document_number' => $attributes['payer_document_number'] ?? null,
                 'observations' => $attributes['observations'] ?? null,
                 'status' => $status,
-            ]);
+            ]));
         } catch (QueryException $exception) {
             // The two requests of a double submit can both miss the replay
             // lookup above and both try to insert; the unique index then lets
@@ -226,10 +226,13 @@ class CourseCommercialDocumentService
         $previousDocumentId = $commercial->document_id;
         $document = $this->documents->upload($commercial, $file, $actor);
 
-        $commercial->forceFill([
+        // The comprobante's own change is written under the same actor as the
+        // attachment entry below, so both halves of the upload name the same
+        // responsible user.
+        CourseAuditActor::asActor($actor, fn () => $commercial->forceFill([
             'document_id' => $document->id,
             'status' => 'registered',
-        ])->save();
+        ])->save());
 
         activity()
             ->performedOn($commercial)

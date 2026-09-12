@@ -19,7 +19,7 @@ final class CourseGradeService
         ?string $description = null,
         ?User $actor = null,
     ): CourseGrade {
-        $courseGrade = DB::transaction(function () use ($session, $enrollment, $grade, $description, $actor): CourseGrade {
+        $courseGrade = CourseAuditActor::asActor($actor, fn (): CourseGrade => DB::transaction(function () use ($session, $enrollment, $grade, $description, $actor): CourseGrade {
             $session->loadMissing('edition.activity');
             $enrollment->loadMissing('edition.activity');
 
@@ -49,7 +49,7 @@ final class CourseGradeService
             $this->recalculateEnrollmentResult($enrollment);
 
             return $courseGrade->refresh();
-        });
+        }));
 
         DB::afterCommit(fn () => app(CourseEligibilityTriggerService::class)->gradeChanged($enrollment->fresh()));
 

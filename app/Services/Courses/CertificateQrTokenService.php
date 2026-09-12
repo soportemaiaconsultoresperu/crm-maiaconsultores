@@ -49,7 +49,7 @@ class CertificateQrTokenService
 
         Gate::forUser($actor)->authorize('revoke', $document);
 
-        DB::transaction(function () use ($document, $actor, $reason): void {
+        CourseAuditActor::asActor($actor, fn () => DB::transaction(function () use ($document, $actor, $reason): void {
             // The guard reads the persisted status under a lock instead of the
             // attribute carried by the passed instance. A caller may hold a
             // snapshot read while the document was still current, so only the
@@ -73,7 +73,7 @@ class CertificateQrTokenService
                 'annulled_by' => $actor->id,
                 'annul_reason' => $reason,
             ])->save();
-        });
+        }));
     }
 
     private function hash(string $token): string

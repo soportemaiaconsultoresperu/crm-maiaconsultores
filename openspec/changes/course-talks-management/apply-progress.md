@@ -3806,3 +3806,180 @@ Untracked new files: 523 + 285 + 851 = 1,659 lines.
 ### Evidence revision
 
 - SHA-256 over the ordered SHA-256 manifest of the nine code/test files touched (service, controller, dashboard service, dashboard controller, routes, alerts view, activities view, dashboard view, test file): `48c52081e09955f0e566c6c81a3531aa29b35f4a98c99fb5114efc73e7ef544d` (captured before this evidence entry).
+
+## Slice 7 unit 7.c — the audit regression suite (and what it uncovered)
+
+- **Authorized work unit:** the audit half of Slice 7 — `tests/Feature/Courses/CourseAuditTest.php` (new), audit-actor / audit-payload corrections inside `app/Services/Courses/`, activity options inside `app/Models/Courses/`, and bookkeeping. Strict TDD active; runner `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH). No commit, push, branch or worktree; no test run concurrently with another.
+- **Structured status consumed (native, authoritative — `artifactStore=openspec`):** `gentle-ai sdd-status course-talks-management --cwd . --json --instructions` returned `schemaName=gentle-ai.sdd-status`, `schemaVersion=2`, `artifactStore=openspec`, `planningHome.mode=repo-local`, `applyState=ready`, `nextRecommended=apply`, `blockedReasons=[]`, `dependencies={proposal:all_done, specs:all_done, design:all_done, tasks:all_done, apply:ready, verify:blocked, archive:blocked}`, `taskProgress={total:107, completed:73, pending:34}`, `actionContext.mode=repo-local`, `workspaceRoot=C:\laragon\www\crm-maia-consultores`, `allowedEditRoots=[C:\laragon\www\crm-maia-consultores]`. Every edited path is inside that root and no `workspace-planning` mode was present, so nothing was blocked. Warning (unchanged from earlier units): `openspec/config.yaml` documents the unrelated `b12-ui` change and a bare `php artisan test` command; the absolute PHP executable was used instead and that file was not rewritten.
+- **Review Workload Gate:** `tasks.md` forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent resolved the delivery path for this bounded stacked-to-main slice (implement only this unit's slice, report the PR boundary), so no `Decision needed` blocker remained.
+- **Workload / PR boundary:** the audit regression suite for the changes Slice 7 enumerates, plus the audit-actor/payload corrections the suite proved were missing. Nothing else: no controller, view, route, job, policy, permission, enum, seeder, migration, config or dashboard file was touched, and no domain rule, state machine, amount or eligibility decision changed.
+
+### Behavior delivered
+
+**1. The suite.** `tests/Feature/Courses/CourseAuditTest.php` (24 tests / 104 assertions) asserts for each enumerated change: the entry exists; it is named under the established `course-*` convention; it names the responsible actor; and a modification carries the old and the new value. The convention is asserted the way the domain works — a model-backed change carries a `course-*` **description** (`course-created` / `course-updated`) with a raw Eloquent event name, a service-written change carries a `course-*` **event** name — through one helper (`auditEntry()`), so both forms are checked by the same rule and a failure prints every entry the subject actually has.
+
+**2. `course_attendances` had no audit trail at all (defect, fixed).** `CourseAttendance extends Model` (only `HasFactory`), so every attendance change was invisible to the audit while the spec lists *attendance changes* as material. `CourseAttendance` now uses `LogsActivity` under the SAME convention. The convention moved to a single definition, `CourseModel::courseActivitylogOptions()`, so `CourseModel` and `CourseAttendance` cannot drift; `CourseAttendance` deliberately does NOT extend `CourseModel` because `course_attendances` has neither `created_by`/`updated_by` nor `deleted_at`, so a base using `HasAuditColumns` + `SoftDeletes` would break the insert. The `course-*` naming itself is unchanged.
+
+**3. The explicit `$actor` never reached the activity causer (defect, fixed).** `LogsActivity` resolves the causer from the authenticated session; every course service that owns a responsible actor receives it as a parameter. Two observable consequences, both proven by the RED run below: a service called with no session recorded `causer_id = NULL`, and a service called while a DIFFERENT user was authenticated recorded the WRONG user. The rule now lives in `CourseAuditActor::asActor()` — a new final class in `app/Services/Courses/` that sets Spatie's `CauserResolver` causer for exactly one domain write and always clears it in a `finally` (so a later write in the same request falls back to the session user, which is the correct default). It is applied by:
+
+| Call site | What it now attributes |
+|---|---|
+| `CourseAttendanceService::mark()` | the attendance row and the talk participation flag it refreshes |
+| `CourseGradeService::record()` | the grade row and the enrollment result recalculation it triggers |
+| `CourseDocumentGenerationService::generate()` | the academic document row and its document/status transition |
+| `CourseDocumentGenerationService::regenerate()` | the replacement row plus the replaced row's annulment |
+| `CourseDocumentGenerationService` deferred path | the `DB::afterCommit` storage write, re-established inside the callback because it runs after the method returned |
+| `CertificateQrTokenService::revoke()` | the annulment fields (status, reason, revoked-at, annulled-by) |
+| `CourseCommercialDocumentService::register()` | the comprobante row |
+| `CourseCommercialDocumentService::upload()` | the comprobante's attachment/status change |
+| `CourseAlertService::discard()` | the discarded delivery snapshot |
+| `CourseDocumentDeliveryService::sendAcademicEmail()` | the terminal delivery snapshot (both sent and failed) |
+| `CourseDocumentDeliveryService::confirmAcademicWhatsAppSent()` | the terminal WhatsApp snapshot |
+| `CourseDocumentDeliveryService::sendCommercialEmail()` | the terminal delivery snapshot (both sent and failed) |
+| `CourseDocumentDeliveryService::confirmCommercialWhatsAppSent()` | the terminal WhatsApp snapshot |
+
+**4. The commercial email attempt was not audited (asymmetry, fixed).** `sendAcademicEmail()` wrote `course-document-email-sent` / `course-document-email-failed`; its commercial counterpart wrote nothing, so the commercial channel's *delivery attempts* existed only in the ledger. `sendCommercialEmail()` now writes the same two entries under `course-commercial-document-email-sent` / `course-commercial-document-email-failed`, carrying only `delivery_id` (never the recipient, never the file path) exactly like the academic channel. No state transition, status or return value changed.
+
+### Course model inventory (as requested — verified, not assumed)
+
+**Extend `CourseModel` (audited with `course-*`, dirty-only old/new, plus `created_by`/`updated_by` and soft deletes):** `CourseAcademicDocument`, `CourseActivity`, `CourseCertificateTemplate`, `CourseCommercialDocument`, `CourseEdition`, `CourseEnrollment`, `CourseEnrollmentGroup`, `CourseGrade`, `CourseParticipant`, `CourseSession` (10 of 13).
+
+**Do NOT extend it (3 of 13):**
+
+| Model | Why not | Audit status |
+|---|---|---|
+| `CourseAttendance` | table has no `created_by`/`updated_by` and no `deleted_at` | **FIXED** by this unit: `LogsActivity` + the shared `CourseModel::courseActivitylogOptions()`, producing the same `course-*` entries |
+| `CourseEditionTeacher` | table has no `id` column (composite PK `course_edition_id`+`sort_order`), no audit columns, no timestamps | **NOT fixed and reported:** the model cannot be audited properly at this level — `performedOn()` would store a null `subject_id`. Teacher changes are absent from the activity trail (`syncTeachers()` deletes rows through the query builder, so not even a model event fires, and the `CourseEditionChanged('course-edition-teachers-changed')` event it dispatches has no listener anywhere in `app/`). Teacher changes are **not** in the enumerated Slice 7 list and fixing them needs a migration, outside this unit's surfaces — reported, not done |
+| the abstract `CourseModel` itself | it is the base | n/a |
+
+### The actor gap: how it was proven, and what the fix is
+
+Real, and proven on two different mechanisms.
+
+**No session (the case the brief singled out).** First RED run, grade correction, no `actingAs()`: `No audit entry "course-updated" (causer 3) for CourseGrade#1. Entries found: #6 event=created description=course-created causer=NULL | #8 event=updated description=course-updated causer=NULL`. Same shape for the enrollment recalculation, generation (`#7 created causer=NULL`, `#8`/`#9 updated causer=NULL`), annulment (4 rows `causer=NULL`), regeneration, commercial registration, the commercial attachment's comprobante-level `course-updated`, every delivery snapshot the delivery service writes, and the discard snapshot. Attendance was worse than a NULL causer: `Entries found: (no audit rows for this subject)`.
+
+**Wrong session user.** The triangulation asserts the causer is the actor the service received while a DIFFERENT user is authenticated. RED: `No audit entry "course-created" (causer 3) for CourseGrade#1. Entries found: #6 event=created description=course-created causer=4` — the explicit actor (3) was replaced by the session user (4).
+
+**Fix and where the rule now lives.** `app/Services/Courses/CourseAuditActor.php` (new, 60 lines). The rule belongs in the service layer because the service is the only place that knows the responsible actor: `LogOptions` has no causer API (verified against spatie/laravel-activitylog 4.12.3 — `logOnlyDirty`, `logAll`, `logExcept`, `setDescriptionForEvent`, `useAttributeRawValues` only), and a model cannot see a parameter its events never receive. The helper uses the package's documented `CauserResolver::setCauser()` on the container's scoped resolver, and is explicitly documented as not re-entrant (a nested call restores "no override", i.e. the session user) — every call site is a flat domain write. The explicit `activity()->causedBy($actor)` entries the services already wrote were left alone; they were already correct.
+
+### The privacy assertion (what, and why this is the right assertion)
+
+- The QR payload generated for the PDF carries the **raw token** (`bin2hex(random_bytes(32))`, asserted to match `/^[a-f0-9]{64}$/` so the assertion cannot pass on a placeholder).
+- The raw token is **never persisted**: the only column it produces is `qr_token_hash`, which the test proves equals `hash_hmac('sha256', $rawToken, config('app.key'))` — an HMAC, not the token, and one that cannot be replayed to obtain the PDF.
+- What the trail records is therefore the **hash**, and the test asserts exactly that: exactly one activity entry carries a non-null `attributes.qr_token_hash`, it equals the persisted hash, it is **not** the raw token, its `old.qr_token_hash` is null (it was just stored), and its causer is the acting user. Asserting "the hash is present" (rather than "the token is absent" alone) is what makes the assertion about the rule: it pins **which** value is stored, so a future change that stored the token would fail both halves.
+- Then, independently of any single entry: **no column of ANY `activity_log` row contains the raw token** (every row serialized and checked), and no payload contains the private storage path (`course-academic-documents/...`), a signed link (`signature=`) or the delivery recipient. The models involved are checked for it: `documents` and `outbound_deliveries` rows are not activity subjects, so private paths and signed URLs live in `documents`/`email_messages`, not in the trail.
+- **No raw token, signed URL or private path was found in any payload — no privacy defect was discovered or fixed.** The only privacy-shaped change is the new commercial attempt entry, which carries `delivery_id` only.
+
+### Per-scenario outcome: RED-then-fixed vs already green
+
+| # | Enumerated change | First run | What happened |
+|---|---|---|---|
+| 1 | Activity code change | **already green** | model-level `course-updated` with `old.code`/`attributes.code` and the authenticated actor |
+| 2 | Edition state change | **already green** | `transitionState()` → `course-updated` with `old.state`/`attributes.state` |
+| 3 | Enrollment change | **already green** | `course-created` carrying the affected `course_edition_id` + `course_participant_id` |
+| 4 | Payment change | **already green** | `course-updated` with `old.payment_status`/`attributes.payment_status` |
+| 5 | Attendance change | **RED → fixed** | no entry at all (`CourseAttendance` not audited) → `course-created` with `status`/`marked_by` and the explicit actor |
+| 6 | Attendance correction | **RED → fixed** | same fix; `course-updated` with `old.status`/`attributes.status` |
+| 7 | Grade correction | **RED → fixed** | entry existed but `causer=NULL` → actor fixed; who / when / previous (13.00) / new (18.00) / affected enrollment all asserted |
+| 8 | Grade by explicit actor ≠ session user | **RED → fixed** | `causer=4` (session) → `causer=` the explicit actor |
+| 9 | Result recalculation | **RED → fixed** | enrollment `course-updated` `causer=NULL` → fixed; old/new exact + display average, rounded result and final result (participation → approved) asserted |
+| 10 | Document generation | **RED → fixed** | 3 entries, all `causer=NULL` → fixed; `course-created` with type/code/enrollment |
+| 11 | Document annulment | **RED → fixed** | `causer=NULL` (the `revoke()` oversight in deviation 1) → fixed; status/reason/annulled_by/revoked_at old→new |
+| 12 | Document regeneration | **RED → fixed** | replacement `course-created` + replaced `course-updated`, both `causer=NULL` → fixed |
+| 13 | Template change | **already green** | `course-updated` with old/new name, settings map and derived version 1→2 |
+| 14 | Commercial registration | **RED → fixed** | `causer=NULL` → fixed; amounts (120.00 / 21.60 / 141.60) asserted |
+| 15 | Commercial attachment / replacement | **RED → fixed** | the explicit `course-commercial-document-attached`/`-replaced` were already correct; the comprobante-level `course-updated` had a NULL causer → fixed |
+| 16 | Delivery attempts (academic email, sent + failed) | **RED → fixed** | explicit entries already correct; the terminal snapshot was `causer=NULL` → fixed |
+| 17 | Delivery attempt (commercial email) | **RED → fixed** | no entry existed at all → the two mirrored entries added |
+| 18 | WhatsApp confirmations (academic + commercial) | **RED → fixed** | explicit entries already correct; the terminal snapshots were `causer=NULL` → fixed |
+| 19 | Alert closure (discard) | **RED → fixed** | explicit `course-delivery-alert-discarded` already correct; the snapshot was `causer=NULL` → fixed |
+| 20 | QR-token privacy | **RED → fixed** | the assertion that failed was the causer of the hash entry (`causer=NULL`); the token/hash/path/recipient assertions themselves were sound |
+| 21 | No private path / signed link / recipient in any payload | **already green** | nothing leaked |
+| 22 | Causer vs audit columns | **RED → fixed** | RED attributed the entry to the session user; the test now asserts causer = the domain actor while `created_by` follows the session |
+
+Aggregate RED: **18 of 24 failed**, and every failure was one of the two defects or the missing commercial entry — none was a PHP fatal, a route 404 or a fixture accident.
+
+### `HasAuditColumns` vs the activitylog causer (the distinction the brief asked for)
+
+They are two independent mechanisms, and this unit keeps them independent:
+
+- **`HasAuditColumns`** fills the `created_by`/`updated_by` **columns** of a course table from `Auth::check()`/`Auth::id()` at `creating`/`updating`. Its docblock documents that behaviour, including that the columns stay null in console contexts. It knows nothing about the domain actor.
+- **The activitylog causer** is `activity_log.causer_type`/`causer_id`, resolved by Spatie's `CauserResolver` (session user by default, now the explicit domain actor inside a wrapped write).
+- They can therefore disagree, and the suite asserts exactly that: with the explicit actor (3) and a different session user (4), `causer_id = 3` while `grades.created_by = 4`. `entered_by` (the domain's own actor column) carries the responsible actor.
+- **`app/Traits/HasAuditColumns.php` was deliberately NOT modified.** It is shared by the whole CRM (`Contact`, `Customer`, `Lead`, `Opportunity`, `Quotation`, `Product`, `SupportTicket`, `CustomerInvoice`, `InvoiceStatus`, …); changing when it fills its columns is a cross-module behaviour change, and its "authenticated user only" rule is documented. The brief's constraint ("if a required fix would change a public signature or a documented behaviour, STOP and report it instead") applies, so it is **reported here and not changed**: a course write made by an explicit actor with no session leaves `created_by`/`updated_by` null even though the audit entry now names the actor. `git status` confirms the file is untouched.
+
+### Files changed (exact line counts)
+
+| File | Status | Lines |
+|---|---|---|
+| `tests/Feature/Courses/CourseAuditTest.php` | new | 861 |
+| `app/Services/Courses/CourseAuditActor.php` | new | 60 |
+| `app/Models/Courses/CourseModel.php` | modified | +34 / −1 (the convention extracted to `courseActivitylogOptions()`; trait list, dirty-only logging, `logAll()` and the `course-<event>` description unchanged in effect) |
+| `app/Services/Courses/CourseDocumentDeliveryService.php` | modified | +29 / −12 (the commercial attempt entries + four write scopes) |
+| `app/Models/Courses/CourseAttendance.php` | modified | +2 / −1 (`LogsActivity` + the shared options) |
+| `app/Services/Courses/CourseDocumentGenerationService.php` | modified | +11 / −5 (two write scopes + the deferred callback scope) |
+| `app/Services/Courses/CourseCommercialDocumentService.php` | modified | +7 / −4 (two write scopes) |
+| `app/Services/Courses/CertificateQrTokenService.php` | modified | +2 / −2 (one write scope) |
+| `app/Services/Courses/CourseAlertService.php` | modified | +2 / −2 (one write scope) |
+| `app/Services/Courses/CourseAttendanceService.php` | modified | +2 / −2 (one write scope) |
+| `app/Services/Courses/CourseGradeService.php` | modified | +2 / −2 (one write scope) |
+| `openspec/changes/course-talks-management/tasks.md` | bookkeeping | +3 / −1 (the `7.c` row + a note on the aggregate RED row) |
+| `openspec/changes/course-talks-management/apply-progress.md` | bookkeeping | this section |
+
+### Changed-line count / review workload
+
+```
+$ git diff --numstat
+2    1    app/Models/Courses/CourseAttendance.php
+34   1    app/Models/Courses/CourseModel.php
+2    2    app/Services/Courses/CertificateQrTokenService.php
+2    2    app/Services/Courses/CourseAlertService.php
+2    2    app/Services/Courses/CourseAttendanceService.php
+7    4    app/Services/Courses/CourseCommercialDocumentService.php
+29   12   app/Services/Courses/CourseDocumentDeliveryService.php
+11   5    app/Services/Courses/CourseDocumentGenerationService.php
+2    2    app/Services/Courses/CourseGradeService.php
+```
+
+- Tracked: **+91 / −31 = 122 changed lines**. New untracked files: **921 lines** (861 test + 60 helper).
+- **Honest total: 1,012 added lines / 31 deleted = 1,043 changed lines** — 2.6× the 400-line budget. 83% of it is the mandated suite (`CourseAuditTest.php` alone is 861 lines for 22 scenarios plus fixtures); the production surface is 151 changed lines across 9 files, and the only new production file is a 60-line helper.
+- Reported rather than thinned: cutting the suite to fit would mean dropping enumerated scenarios (each enumerated change needs its own existence + naming + actor + old/new proof, and the actor proof needs both the no-session and the wrong-session cases). Recommendation: accept as a `size:exception` for unit 7.c, or split the suite by channel (domain / documents / delivery) in a following bounded unit. The chained-PR reviewer's boundary for this unit is: the new suite, the new `CourseAuditActor`, the nine one-purpose production edits and the two bookkeeping files.
+- `vendor/bin/pint` was **not** run: `pint --test` reports hundreds of pre-existing violations across untouched files (`app/Services/SettingsService.php`, `app/Models/Customer.php`, `routes/web.php`, most migrations/seeders, …), so the repo is not pint-clean and running it would produce a large unrelated diff. The new test file's line endings were normalised from CRLF to LF to match `.gitattributes` (`* text=auto eol=lf`) and the rest of `tests/`.
+
+### Commands and results (exact, sequential)
+
+1. **RED (before any production change)** — `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=CourseAuditTest` → `{"tool":"phpunit","result":"failed","tests":24,"passed":6,"assertions":50,"duration_ms":4347,"failed":18, ...}` (failures quoted above).
+2. **GREEN** — same command after the fixes → `{"tool":"phpunit","result":"passed","tests":24,"passed":24,"assertions":104,"duration_ms":2734}`.
+3. `--filter=CourseCommercialDocumentDeliveryTest` → `{"result":"passed","tests":19,"passed":19,"assertions":130}`.
+4. `--filter=CourseDeliveryAlertsTest` → `{"result":"passed","tests":15,"passed":15,"assertions":134}`.
+5. `--filter=Course` (module regression) → `{"result":"passed","tests":447,"passed":447,"assertions":3396,"duration_ms":50175}` — baseline was 423 / 3,292, so this unit adds exactly its own **24 tests / 104 assertions** and regresses nothing.
+6. `php.exe artisan test` (full suite, run because the change touches a shared base model) → `{"result":"failed","tests":1250,"passed":1227,"assertions":6478,"duration_ms":301649,"failed":11,"errors":12}`. The **11 failures are byte-for-byte the documented external baseline** (`AdminHttpTest`, `HistoryAndAuditCycleBreakTest`, `HistoryAndAuditTest`, `ActionEditorLivewireTest` ×2, `SendWhatsAppTemplateWidgetLivewireTest`, `WebhookWidgetLivewireTest` ×2, `SettingsServiceTest`, `GmailProviderTest`, `GoogleCalendarWebhookTest`). The **12 errors are also pre-existing** and were simply not enumerated in `suite-baseline.md`, whose own arithmetic proves it: 1,166 passed + 11 failed + 12 errored = 1,189, exactly the documented total. They reproduce in isolation (`--filter=Campaign` → `tests 12, passed 0, errors 12`) and come from tests that read `User::where('email', env('ADMIN_EMAIL'))->first()` and then `actingAs(null)` / assign null — an environment dependency unrelated to courses. New failures beyond the baseline: **zero**.
+7. Re-ran `--filter=CourseAuditTest` after the LF normalisation of the new file → `{"result":"passed","tests":24,"passed":24,"assertions":104}`.
+8. Two **temporary** diagnostics were used to make two failures precise and were then removed (the final file contains no dump: `grep -n "DIAG\|getTraceAsString\|var_export"` is empty): a `$this->fail(json_encode(...))` dump of the document's activity rows, and a `try/catch` printing a stack trace around the WhatsApp confirmation.
+
+### Task persistence (what was marked, exactly)
+
+- **Marked:** the new implementation-owned row `7.c Audit regression suite …` → **`[x]`**, with a terminal `<!-- sdd-owner: implementation -->` marker, placed under `### Slice 7 units` immediately AFTER the 7.b row and BEFORE the Slice 7 aggregate rows.
+- **Not marked:** every aggregate Slice 7 row stays exactly as it was, including the two RED rows, the five GREEN rows, `TRIANGULATE`, `REFACTOR`, the verification row and the parent review row; no aggregate row anywhere (including `6.e` / `6.f`) was touched. The aggregate RED row for the audit tests was left `[ ]` — it is a slice-level label — and only annotated to point at unit 7.c, so no reader mistakes it for missing work. The persisted artifact was re-read after the edit: 7.a, 7.b and 7.c read `[x]`; the aggregate rows read `[ ]`; a marker audit over the whole file reports 107 checkbox rows, 107 terminal markers (93 `implementation` + 14 `parent`), and zero malformed or non-terminal forms.
+- No commit, push, branch or worktree. Nine modified tracked files, two new untracked files and the two bookkeeping files — **nothing staged**.
+- Handed off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit, pre-push, pre-PR or release gate was validated.
+
+### Deviations (every one)
+
+1. **The annulment write scope was missed in the first fix round.** `CertificateQrTokenService::revoke()` also receives an explicit actor and was left unwrapped; the suite caught it (the annulment entry stayed `causer=NULL` after the first fixes), and the wrap was added. Recorded because it is the one place the first pass was incomplete.
+2. **`sendCommercialEmail()` gained two audit entries.** Adding an audit entry to an unwired path is the one change in this unit that is not strictly an actor fix; it is the enumerated *delivery attempts* rule for the commercial channel and it changes no state. Flagged for the reviewer; it can be reverted without touching anything else.
+3. **The attendance fix is a model change, not a service change.** `LogsActivity` on `CourseAttendance` was the only place the rule could go (the service already receives the actor; the model had no logging at all), and it is inside the allowed `app/Models/Courses/` surface.
+4. **`CourseModel` was reformatted** from a one-line class into a small readable class so the convention could be extracted to one place. The trait list, options and description closure are unchanged in effect; this is the only formatting change in the unit.
+5. **`CourseAttendance` does not extend `CourseModel`** on purpose (no audit columns, no soft deletes) — recorded so a later reader does not "fix" it into a broken inheritance.
+6. **Three test-side corrections were made after the first GREEN attempt, and they were assertion/fixture errors of mine, not defects:** `entered_by` is not dirty when a correction is made by the same actor (moved to the `course-created` entry); `final_result` is unchanged by a recalculation that keeps the same result (the fixture grades were changed to 13/9 → 13/18 so the last recalculation really changes `participation` → `approved`); and the QR-hash lookup had to select the entry whose `attributes.qr_token_hash` is non-null, because the `course-created` entry legitimately records `qr_token_hash: null` (`logAll()` logs nulls on create). None of these weakened a rule.
+7. **One self-inflicted regression was caught by the suite and fixed in source** (not in the test): the first edit to `confirmAcademicWhatsAppSent()` dropped the `$confirmation =` assignment, producing `Undefined variable $confirmation`.
+8. **`app/Traits/HasAuditColumns.php` intentionally untouched** (see the distinction section) — its documented, shared, cross-module rule was left alone.
+9. **`vendor/bin/pint` not run** — the repo is not pint-clean, so applying it would have produced a large unrelated diff. Line endings of the new file were normalised to LF instead.
+10. **`openspec/config.yaml` not rewritten** (still points at `b12-ui`, as the brief instructed).
+11. **`app/Jobs/V2/SendEmailMessage.php` not touched — reported as a blocker (below).**
+
+### Reported blockers (evidence, not fixed)
+
+1. **BLOCKER — the queued email's terminal snapshot is attributed to nobody.** `app/Jobs/V2/SendEmailMessage::syncCourseDelivery()` (lines ~168–205) writes the course document's `delivery_status`/`last_sent_at` from a queued job. A queued worker has no session and the job receives no actor, so the automatic `course-updated` entry this material change produces has `causer_id = NULL` — the same defect this unit fixed everywhere the actor is known, in the ONE path that actually writes the terminal delivery state for the wired (`queueAcademicEmail` / `queueCommercialEmail`) channel. Fixing it requires either passing a responsible user into the job or resolving one from the `outbound_deliveries` row it already owns. **`app/Jobs/V2/` is outside this unit's allowed edit surfaces (the brief says a job gap must be reported, not fixed), so it is reported here.** The suite deliberately does not encode this as a passing assertion, because asserting a null causer would enshrine the defect. Decision needed from the parent: widen the surfaces for a bounded follow-up, or accept the gap as a documented exception.
+2. **NOT FIXED — `course_edition_teachers` has no audit trail and cannot have one at model level.** No `id` column (composite primary key), no audit columns, `$timestamps = false`; `performedOn()` would store a null `subject_id`. `syncTeachers()` mass-deletes through the query builder, so no model event fires, and the `CourseEditionChanged('course-edition-teachers-changed')` event it dispatches has no listener anywhere in `app/` (`CourseEditionChanged` is the only reference in the codebase). Teacher changes are **not** in the enumerated Slice 7 audit list, and a real fix needs a migration — outside this unit. Reported for the record.
+3. **Interpretation recorded, not a blocker:** the spec's auditability list also names *permission-sensitive actions*. This unit reads those as the actions the permissions protect (generation, annulment/regeneration, template management, delivery/WhatsApp confirmation, discard) and proves each one's entry and actor; it does **not** invent an audit entry for a denied attempt, which is not a change the spec asks to record. If the intent was "denied attempts must be audited too", that is new behaviour for a separate decision.

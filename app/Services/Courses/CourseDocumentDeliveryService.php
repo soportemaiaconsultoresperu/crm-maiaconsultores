@@ -195,7 +195,7 @@ class CourseDocumentDeliveryService
 
         try {
             $sentAt = ($this->clock)();
-            $confirmation = DB::transaction(function () use ($academic, $phone, $operationKey, $sentAt): OutboundDelivery {
+            $confirmation = CourseAuditActor::asActor($actor, fn () => DB::transaction(function () use ($academic, $phone, $operationKey, $sentAt): OutboundDelivery {
                 $confirmation = OutboundDelivery::query()->create([
                     'channel' => OutboundDelivery::CHANNEL_WHATSAPP,
                     'recipient_ref' => $phone,
@@ -208,7 +208,7 @@ class CourseDocumentDeliveryService
                 $academic->forceFill(['delivery_status' => DeliveryStatus::Sent, 'last_sent_at' => $sentAt])->save();
 
                 return $confirmation;
-            });
+            }));
         } catch (QueryException $exception) {
             $confirmation = OutboundDelivery::query()->where('idempotency_key', $operationKey)->first();
             if ($confirmation === null) {
@@ -271,7 +271,7 @@ class CourseDocumentDeliveryService
             }
 
             $sentAt = ($this->clock)();
-            DB::transaction(function () use ($delivery, $academic, $sentAt): void {
+            CourseAuditActor::asActor($actor, fn () => DB::transaction(function () use ($delivery, $academic, $sentAt): void {
                 $delivery->forceFill([
                     'status' => OutboundDelivery::STATUS_SENT,
                     'last_error' => null,
@@ -280,7 +280,7 @@ class CourseDocumentDeliveryService
                     'delivery_status' => DeliveryStatus::Sent,
                     'last_sent_at' => $sentAt,
                 ])->save();
-            });
+            }));
 
             activity()
                 ->performedOn($academic)
@@ -289,13 +289,13 @@ class CourseDocumentDeliveryService
                 ->withProperties(['delivery_id' => $delivery->id])
                 ->log('Entrega de documento académico por correo registrada');
         } catch (Throwable) {
-            DB::transaction(function () use ($delivery, $academic): void {
+            CourseAuditActor::asActor($actor, fn () => DB::transaction(function () use ($delivery, $academic): void {
                 $delivery->forceFill([
                     'status' => OutboundDelivery::STATUS_FAILED,
                     'last_error' => 'No fue posible enviar el correo.',
                 ])->save();
                 $academic->forceFill(['delivery_status' => DeliveryStatus::Failed])->save();
-            });
+            }));
 
             activity()
                 ->performedOn($academic)
@@ -397,15 +397,32 @@ class CourseDocumentDeliveryService
                 throw new \RuntimeException('Mail operation did not confirm delivery.');
             }
             $sentAt = ($this->clock)();
-            DB::transaction(function () use ($delivery, $commercial, $sentAt): void {
+            CourseAuditActor::asActor($actor, fn () => DB::transaction(function () use ($delivery, $commercial, $sentAt): void {
                 $delivery->forceFill(['status' => OutboundDelivery::STATUS_SENT, 'last_error' => null])->save();
                 $commercial->forceFill(['delivery_status' => DeliveryStatus::Sent, 'last_sent_at' => $sentAt])->save();
-            });
+            }));
+
+            // The commercial channel audits its attempt exactly like the academic
+            // one: the responsible actor and the ledger row, never the recipient
+            // and never the private file.
+            activity()
+                ->performedOn($commercial)
+                ->causedBy($actor)
+                ->event('course-commercial-document-email-sent')
+                ->withProperties(['delivery_id' => $delivery->id])
+                ->log('Entrega de comprobante comercial por correo registrada');
         } catch (Throwable) {
-            DB::transaction(function () use ($delivery, $commercial): void {
+            CourseAuditActor::asActor($actor, fn () => DB::transaction(function () use ($delivery, $commercial): void {
                 $delivery->forceFill(['status' => OutboundDelivery::STATUS_FAILED, 'last_error' => 'No fue posible enviar el correo.'])->save();
                 $commercial->forceFill(['delivery_status' => DeliveryStatus::Failed])->save();
-            });
+            }));
+
+            activity()
+                ->performedOn($commercial)
+                ->causedBy($actor)
+                ->event('course-commercial-document-email-failed')
+                ->withProperties(['delivery_id' => $delivery->id])
+                ->log('Intento de entrega de comprobante comercial por correo falló');
         }
 
         return $delivery->fresh();
@@ -472,12 +489,12 @@ class CourseDocumentDeliveryService
         $sentAt = ($this->clock)();
 
         try {
-            $confirmation = DB::transaction(function () use ($commercial, $phone, $operationKey, $sentAt): OutboundDelivery {
+            $confirmation = CourseAuditActor::asActor($actor, fn () => DB::transaction(function () use ($commercial, $phone, $operationKey, $sentAt): OutboundDelivery {
                 $confirmation = OutboundDelivery::query()->create(['channel' => OutboundDelivery::CHANNEL_WHATSAPP, 'recipient_ref' => $phone, 'related_entity_type' => CourseCommercialDocument::class, 'related_entity_id' => $commercial->id, 'status' => OutboundDelivery::STATUS_SENT, 'attempts' => 1, 'idempotency_key' => $operationKey]);
                 $commercial->forceFill(['delivery_status' => DeliveryStatus::Sent, 'last_sent_at' => $sentAt])->save();
 
                 return $confirmation;
-            });
+            }));
         } catch (QueryException $exception) {
             // Same recovery as the academic confirmation: a concurrent submit
             // that committed its confirmation first wins the unique index, and

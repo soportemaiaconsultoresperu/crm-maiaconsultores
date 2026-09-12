@@ -27,7 +27,7 @@ class CourseDocumentGenerationService
 
     public function generate(CourseEnrollment $enrollment, User $actor): CourseAcademicDocument
     {
-        return $this->generateDocument($enrollment, $actor);
+        return CourseAuditActor::asActor($actor, fn (): CourseAcademicDocument => $this->generateDocument($enrollment, $actor));
     }
 
     public function regenerate(CourseAcademicDocument $document, User $actor, string $reason): CourseAcademicDocument
@@ -40,7 +40,10 @@ class CourseDocumentGenerationService
 
         $document->loadMissing('enrollment');
 
-        return $this->generateDocument($document->enrollment, $actor, function (CourseAcademicDocument $replacement) use ($document, $actor, $reason): void {
+        // The replacement is announced with its callback, but every write it does
+        // (the old row marked replaced, the new row created, the private file
+        // registered) is still attributed to the acting user.
+        return CourseAuditActor::asActor($actor, fn (): CourseAcademicDocument => $this->generateDocument($document->enrollment, $actor, function (CourseAcademicDocument $replacement) use ($document, $actor, $reason): void {
             $old = CourseAcademicDocument::query()->lockForUpdate()->findOrFail($document->id);
             if ($old->status !== AcademicDocumentStatus::Current || $old->qr_token_revoked_at !== null) {
                 throw InvalidCourseDocumentState::notCurrent();
@@ -54,7 +57,7 @@ class CourseDocumentGenerationService
                 'annul_reason' => trim($reason),
                 'replaced_by_id' => $replacement->id,
             ])->save();
-        });
+        }));
     }
 
     private function generateDocument(CourseEnrollment $enrollment, User $actor, ?callable $afterAcademicCreated = null): CourseAcademicDocument
@@ -125,8 +128,11 @@ class CourseDocumentGenerationService
             ];
 
             if ($deferStorageUntilOuterCommit) {
-                DB::afterCommit(function () use ($academic, $attributes, $pdf, $path, $afterAcademicCreated): void {
-                    $this->storeDeferredDocument($academic->id, $attributes, $pdf, $path, $afterAcademicCreated);
+                DB::afterCommit(function () use ($academic, $attributes, $pdf, $path, $afterAcademicCreated, $actor): void {
+                    // The deferred write happens when the OUTER transaction commits,
+                    // long after this method returned, so the actor is re-established
+                    // here instead of relying on a scope that no longer exists.
+                    CourseAuditActor::asActor($actor, fn () => $this->storeDeferredDocument($academic->id, $attributes, $pdf, $path, $afterAcademicCreated));
                 });
 
                 return $academic;

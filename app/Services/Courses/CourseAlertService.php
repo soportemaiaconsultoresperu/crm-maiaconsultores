@@ -225,10 +225,10 @@ final class CourseAlertService
             throw new InvalidArgumentException('Una entrega enviada no se puede descartar.');
         }
 
-        $document->forceFill([
+        CourseAuditActor::asActor($actor, fn () => $document->forceFill([
             'delivery_status' => DeliveryStatus::Discarded,
             'delivery_discard_reason' => $reason,
-        ])->save();
+        ])->save());
 
         activity()
             ->performedOn($document)
