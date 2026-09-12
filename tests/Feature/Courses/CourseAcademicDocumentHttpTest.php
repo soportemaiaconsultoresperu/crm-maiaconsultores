@@ -271,6 +271,27 @@ class CourseAcademicDocumentHttpTest extends TestCase
             ->assertSee('Anular');
     }
 
+    public function test_repeated_generation_is_refused_with_a_visible_spanish_error_and_keeps_one_current_document(): void
+    {
+        $enrollment = $this->enrollment();
+
+        $this->generate($enrollment)->assertRedirect($this->indexUrl());
+        $document = CourseAcademicDocument::query()->sole();
+
+        $response = $this->generate($enrollment);
+
+        $response->assertRedirect($this->indexUrl());
+        $response->assertSessionHasErrors('documents');
+
+        $this->assertSame(1, CourseAcademicDocument::query()->count());
+        $this->assertSame(1, CourseAcademicDocument::query()->where('status', AcademicDocumentStatus::Current)->count());
+        $this->assertSame($document->id, CourseAcademicDocument::query()->sole()->id);
+
+        $this->actingAs($this->manager)->followingRedirects()
+            ->post(route('course-talks.documents.generate', $enrollment))
+            ->assertSee('ya cuenta con un documento académico vigente');
+    }
+
     public function test_generation_is_refused_for_an_ineligible_enrollment_with_a_visible_spanish_error(): void
     {
         $enrollment = $this->enrollment(payment: PaymentStatus::Pending);

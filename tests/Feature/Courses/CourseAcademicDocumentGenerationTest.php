@@ -105,6 +105,32 @@ class CourseAcademicDocumentGenerationTest extends TestCase
         $service->regenerate($old, $actor, '');
     }
 
+    public function test_a_repeated_generate_refuses_to_create_a_second_current_document(): void
+    {
+        Storage::fake('docs');
+        [$enrollment, $actor] = $this->eligibleEnrollment(FinalResult::Approved);
+
+        $first = $this->service()->generate($enrollment, $actor);
+
+        // Before the fix this call silently created a second `current` row with
+        // its own code and a live QR; the assertions below therefore saw two.
+        $refusal = null;
+        try {
+            $this->service()->generate($enrollment->fresh(), $actor);
+        } catch (\InvalidArgumentException $exception) {
+            $refusal = $exception;
+        }
+
+        // The refusal happens before any side effect: no second row, no second
+        // current certificate, no second private PDF, and the original code is
+        // still the only one.
+        $this->assertSame(1, CourseAcademicDocument::query()->where('course_enrollment_id', $enrollment->id)->count());
+        $this->assertSame(1, CourseAcademicDocument::query()->where('course_enrollment_id', $enrollment->id)->where('status', AcademicDocumentStatus::Current)->count());
+        $this->assertSame((string) $first->code, (string) CourseAcademicDocument::query()->sole()->code);
+        $this->assertCount(1, Storage::disk('docs')->allFiles('course-academic-documents'));
+        $this->assertNotNull($refusal, 'A repeated generation must be refused by the domain.');
+    }
+
     public function test_authorized_regeneration_preserves_old_private_pdf_and_issues_one_current_document(): void
     {
         Storage::fake('docs');

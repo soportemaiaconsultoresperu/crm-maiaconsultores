@@ -66,6 +66,18 @@ class CourseDocumentGenerationService
             throw new InvalidArgumentException('La matrícula todavía no es elegible para generar documento académico.');
         }
 
+        // The plain generate path must never mint a second current certificate
+        // for the same enrollment: a double click or a repeated POST would
+        // otherwise produce a second, equally valid code and public QR. The
+        // sanctioned route to a new current document is regeneration, which
+        // marks the previous row replaced; it announces that intent with the
+        // replacement callback and is therefore exempt here. The refusal is
+        // raised before any side effect and in Spanish, so the controller can
+        // surface it verbatim, exactly like the eligibility rejection above.
+        if ($afterAcademicCreated === null && $this->hasCurrentDocument($enrollment)) {
+            throw new InvalidArgumentException('La matrícula ya cuenta con un documento académico vigente. Para emitir uno nuevo, regenere el documento vigente indicando el motivo.');
+        }
+
         $filename = ($this->filenames ?? new CourseCertificateFilenameService())->build(
             $this->participantName($enrollment),
             (string) $enrollment->edition->activity->name,
@@ -189,6 +201,14 @@ class CourseDocumentGenerationService
         ], ['company' => $this->companyName($enrollment)]);
 
         return ($this->pdfRenderer ?? new DomPdfRenderer())->render($view, ['certificate' => $viewModel]);
+    }
+
+    private function hasCurrentDocument(CourseEnrollment $enrollment): bool
+    {
+        return CourseAcademicDocument::query()
+            ->where('course_enrollment_id', $enrollment->id)
+            ->where('status', AcademicDocumentStatus::Current)
+            ->exists();
     }
 
     private function nextCode(AcademicDocumentType $type): string

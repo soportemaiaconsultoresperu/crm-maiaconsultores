@@ -2889,3 +2889,89 @@ public function queueCommercialEmail(
 - The persisted tasks artifact now reads `- [x] 6.f-2b Commercial document delivery actions UI (split from 6.f-2): ...` (this unit, visibly marked, terminal implementation marker) and `- [ ] 6.f Commercial document actions: register, upload, send, and discard, plus certificate template settings. <!-- sdd-owner: implementation -->` (correctly left unchecked — `discard` (Slice 7) and certificate template settings are still missing).
 - Deferred parent lifecycle actions, unchanged and byte-for-byte intact: `- [ ] Review Slice 6 for UI completeness, authorization coverage, route naming, and adherence to existing Laravel/AdminLTE/Bootstrap patterns. <!-- sdd-owner: parent -->` plus every other `<!-- sdd-owner: parent -->` row.
 - No commit was made. This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate (pre-commit, pre-push, pre-PR, release) was validated.
+
+---
+
+## Corrective unit — close the commercial delivery cycle and stop duplicate certificate generation
+
+**Date:** 2025-09-11 (corrective follow-up to 6.f-2b, branch `feat/course-talks-slice-6-ui`, HEAD `c8a1739`).
+**Status:** complete on the two verified P0 defects. Nothing staged, nothing committed, no branch/worktree created.
+**Artifact store:** openspec. Artifacts read before work: `tasks.md`, `spec.md`, `design.md`, this file (merged, never overwritten).
+**Delivery path:** the `tasks.md` Review Workload Forecast is `Chained PRs recommended: Yes` / `400-line budget risk: High` with `Decision needed before apply: No — chained delivery approved` and `Chain strategy: stacked-to-main (approved)`. The parent prompt resolved this corrective unit as one bounded work-unit slice with an explicit under-400-line aim, so the unit was implemented as a single slice and the review workload is reported honestly below. This is one PR boundary: the five files listed under "Files changed".
+
+### Strict TDD evidence (RED → GREEN → TRIANGULATE → REFACTOR)
+
+Runner: `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (`php` is not on PATH). All runs sequential, one command per shell block.
+
+| Defect | RED command | RED result (real) | GREEN command | GREEN result (real) |
+| --- | --- | --- | --- | --- |
+| A — commercial terminal state | `artisan test --filter=SendEmailMessageCorrelationTest` | `{"tool":"phpunit","result":"failed","tests":7,"passed":4,"assertions":33,"failed":3}` — `Failed asserting that two strings are identical. -'sent' +'queued'`; `-'failed' +'queued'`; `Failed asserting that null is identical to 'No fue posible confirmar el envío del correo.'` | same filter | `{"tool":"phpunit","result":"passed","tests":8,"passed":8,"assertions":50}` |
+| B — duplicate generation (domain) | `artisan test --filter=CourseAcademicDocumentGenerationTest` | `{"tool":"phpunit","result":"failed","tests":12,"passed":11,"assertions":58,"failed":1}` — `Failed asserting that 2 is identical to 1.` (a SECOND `Current` document existed) | same filter | `{"tool":"phpunit","result":"passed","tests":12,"passed":12,"assertions":62}` |
+| B — duplicate generation (HTTP) | `artisan test --filter=CourseAcademicDocumentHttpTest` | `{"tool":"phpunit","result":"failed","tests":17,"passed":16,"assertions":154,"failed":1}` — `Session is missing expected key [errors].` (the repeated POST succeeded) | same filter | `{"tool":"phpunit","result":"passed","tests":17,"passed":17,"assertions":159}` |
+
+Both RED runs are real assertion failures, not PHP fatals. The RED for defect A asserts exactly the state the old tests never reached: the ledger row still `queued` after the message reached `sent`/`failed`, and the unconfirmed ledger error still `null`. The RED for defect B shows the second `current` row surviving the repeated generate.
+
+**TRIANGULATE:** defect A carries three tests — confirmed (`sent` + snapshot `sent` + `last_sent_at` set), failed (`failed` + snapshot `failed` + visible `last_error` + a prior `last_sent_at` NOT regressed) and unconfirmed (`queued` + sanitized error + snapshot left `pending`), mirroring the academic channel's three outcomes. A fourth test locks the shared-infrastructure no-op for a non-course correlated entity. Defect B is triangulated at two levels: the domain service (no second row, no second private PDF, original code preserved, refusal raised) and the HTTP surface (visible Spanish error in the `documents` error bag, current count stays 1, same document id).
+
+**REFACTOR:** the three-branch duplication inside `syncCourseDelivery()` was replaced by one decision table (`courseDeliveryOutcome()`) plus one target resolver (`correlatedCourseDocumentClass()`); the academic path's observable semantics are byte-for-byte equivalent (same statuses, same error strings, same snapshot transitions, same transaction boundary). `php -l` reports no syntax errors on all five changed files. `pint --test` reports the *exact same fixer sets that the HEAD versions of these files already report* (verified by running Pint on `git show HEAD:<file>` copies), so no new style violation was introduced.
+
+### Defect A — how the shared job was restructured without changing other consumers
+
+`app/Jobs/V2/SendEmailMessage.php` (+58 / -18):
+
+- The `count() !== 1` guard and the `related_entity_type` early return are kept, but the early return now resolves through `correlatedCourseDocumentClass()`, which returns the class for `CourseAcademicDocument` **and** `CourseCommercialDocument` and `null` for everything else. Anything else still returns before touching the ledger — the historical no-op for quotations, notifications and every non-course delivery is unchanged and now pinned by a test.
+- `courseDeliveryOutcome(EmailMessage $message): array` returns `[ledgerStatus, lastError, snapshotStatus|null]` once for both types: `sent → [sent, null, Sent]`, `failed → [failed, 'No fue posible enviar el correo.', Failed]`, anything else (unconfirmed/pending) `→ [queued, 'No fue posible confirmar el envío del correo.', null]`.
+- The transaction writes the ledger row, then — only when `snapshotStatus !== null` — resolves the correlated document with `$documentClass::query()->find(...)` and fills `delivery_status` plus, for `Sent`, `last_sent_at` from `$message->sent_at ?? now()`. A `null` snapshot status leaves the snapshot untouched, reproducing the academic unconfirmed case.
+- `CourseCommercialDocument` already had `delivery_status` (`2026_08_26_000004_add_delivery_status_to_course_commercial_documents.php`, default `pending`, same 30-char string shape) and `last_sent_at` with the same cast as the academic document — verified before assuming.
+
+### Defect B — reject vs. return decision
+
+**Decision: reject with a clear error, do not return the existing current document.** Justification: the spec states a NEW document is produced through regeneration with a reason and by marking the previous row replaced (`spec.md` "Revocation and regeneration"; `design.md`: eligibility "no-op if current document already exists for the same eligibility version"). Returning the existing document would make `CourseAcademicDocumentController::store()` flash *"Documento académico generado correctamente."* while nothing was generated — a false success — and would silently hide a duplicate-generation attempt that must be routed to the audited regeneration path. Rejection is the honest outcome and reuses the surface's existing rejection channel.
+
+**Exact Spanish message used:** `La matrícula ya cuenta con un documento académico vigente. Para emitir uno nuevo, regenere el documento vigente indicando el motivo.`
+
+The guard lives in `generateDocument()` right after the eligibility gate and before any side effect (no code, no QR token, no PDF, no row), and is skipped only when a replacement callback is present, i.e. for `regenerate()`. It is surfaced by the **existing** `catch (InvalidArgumentException)` in `store()`, which already displays the service's own Spanish message verbatim (the same way the eligibility rejection is surfaced), so no controller change was required and no rejection becomes a 500. The Blade presentational guard (`@if ($canGenerate && $current === null && $result->eligible)`) is **kept unchanged as defence in depth**; no Blade view was edited.
+
+### Files changed (`git diff --numstat`)
+
+- `app/Jobs/V2/SendEmailMessage.php` — **+58 / -18** (decision table, target resolver, docblocks; one import added).
+- `app/Services/Courses/CourseDocumentGenerationService.php` — **+20 / -0** (the refusal guard plus `hasCurrentDocument()`; no signature changed).
+- `tests/Feature/Email/SendEmailMessageCorrelationTest.php` — **+226 / -0** (4 tests: confirmed commercial, failed commercial, unconfirmed commercial, non-course no-op; 2 imports).
+- `tests/Feature/Courses/CourseAcademicDocumentGenerationTest.php` — **+26 / -0** (1 domain test).
+- `tests/Feature/Courses/CourseAcademicDocumentHttpTest.php` — **+21 / -0** (1 HTTP test).
+- `openspec/changes/course-talks-management/tasks.md` — corrective section appended (bookkeeping; no existing checkbox changed, no aggregate row marked).
+- `openspec/changes/course-talks-management/apply-progress.md` — this section (bookkeeping).
+
+### Changed-line count / review workload
+
+**351 added / 18 deleted = 369 changed lines** — under the 400-line budget. Production 78 added / 18 deleted (96 changed); tests 273 added. `git diff --stat`: 5 code/test files.
+
+### Verification commands and real results (sequential)
+
+1. `--filter=SendEmailMessageCorrelationTest` → `{"result":"passed","tests":8,"passed":8,"assertions":50}`.
+2. `--filter=CourseCommercialDocumentDeliveryTest` → `{"result":"passed","tests":17,"passed":17,"assertions":122}`.
+3. `--filter=CourseAcademicDocumentGenerationTest` → `{"result":"passed","tests":12,"passed":12,"assertions":62}`.
+4. `--filter=CourseAcademicDocumentHttpTest` → `{"result":"passed","tests":17,"passed":17,"assertions":159}`.
+5. `--filter=Course` (final regression) → `{"result":"passed","tests":331,"passed":331,"assertions":2471,"duration_ms":46297}`. Baseline 329 tests / 2,456 assertions → **new totals 331 tests / 2,471 assertions** (+2 tests, +15 assertions, exactly this unit's two new Course-side tests).
+6. Other `SendEmailMessage` consumers (shared infrastructure):
+   - `--filter=QuotationGmailSendTest` (quotation Gmail send path) → `{"result":"passed","tests":10,"passed":10,"assertions":41}`.
+   - `tests/Feature/Email tests/Feature/NotificationsTest.php` (email providers, webhook, email service, notifications) → `{"result":"failed","tests":30,"passed":29,"assertions":95,"failed":1}`. The single failure is **pre-existing and unrelated**: `GmailProviderTest::test_send_returns_documented_error_envelope_when_credentials_missing` expects `App\Services\Email\Exceptions\NotImplementedException` while the untouched `GmailProvider::send()` returns `NoBoundAccount` when its account is null. `GmailProvider.php`, `GmailProviderTest.php` and `NotImplementedException` are not in this unit's diff (`git diff --name-only` lists only the 5 files above), and the test does not import `SendEmailMessage`; it also fails in isolation. It is outside the allowed edit surfaces, so it was reported, not fixed.
+
+### Deviations (every one)
+
+1. **Defect A's end-to-end tests live in `tests/Feature/Email/SendEmailMessageCorrelationTest.php`** rather than in the commercial delivery suite. That is where the academic correlation pattern the task pointed at lives, and the defect is the job's shared synchronization, not the delivery service. No test was added to `CourseCommercialDocumentDeliveryTest.php`; that suite is unchanged and green.
+2. **No controller change was needed** for defect B. The task listed `CourseAcademicDocumentController.php` as an allowed surface, but its existing `catch (InvalidArgumentException)` already surfaces the service's Spanish message in the `documents` error bag, which is the same mechanism the eligibility rejection uses. Touching it would have added no behavior.
+3. **No Blade view was edited** (not required); the presentational guard is intact.
+4. **One extra test beyond the two defects** — the non-course no-op lock — because "keep the existing behavior for every other entity type unchanged" is otherwise unprovable, and the job is shared infrastructure.
+5. **`openspec/config.yaml` was not touched** (it is stale for an unrelated `b12-ui` change, as stated in the brief).
+6. **Pint was not run as a fixer**; `pint --test` output is reported as-is, and the HEAD versions of the same files fail with identical fixer sets.
+
+### Remaining work / deferred lifecycle actions
+
+- No aggregate OpenSpec row was marked `[x]`. Rows `6.e` and `6.f` remain open exactly as before this unit.
+- The new corrective rows in `tasks.md` are `- [x]` and carry terminal `<!-- sdd-owner: implementation -->` markers; the single new `<!-- sdd-owner: parent -->` review row is intentionally left `- [ ]`.
+- All previously existing `<!-- sdd-owner: parent -->` rows are byte-for-byte intact.
+- Explicitly out of scope and untouched: the commercial registration idempotency key, the commercial WhatsApp handoff race recovery, the bypassable zero guard, the false regenerate message, the offer-to-send-without-file, the stale comment in `AnnulAcademicDocumentRequest`, and all deduplication work.
+- No commit, push, branch or worktree was created; `git diff --cached --name-only` is empty.
+- This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no delivery gate was validated.
+- Human acceptance remains **pending / not run** (acceptance-checklist skill): the automated suite proves the contract, but no human has watched a commercial email reach a terminal state on screen or attempted a duplicate generate in a browser.

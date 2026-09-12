@@ -6,6 +6,7 @@ namespace App\Jobs\V2;
 
 use App\Enums\Courses\DeliveryStatus;
 use App\Models\Courses\CourseAcademicDocument;
+use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Email\EmailMessage;
 use App\Models\Notification\OutboundDelivery;
 use App\Models\Quotation;
@@ -156,6 +157,14 @@ class SendEmailMessage implements ShouldQueue
         $this->syncCourseDelivery($message->fresh());
     }
 
+    /**
+     * The only writer of the terminal ledger state and of the correlated course
+     * document's delivery snapshot. Both course document types share this job:
+     * the message's state maps to a ledger status — and, when terminal, to a
+     * snapshot status — through one decision table, so the academic and
+     * commercial channels cannot drift. Any other correlated entity (a quotation,
+     * a plain notification) keeps the historical no-op behavior.
+     */
     private function syncCourseDelivery(EmailMessage $message): void
     {
         $deliveries = OutboundDelivery::query()->where('email_message_id', $message->id)->get();
@@ -164,33 +173,64 @@ class SendEmailMessage implements ShouldQueue
         }
 
         $delivery = $deliveries->first();
-        if ($delivery->related_entity_type !== CourseAcademicDocument::class) {
+        $documentClass = $this->correlatedCourseDocumentClass($delivery->related_entity_type);
+        if ($documentClass === null) {
             return;
         }
 
-        DB::transaction(function () use ($delivery, $message): void {
-            $academic = CourseAcademicDocument::query()->find($delivery->related_entity_id);
-            if ($message->status === EmailMessage::STATUS_SENT) {
-                $delivery->forceFill(['status' => OutboundDelivery::STATUS_SENT, 'last_error' => null])->save();
-                $academic?->forceFill(['delivery_status' => DeliveryStatus::Sent, 'last_sent_at' => $message->sent_at ?? now()])->save();
+        [$status, $lastError, $snapshotStatus] = $this->courseDeliveryOutcome($message);
 
+        DB::transaction(function () use ($delivery, $message, $documentClass, $status, $lastError, $snapshotStatus): void {
+            $delivery->forceFill(['status' => $status, 'last_error' => $lastError])->save();
+
+            if ($snapshotStatus === null) {
+                // Unconfirmed: the ledger carries the unresolved attempt and the
+                // document snapshot deliberately stays pending for follow-up.
                 return;
             }
 
-            if ($message->status === EmailMessage::STATUS_FAILED) {
-                $delivery->forceFill([
-                    'status' => OutboundDelivery::STATUS_FAILED,
-                    'last_error' => 'No fue posible enviar el correo.',
-                ])->save();
-                $academic?->forceFill(['delivery_status' => DeliveryStatus::Failed])->save();
-
-                return;
+            $snapshot = ['delivery_status' => $snapshotStatus];
+            if ($snapshotStatus === DeliveryStatus::Sent) {
+                $snapshot['last_sent_at'] = $message->sent_at ?? now();
             }
 
-            $delivery->forceFill([
-                'status' => OutboundDelivery::STATUS_QUEUED,
-                'last_error' => 'No fue posible confirmar el envío del correo.',
-            ])->save();
+            $documentClass::query()
+                ->find($delivery->related_entity_id)
+                ?->forceFill($snapshot)
+                ->save();
         });
+    }
+
+    /**
+     * The course document types whose delivery snapshot this shared job owns.
+     * Every other correlated entity keeps the previous no-op behavior.
+     */
+    private function correlatedCourseDocumentClass(string $relatedEntityType): ?string
+    {
+        return match ($relatedEntityType) {
+            CourseAcademicDocument::class, CourseCommercialDocument::class => $relatedEntityType,
+            default => null,
+        };
+    }
+
+    /**
+     * One decision table for both course document types: the message's state
+     * decides the ledger status, its sanitized error text and — for the two
+     * terminal outcomes — the document snapshot status. A `null` snapshot status
+     * means the snapshot is intentionally left untouched.
+     *
+     * @return array{0: string, 1: string|null, 2: DeliveryStatus|null}
+     */
+    private function courseDeliveryOutcome(EmailMessage $message): array
+    {
+        if ($message->status === EmailMessage::STATUS_SENT) {
+            return [OutboundDelivery::STATUS_SENT, null, DeliveryStatus::Sent];
+        }
+
+        if ($message->status === EmailMessage::STATUS_FAILED) {
+            return [OutboundDelivery::STATUS_FAILED, self::FAILURE_MESSAGE, DeliveryStatus::Failed];
+        }
+
+        return [OutboundDelivery::STATUS_QUEUED, 'No fue posible confirmar el envío del correo.', null];
     }
 }
