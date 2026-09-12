@@ -3337,3 +3337,176 @@ RED-only intermediate runs (both suites failed on their new tests before any pro
 - Unchecked `- [ ]` lines still pending in the persisted artifact (unchanged by this unit): the four Slice 6 aggregate rows, `6.e`, `6.f`, the Slice 6 `RED`/`GREEN`/`TRIANGULATE`/`REFACTOR`/`Run focused verification`/`Review Slice 6` rows, the Slice 0/1/4/5 parent review rows, the Slice 7 rows, the four `Cross-slice guardrails` rows, the corrective-unit parent review rows, this unit's parent review row, and the new `6.t1` parent review row.
 - No commit, push, branch or worktree; `git status --short` shows **6 modified files** (the two services, the two test files, `tasks.md` and this file) and **1 untracked new exception**, with **nothing staged**.
 - This unit hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit/pre-push/pre-PR/release gate was validated. The active attempt token `sha256:d072d16e…` remains for the parent to settle.
+
+## Unit 6.t2 — Certificate template management UI (the reachable surface for 6.t1's domain)
+
+**Status:** delivered; hands off to `parent-lifecycle`. No aggregate row was marked.
+
+Unit 6.t1 made certificate templates real in the domain (create/update/activate/deactivate, the `'*'` wildcard, one active template per scope, the attribute and settings allowlists, the derived version, `resolveFor()`), but there was no controller, route or screen, so no human could configure one — the same "functionality that exists but is unreachable" gap unit 6.g closed for navigation. This unit closes it and closes the declared risk 6.t1 wrote down.
+
+### What was built
+
+- `CourseCertificateTemplateController` (207 lines) — `index`, `create`, `store`, `edit`, `update`, `activate`, `deactivate`. Every action starts with `Gate::authorize('manage', CourseCertificateTemplate::class)` and then delegates to `CourseCertificateTemplateService` (`create`/`update`/`activate`/`deactivate`). No rule is reimplemented: no scope allowlist, no settings-key filtering, no signature rule, no exclusivity sweep, no version derivation, no validation of an attribute the domain owns.
+- `StoreCourseCertificateTemplateRequest` (165 lines) and `UpdateCourseCertificateTemplateRequest` (16 lines). The update verb **extends** the create verb rather than duplicating it: the form always submits the whole configuration, so a partial-update contract would describe nothing this surface can produce, and inheritance keeps the two verbs from drifting in what they accept while still giving each route the FormRequest named for its own verb (the brief's "or a single shared request if that is genuinely cleaner — justify" branch; the justification is in the class docblock).
+- `resources/views/course-talks/templates/` — `index.blade.php` (124), `_form.blade.php` (142), `create.blade.php` (18), `edit.blade.php` (44).
+- `tests/Feature/Courses/CourseCertificateTemplateHttpTest.php` (568 lines, 18 tests).
+- `app/Models/Courses/CourseCertificateTemplate.php` — `html_template` removed from `$fillable` (1 line).
+- `resources/views/course-talks/activities/index.blade.php` — the access point only (+8).
+- `routes/web.php` — the seven routes inside the existing `course-talks.` authenticated group (+19).
+
+### Access-point decision, and why not a sidebar entry
+
+**Decided: a contextual link in the activity list** (`resources/views/course-talks/activities/index.blade.php`, in the `x-table` `filters` slot, next to "Nueva actividad"), gated by `@can('manage', CourseCertificateTemplate::class)` — exactly the ability the seven routes and both FormRequests ask for. Justification:
+
+1. The brief's rule (established by 6.g) is that a rendered control must never be able to answer 403. The link is rendered only for a user the policy answers `true` for, and the routes ask for that same ability and nothing else, so the link always opens.
+2. The activity list is the module's landing page (the sidebar entry drives there), so the templates surface is one click away for every module user who can manage templates — the click-through is asserted, not assumed.
+3. A second sidebar entry was rejected: `course-talks.templates.manage` is not the module's visibility permission (`course-talks.view` is), and adding a second entry would either duplicate the module's single navigation item or introduce a sidebar item whose visibility key is a management permission — a pattern this module has deliberately avoided.
+4. **Consequence, recorded honestly:** because the templates routes are gated by exactly `manage` (never by `course-talks.view` in addition), a hypothetical user holding `course-talks.templates.manage` **without** `course-talks.view` reaches the surface by URL (asserted: 200 on index/create/store) but cannot see the activity list that advertises it. That is the module's existing convention for management surfaces (`CourseActivityController::create` asks only for `course-talks.activities.manage` and is advertised from the same list), and the alternative — gating the link on one ability and the route on two — is precisely the 403-from-a-rendered-control defect the brief forbids. `test_the_surface_is_gated_by_exactly_the_templates_ability` pins the positive half of that contract.
+
+### How `blade_view` and `html_template` are kept out of the payload and out of the view
+
+Four independent mechanisms, so no single mistake reopens the hole:
+
+1. **No form field.** `_form.blade.php` renders only `name`, `type_scope` and the four allowed settings (`title`, `intro_text`, `company`, two signature slots). There is no `blade_view` selector (the render allowlist has exactly one member, so a selector would be theatre) and no `html_template` input under any name.
+2. **No validation rule.** Neither key appears in either FormRequest's `rules()`, so neither can be part of `validated()` from any request, tampered or not.
+3. **Key-by-key payload construction.** `StoreCourseCertificateTemplateRequest::payload()` builds `['name', 'type_scope', 'settings_json']` explicitly; a tampered top-level `blade_view`, `html_template` or `version` is structurally absent from what reaches the service (the service would also refuse an unknown attribute, but it is never given the chance). `blade_view` is not even sent as its default: creation omits it and the domain applies its own allowlisted default; on update it is left alone, so a stored value can never be replaced from the web.
+4. **Model-level block.** `html_template` is gone from `$fillable`, so the mass-assignment path a future surface would use cannot write the column either.
+
+Asserted both ways: `test_the_forms_never_offer_the_raw_html_or_the_blade_view_selector` inspects the rendered HTML of **both** forms for `name="html_template"`, `name="blade_view"`, the strings `html_template`/`blade_view` and the allowlisted view name, and `test_a_payload_carrying_html_template_or_blade_view_cannot_write_either` posts `blade_view = admin.users.index`, `html_template = '<html><script>alert(1)</script></html>'` and `version = 99` to **both** verbs and asserts the persisted row keeps `blade_view = course-talks.certificates.reference`, `html_template = NULL` and `version = 1`. The list does not display `blade_view` either (`test_the_list_shows_name_scope_version_active_state_and_settings` asserts it is absent), so the allowlist never becomes an administrator-facing concept.
+
+### Authorization
+
+- **Ability:** `CourseCertificateTemplatePolicy::manage` → `course-talks.templates.manage`. It is the only ability involved.
+- **Where it is enforced:** every action calls `Gate::authorize('manage', CourseCertificateTemplate::class)`; both FormRequests' `authorize()` asks the same permission string (so a POST/PUT is refused before validation for an unauthorized user); the two rendered controls (the activity-list access link and the list's actions) use `@can('manage', …)` / `Gate::allows('manage', …)`. The routes live inside the existing `->middleware(['auth','active'])->prefix('course-talks')->name('course-talks.')` group — that group enforces authentication and the active-user guard; the ability itself is enforced in the controller and the requests, exactly as every other unit of this slice does.
+- **Nothing is gated on a class-level ability that a per-instance policy would answer differently:** the policy's `manage(User $user)` takes no model, so it is instance-independent; nothing here is gated on `view`/`viewAny`.
+- Denial matrix asserted for a module viewer without the templates permission (403 on all seven routes, no access link, no template data leaked) and for a user with no permissions at all.
+
+### What was checked before removing `html_template` from `$fillable`
+
+`git grep -n html_template` (plus a whole-tree `grep` excluding `vendor`) returned **every** occurrence in the repository:
+
+| Occurrence | Is it a write path? | Effect of the change |
+|---|---|---|
+| `database/migrations/2026_08_26_000001_create_course_domain_foundation_tables.php:13` — the column definition (`longText nullable`) | No — schema only | None. The column stays in the schema (dropping it would need a migration, out of scope and destructive). |
+| `app/Models/Courses/CourseCertificateTemplate.php` — `$fillable` | The write path itself | Removed. |
+| `app/Services/Courses/CourseCertificateTemplateService.php` — two docblock mentions (it does not read or write the attribute; `validatedAttributes()` refuses it as `UNKNOWN_ATTRIBUTE` and `resolveFor()` selects `blade_view`/`settings_json` only) | No | None. |
+| `app/Exceptions/Courses/InvalidCourseCertificateTemplate.php:28` — comment | No | None. |
+| `tests/Feature/Courses/CourseCertificateTemplateTest.php` — reads `$persisted->html_template` (asserts null), posts it as a settings key (refused as `unknown_setting_keys`), and passes it to `create()`/`update()` (refused as `unknown_attribute`) | No writes | None — all 18 tests still pass unchanged (the assertions are on refusals and on a `null` read, which removing mass assignment cannot break). No assertion change was needed, so this file was **not** edited. |
+| `tests/Feature/Courses/CourseAcademicDocumentGenerationTest.php:417` — `CourseCertificateTemplate::query()->create([... 'html_template' => '<p>INYECTADO-POR-HTML-TEMPLATE</p>' ...])` | **Yes — a mass-assignment write** | The marker is now silently discarded, so the row has `html_template = NULL`. The test still passes (it asserts only that neither the marker nor the row's `settings_json` title is rendered and that no template id is recorded, all of which still hold via the off-allowlist `blade_view`), but its `html_template` half becomes vacuous. Reported below as a residual gap; that file is outside this unit's allowed edit surfaces, so it was not touched. |
+
+Also checked: no service, controller, view, job, listener, seeder or factory anywhere in `app/` writes the attribute; the only writer left is a direct database write/restore or `forceFill()`, which the service does not use for it. The change was made **after** the failing test that proves the risk (`test_the_raw_html_column_cannot_be_mass_assigned`), which fails on `HEAD` with `Failed asserting that '<script>alert(1)</script>' is null.` and passes with the one-line fix.
+
+### TDD Cycle Evidence (strict TDD active)
+
+Runner for every row: `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test …` (`php` is not on PATH).
+
+| Requirement | Test(s) | Level | RED (real output) | GREEN | TRIANGULATE / REFACTOR |
+|---|---|---|---|---|---|
+| `html_template` cannot be mass assigned (the declared risk) | `test_the_raw_html_column_cannot_be_mass_assigned` | Feature / model + DB, **route-free** | `failed: 18 tests, 0 passed, 5 assertions, 2 failed, 16 errors`; this test: `The raw HTML column must not be reachable through mass assignment. Failed asserting that '<script>alert(1)</script>' is null.` | After the one-line `$fillable` fix: passes | `fill()` + `save()` asserted in the same test beside `create()` |
+| Reachability by clicking | `test_the_surface_is_reachable_by_clicking_from_the_activity_list` | Feature / HTTP render, **real behavioural assertion at RED** | Same run, second real failure: the activity-list HTML does not contain `data-testid="course-talks-template-list-link"` | After the access point and the routes: passes | The round trip is asserted (link opens, list links back, creation form opens) |
+| List / create / edit / activate / deactivate | `test_the_list_…`, `test_an_authorized_user_can_create_…`, `test_an_authorized_user_can_edit_…`, `test_clearing_every_setting_field_…`, `test_an_authorized_user_can_activate_and_deactivate_…` | Feature / HTTP | Same run: `Route [course-talks.templates.index] not defined.` (route-missing, explicitly **not** counted as behavioural evidence) | `passed: 18 tests / 157 assertions` | Version derivation through the HTTP verb, "clearing everything stores no configuration", activation not being a revision and not deleting a row |
+| One active template per scope through the activate action | `test_activating_a_second_template_of_the_same_scope_leaves_exactly_one_active` | Feature / HTTP + DB | route-missing at RED | passes | Another scope keeps its own active template; resolution follows the activated row |
+| No access control and 403 without the permission | `test_a_user_without_the_templates_permission_…`, `test_a_user_without_any_permission_…`, `test_the_surface_is_gated_by_exactly_the_templates_ability` | Feature / HTTP | route-missing at RED | passes | 403 on all seven routes for two profiles, link absence, and the positive "exactly this ability" case |
+| Invalid `type_scope`, unknown settings key, third signature | `test_an_invalid_type_scope_…`, `test_an_unknown_settings_key_…`, `test_more_than_two_signatures_…` | Feature / HTTP | route-missing at RED | passes | Field attachment (`is-invalid`) asserted; `test_a_domain_refusal_on_update_leaves_the_stored_template_untouched` and `test_a_malformed_settings_payload_is_refused_as_a_shape_error_not_a_server_error` add the update verb and the shape-level refusal |
+| `blade_view` / `html_template` cannot be written | `test_a_payload_carrying_html_template_or_blade_view_cannot_write_either`, `test_the_forms_never_offer_the_raw_html_or_the_blade_view_selector` | Feature / HTTP + view | route-missing at RED | passes | Both verbs; both forms; the list too |
+
+**Two intermediate GREEN runs caught two real implementation defects** (kept as evidence that the boundary tests are behavioural, not decorative):
+
+1. `failed: 18 tests, 13 passed, 161 assertions, 4 failed, 1 error` — an unknown settings key was **accepted**. Root cause: Laravel excludes the value of an `array` key from `validated()` as soon as that key has nested rules (`Validator::$excludeUnvalidatedArrayKeys`), so `validated('settings_json')` returned only the declared keys and silently dropped the unknown one; the payload now reads the (pruned) request input, so the domain receives the map and refuses it. The same run exposed the reverse defect: `validated()` fabricated `null` entries for optional keys the form never sent, turning an empty configuration into a domain refusal.
+2. `failed: 18 tests, 17 passed, 154 assertions, 1 error` — clearing every settings field was refused. Root cause: the blank-entry pruner handled a flat map but not a **list of signature rows**, so two blank slots reached the domain as two signatures without a name; the pruner is now recursive and re-indexes pruned lists (`array_values`) so a legitimate configuration is not refused by the domain's own "a list of signature maps" rule. `test_clearing_every_setting_field_stores_no_configuration_instead_of_empty_text` pins the fix.
+
+**REFACTOR:** `pint` (fix mode) was run on the four new PHP files; `pint --test` on them is clean (the repository's existing files are pint-clean too, so this is the project's style, not a new one). The new test file originally carried CRLF endings from a scripted rewrite; it was normalised to LF to match `.gitattributes` (`* text=auto eol=lf`). No production behaviour changed in the refactor, and the full verification order below was re-run afterwards.
+
+### Commands and real results (sequential, in the brief's order)
+
+Pre-edit baseline: `--filter=CourseCertificateTemplateTest` → `{"result":"passed","tests":18,"passed":18,"assertions":178}`.
+
+RED (before any production edit, after the tests were written): `--filter=CourseCertificateTemplateHttpTest` → `{"result":"failed","tests":18,"passed":0,"assertions":5,"failed":2,"errors":16}` (the two real behavioural failures above; the 16 errors are route-missing).
+
+GREEN (`artisan test --filter=CourseCertificateTemplateHttpTest`) → `{"result":"passed","tests":18,"passed":18,"assertions":157}`.
+
+1. `--filter=CourseCertificateTemplateHttpTest` → `passed: 18 tests / 157 assertions`.
+2. `--filter=CourseCertificateTemplateTest` (the 6.t1 domain suite) → `passed: 18 tests / 178 assertions`.
+3. `--filter=CourseAcademicDocumentGenerationTest` → `passed: 16 tests / 101 assertions`.
+4. `--filter=Course` (final regression) → `passed: 386 tests / 2,958 assertions`. Baseline **368 / 2,801** → **new totals 386 tests / 2,958 assertions**, i.e. exactly this unit's 18 tests / 157 assertions (368 + 18 = 386; 2,801 + 157 = 2,958). The whole order was executed twice — once on the implementation and once after the pint/line-ending refactor — with identical results.
+
+`artisan route:list --name=course-talks.templates` → the seven routes with the mandated names and verbs, all inside the authenticated group, with `templates` and `templates/create` registered before the `{certificateTemplate}` binding.
+
+### Files changed (exact line counts)
+
+| File | Lines | New/Modified |
+|---|---|---|
+| `app/Http/Controllers/CourseTalks/CourseCertificateTemplateController.php` | 207 | new |
+| `app/Http/Requests/CourseTalks/StoreCourseCertificateTemplateRequest.php` | 165 | new |
+| `app/Http/Requests/CourseTalks/UpdateCourseCertificateTemplateRequest.php` | 16 | new |
+| `resources/views/course-talks/templates/index.blade.php` | 124 | new |
+| `resources/views/course-talks/templates/_form.blade.php` | 142 | new |
+| `resources/views/course-talks/templates/create.blade.php` | 18 | new |
+| `resources/views/course-talks/templates/edit.blade.php` | 44 | new |
+| `tests/Feature/Courses/CourseCertificateTemplateHttpTest.php` | 568 | new |
+| `app/Models/Courses/CourseCertificateTemplate.php` | **+1 / -1** | `html_template` out of `$fillable` |
+| `resources/views/course-talks/activities/index.blade.php` | **+8 / -0** | access point only |
+| `routes/web.php` | **+19 / -0** | the seven routes + the controller import |
+| `openspec/changes/course-talks-management/tasks.md` | **+3 / -0** | bookkeeping: the `6.t2` row, its parent review row |
+| `openspec/changes/course-talks-management/apply-progress.md` | this section | bookkeeping |
+
+Nothing outside the allowed surfaces was touched: the domain service, the generation service, QR/storage/delivery, the commercial channel, the academic/commercial document surfaces, the policy, permissions, enums, seeders and migrations are byte-for-byte unchanged (`git status --short` lists exactly the files above).
+
+### Changed-line count / review workload
+
+**1,312 insertions / 1 deletion** in implementation surfaces (1,284 new-file lines + 28 modified insertions − 1 deletion), plus 3 bookkeeping lines in `tasks.md` and this section. Composition: **tests 568 (43%)**, **views 328 (25%)**, **controller + requests 388 (30%)**, **wiring 28**. Of the 1,222 lines of the six largest files, 216 are docblocks/comments and 168 are blank (31%), because this repository's reviews ask the decisions to be recorded next to the code (why `validated()` is not used for the settings map, why the pruner re-indexes, why the link and the routes share one ability, why the partial uses plain HTML inputs).
+
+This is **over the 400-line aim by roughly 3.3x**, reported as it is. The mandated surface alone (seven routes, four Blade views plus a shared partial, two FormRequests, a controller, and the six mandated scenario groups) does not fit in 400 lines: the test suite covering the boundary the brief enumerates (list/create/edit/activate/deactivate, the 403-and-no-leak matrix for two profiles, three separate refusals each with a visible message and no row, the tamper payload on both verbs, and exclusivity) is 568 lines before any production line is written, and the sibling units of this slice are the same order of magnitude (`CourseCommercialDocumentHttpTest`, 22 tests, 895 lines for 6.f-1 + 6.f-1b). Trimming to the budget would mean deleting mandated scenarios, so nothing was thinned. The slice-level forecast already says `400-line budget risk: High` with chained delivery approved and `stacked-to-main` as the chain strategy; this unit is one reviewable unit of that chain, and the split is clean (tests, views, controller+requests, and the 28 wiring lines are independent read-throughs).
+
+### Deviations (every one)
+
+1. **One FormRequest class pair instead of two independent ones** — `UpdateCourseCertificateTemplateRequest extends StoreCourseCertificateTemplateRequest` (the brief's allowed single-shared-request branch, justified in the class docblock). Both allowed paths are created; the update verb simply does not restate the contract.
+2. **The settings map is read from the request input, not from `validated()`** — required to satisfy the brief's "an unknown settings key is refused with a visible error" scenario: `excludeUnvalidatedArrayKeys` makes Laravel drop the value of an `array` key that has nested rules, which would silently swallow the unknown key (see the intermediate GREEN run above). The declared shape rules still run and still produce shape errors; the domain validates every key and every value it receives. Nothing unvalidated can reach the model.
+3. **Blank optional settings entries are pruned before the payload is built** (recursively, with list re-indexing). Without it, "I did not configure a company" would be answered with "the company must be a non-empty string" and every save of a template that does not override every key would be refused. Only blank entries are dropped — never a filled key, and never an unknown key.
+4. **Consequence of 3, stated plainly:** a payload that explicitly submits `settings_json[signatures] = []` is normalised to "no signatures configured" instead of reaching the domain's `invalid_settings` refusal for an empty signatures list. The domain rule is unchanged and still enforced for direct service callers (the 6.t1 domain test covers it); through the form, an empty signature list is indistinguishable from "both optional slots left empty", which must not be an error. Same for a blank third signature row: it is dropped rather than counted, so a third *filled* signature is what triggers `too_many_signatures`.
+5. **The list does not display `blade_view`.** The brief requires the form not to expose it; the list does not show it either, so the allowlist stays out of the administrator's mental model entirely. The list still shows everything the brief requires (name, type scope, version, active state, the settings it carries).
+6. **No `is_active` field in the form.** The brief said to prefer the dedicated activate/deactivate actions "where that is cleaner"; creation therefore always yields an active template (the domain's own default) and state is changed only through the two actions, which is also what keeps the one-active-per-scope sweep in exactly one place. A user who wants an inactive template creates it and deactivates it.
+7. **The error key is translated from the refusal's `field()`** (`signatures` → `settings_json.signatures`, the other owned fields to the field the form actually renders, and a fallback to a form-level key) so the message lands next to the input to fix. The form also renders a summary alert with every error, so a refusal whose field has no input (only reachable from a direct service call) is still visible.
+8. **`UpdateCourseCertificateTemplateRequest` is an empty subclass** after pint's `single_line_empty_body` fixer, which is what the repository's formatter wants for an empty body.
+9. **The new test file was normalised from CRLF to LF** after the final edit (`.gitattributes` is `* text=auto eol=lf`), and `pint` was applied to the four new PHP files. No behaviour changed; the whole verification order was re-run afterwards.
+10. **`openspec/config.yaml` was not touched** (stale for the unrelated `b12-ui` change, as the brief states).
+
+### Risks and gaps for the parent
+
+- **The generation suite's raw-HTML fixture is now a no-op** (`tests/Feature/Courses/CourseAcademicDocumentGenerationTest.php:417`): it writes `html_template` through `CourseCertificateTemplate::query()->create()`, which after this unit no longer mass assigns the column. The test still passes and still proves the off-allowlist `blade_view` fails closed, but it no longer proves "a column-resident raw HTML body is never rendered". The fix is one line in that fixture (`forceFill(['html_template' => …])->save()`, or a direct `DB::table()` update); that file is outside this unit's allowed edit surfaces, so it is reported instead of changed. My own `test_the_raw_html_column_cannot_be_mass_assigned` is the proof of the new behaviour.
+- **The column itself still exists** (`longText nullable`). This unit only removes the mass-assignment path; dropping the column would need a destructive migration and is not in scope.
+- **`resolveFor()` still returns the model, so `html_template` remains an attribute of the returned object** (6.t1's note stands). No surface in this unit reads it.
+- **One-active-per-scope remains domain-enforced, not database-enforced** (no unique index). The activate action inherits whatever concurrency behaviour the service has; it adds no new race.
+- **The pruning normalisation (Deviations 3 and 4) is the only place where this surface decides what "not configured" means.** It is asserted (`test_clearing_every_setting_field_stores_no_configuration_instead_of_empty_text`), but a reviewer should confirm the intended UX: an all-blank settings form clears the stored configuration and increments the version.
+- **Changed-line count is ~3.3x the 400-line aim** (1,312 insertions / 1 deletion), detailed above.
+
+### UX / accessibility static review (advisory — `ux-accessibility-review` skill)
+
+Static evidence only; **no browser, screenshot, keyboard, screen-reader or contrast check was performed**, so no WCAG compliance is claimed.
+
+- **Addressed in the implementation:** every settings input has a `<label for>` (plain HTML for the nested inputs, `x-label` for the rest) and the error components are bound with `:name="'settings_json.title'"` because a Blade component attribute does not interpolate `{{ }}` — the trap that lost a validation message in 6.b; the inline activate/deactivate controls are POST forms each with their own `@csrf` token; the access-point link has text, not only an icon; the table uses `<th scope="col">` with the accessible `x-table` wrapper; errors render as a `role="alert"` block plus field-level `invalid-feedback d-block`; the active/inactive state is a word ("Activa"/"Inactiva") in addition to a colour, so it does not depend on colour alone.
+- **Advisory, not verified:** the signature slot numbering ("1.", "2.") is plain text; "Desactivar" is not a delete (no data is lost) and carries no confirmation, matching the rest of the module.
+- **Unperformed checks:** focus order and keyboard traversal of the two forms, contrast of the badge/alert classes, and the rendering of the forms on a narrow viewport. Priorities above are local/advisory, not formal delivery gates.
+
+### Human acceptance (advisory — `acceptance-checklist` skill; **all scenarios NOT RUN**)
+
+Preconditions: an active user with `course-talks.view` + `course-talks.templates.manage`. Automated evidence is the 18-test HTTP suite above; the rows below are human scenarios and remain **pending** until a human records results.
+
+| Scenario | Expected visible result | Failure evidence to capture |
+|---|---|---|
+| Activity list → "Plantillas de certificados" | The list opens (empty state on a fresh database) | screenshot / 403 / 500 |
+| Create with a title, a company and one signature | Redirect to the list with a success toast; the row shows v1, Activa and the configuration | screenshot / validation message |
+| Edit the title | The list shows a new version (v2) with the new title | screenshot |
+| Activate a second template of the same scope | Exactly one row of that scope reads Activa | screenshot |
+| Deactivate it | No row of that scope reads Activa; the row survives | screenshot |
+| Leave a field empty and save | No "must be non-empty" refusal; only the filled values are stored | screenshot |
+| Tampered third signature / unknown settings key | A Spanish message, no row written | screenshot + request |
+| Generate a certificate with the active template | The PDF shows the configured title/company/signatures | PDF + screenshot |
+
+### Task persistence (what was marked, exactly)
+
+- **Marked:** the new implementation-owned row `6.t2 Certificate template management UI …` → **`[x]`**. The new parent-owned row `Review unit 6.t2: …` is **`[ ]`**, because inspection, refutation and receipt are parent-owned. Both carry terminal `<!-- sdd-owner: implementation -->` / `<!-- sdd-owner: parent -->` markers.
+- **Not marked:** every aggregate row (`6.e`, `6.f`, the Slice 6 `RED`/`GREEN`/`TRIANGULATE`/`REFACTOR`/verification/review rows) stays exactly as it was. `6.f` stays `[ ]` because `discard` (Slice 7) is still undelivered. No pre-existing line in `tasks.md` changed: the diff is **+3 / -0** (one blank line, two new rows).
+- The persisted tasks artifact was re-read after the unit: line 129 is `- [x] 6.t2 …` and line 130 is `- [ ] Review unit 6.t2: …`.
+- No commit, push, branch or worktree. `git status --short` shows the modified files (the model, the activity list, `routes/web.php`, `tasks.md`, this file) and the new untracked files, with **nothing staged**.
+- Hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started; no receipt was created or approved; no pre-commit, pre-push, pre-PR or release gate was validated.

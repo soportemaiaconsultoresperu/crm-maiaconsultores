@@ -9,6 +9,14 @@
             @can('create', App\Models\Courses\CourseActivity::class)
                 <a class="btn btn-sm btn-primary" data-testid="course-talks-activity-create-link" href="{{ route('course-talks.activities.create') }}">Nueva actividad</a>
             @endcan
+            {{-- Contextual access point to the certificate template surface, gated
+                 by exactly the ability its routes ask for
+                 (CourseCertificateTemplatePolicy::manage), so the link is only
+                 rendered for a user who can open it: no rendered control can
+                 answer 403. --}}
+            @can('manage', App\Models\Courses\CourseCertificateTemplate::class)
+                <a class="btn btn-sm btn-outline-primary" data-testid="course-talks-template-list-link" href="{{ route('course-talks.templates.index') }}">Plantillas de certificados</a>
+            @endcan
         @endslot
         @slot('headers')
             <tr><th>Código</th><th>Tipo</th><th>Actividad</th><th>Horas</th><th>Ediciones</th><th></th></tr>

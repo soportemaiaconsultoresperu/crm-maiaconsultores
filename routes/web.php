@@ -11,6 +11,7 @@ use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
 use App\Http\Controllers\CourseTalks\CourseActivityController;
 use App\Http\Controllers\CourseTalks\CourseActivityReadController;
 use App\Http\Controllers\CourseTalks\CourseAttendanceController;
+use App\Http\Controllers\CourseTalks\CourseCertificateTemplateController;
 use App\Http\Controllers\CourseTalks\CourseCommercialDocumentController;
 use App\Http\Controllers\CourseTalks\CourseCommercialDocumentDeliveryController;
 use App\Http\Controllers\CourseTalks\CourseEditionController;
@@ -160,6 +161,24 @@ Route::middleware(['auth', 'active'])
             Route::post('commercial-documents/{commercialDocument}/email', 'email')->name('commercial-documents.email');
             Route::post('commercial-documents/{commercialDocument}/whatsapp', 'whatsapp')->name('commercial-documents.whatsapp');
             Route::post('commercial-documents/{commercialDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('commercial-documents.whatsapp.confirm');
+        });
+
+        // Slice 6.t2 — certificate template management (list, create, edit,
+        // activate and deactivate). Every route is authorized by
+        // CourseCertificateTemplatePolicy::manage (`course-talks.templates.manage`),
+        // the same ability the rendered controls in the activity list and the
+        // templates list ask for, so a control that is offered always opens.
+        // The static `templates` and `templates/create` segments are registered
+        // before the `templates/{certificateTemplate}` binding so neither can be
+        // swallowed by it.
+        Route::controller(CourseCertificateTemplateController::class)->group(function (): void {
+            Route::get('templates', 'index')->name('templates.index');
+            Route::get('templates/create', 'create')->name('templates.create');
+            Route::post('templates', 'store')->name('templates.store');
+            Route::get('templates/{certificateTemplate}/edit', 'edit')->name('templates.edit');
+            Route::put('templates/{certificateTemplate}', 'update')->name('templates.update');
+            Route::post('templates/{certificateTemplate}/activate', 'activate')->name('templates.activate');
+            Route::post('templates/{certificateTemplate}/deactivate', 'deactivate')->name('templates.deactivate');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {

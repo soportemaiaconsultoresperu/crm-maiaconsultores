@@ -408,7 +408,12 @@ class CourseAcademicDocumentGenerationTest extends TestCase
     public function test_a_row_with_an_off_allowlist_blade_view_or_raw_html_is_never_rendered(): void
     {
         Storage::fake('docs');
-        CourseCertificateTemplate::query()->create([
+        $template = new CourseCertificateTemplate();
+        // forceFill on purpose: this test simulates a row written OUTSIDE the
+        // domain (restore, direct database write, a future surface). Since unit
+        // 6.t2 removed `html_template` from $fillable, a plain create() would
+        // silently drop the value and the assertion below would pass vacuously.
+        $template->forceFill([
             'name' => 'Plantilla manipulada',
             'type_scope' => AcademicDocumentType::ApprovalCertificate->value,
             'version' => 1,
@@ -416,7 +421,12 @@ class CourseAcademicDocumentGenerationTest extends TestCase
             'blade_view' => 'admin.users.index',
             'html_template' => '<p>INYECTADO-POR-HTML-TEMPLATE</p>',
             'settings_json' => ['title' => 'Título inyectado'],
-        ]);
+        ])->save();
+        $this->assertSame(
+            '<p>INYECTADO-POR-HTML-TEMPLATE</p>',
+            $template->fresh()->html_template,
+            'The manipulated row must really carry the raw HTML, otherwise this test proves nothing.',
+        );
         $pdfCalls = [];
         [$enrollment, $actor] = $this->eligibleEnrollment(FinalResult::Approved);
 
