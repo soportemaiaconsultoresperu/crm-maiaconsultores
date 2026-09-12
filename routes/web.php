@@ -10,6 +10,7 @@ use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
 use App\Http\Controllers\CourseTalks\CourseActivityController;
 use App\Http\Controllers\CourseTalks\CourseActivityReadController;
+use App\Http\Controllers\CourseTalks\CourseAlertController;
 use App\Http\Controllers\CourseTalks\CourseAttendanceController;
 use App\Http\Controllers\CourseTalks\CourseCertificateTemplateController;
 use App\Http\Controllers\CourseTalks\CourseCommercialDocumentController;
@@ -179,6 +180,26 @@ Route::middleware(['auth', 'active'])
             Route::put('templates/{certificateTemplate}', 'update')->name('templates.update');
             Route::post('templates/{certificateTemplate}/activate', 'activate')->name('templates.activate');
             Route::post('templates/{certificateTemplate}/deactivate', 'deactivate')->name('templates.deactivate');
+        });
+
+        // Slice 7.b — the delivery alert screen: the outstanding academic and
+        // commercial follow-ups of the module in one filterable list, plus the
+        // discard action. The list is gated by `CourseActivityPolicy::viewAny`
+        // (`course-talks.view`), the same ability the module's other read surfaces
+        // and the sidebar entry ask for, so a rendered link always opens; discard is
+        // gated by `send` on the concrete document, the same ability
+        // `CourseAlertService::discard()` re-asks for.
+        // Discard needs TWO routes: Laravel binds one model class per route
+        // parameter, so `alerts/{document}/discard` could not resolve an academic
+        // AND a commercial document without resolving the id by hand (losing both
+        // route-model binding and its 404). Each route binds its own model and both
+        // call the same domain method.
+        Route::controller(CourseAlertController::class)->group(function (): void {
+            Route::get('alerts', 'index')->name('alerts.index');
+            Route::post('alerts/academic-documents/{academicDocument}/discard', 'discardAcademic')
+                ->name('alerts.academic-discard');
+            Route::post('alerts/commercial-documents/{commercialDocument}/discard', 'discardCommercial')
+                ->name('alerts.commercial-discard');
         });
 
         Route::controller(CourseActivityReadController::class)->group(function (): void {

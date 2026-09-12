@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Activity;
 use App\Models\ActivityType;
+use App\Models\Courses\CourseActivity;
 use App\Models\Customer;
 use App\Models\Lead;
 use App\Models\LeadSource;
@@ -11,8 +12,10 @@ use App\Models\LeadStatus;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
 use App\Models\User;
+use App\Services\Courses\CourseAlertService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Dashboard aggregation service (RF-DASH-001..003).
@@ -26,7 +29,10 @@ use Illuminate\Support\Facades\DB;
  */
 class DashboardService
 {
-    public function __construct(private readonly DataScopeService $scope) {}
+    public function __construct(
+        private readonly DataScopeService $scope,
+        private readonly CourseAlertService $courseAlerts,
+    ) {}
 
     /**
      * Build the dashboard payload for the given viewer.
@@ -50,6 +56,35 @@ class DashboardService
             'rendimiento_por_vendedor' => $this->rendimientoPorVendedor($viewer),
             'actividad_por_dia' => $this->actividadPorDia($viewer),
             'prospectos_por_origen' => $this->prospectosPorOrigen($viewer),
+            'course_delivery_alerts' => $this->courseDeliveryAlerts($viewer),
+        ];
+    }
+
+    /**
+     * Delivery alert counters of the Cursos y charlas module (Slice 7 unit 7.b).
+     *
+     * The counters live here with the rest of the dashboard aggregates, so the
+     * controller stays a resolver and the view never decides whether the viewer
+     * may see the module. The numbers themselves are the alert domain's own
+     * counts — this service must not re-derive which document is outstanding or
+     * overdue.
+     *
+     * A viewer who cannot open the module gets `null`, and the view renders no
+     * card, no count and no link for them: the section is not merely hidden, its
+     * numbers are never computed for that viewer. The gate is the same ability the
+     * module's read routes ask for, so the link the card offers always opens.
+     *
+     * @return array{pending: int, overdue: int}|null
+     */
+    private function courseDeliveryAlerts(User $viewer): ?array
+    {
+        if (! Gate::forUser($viewer)->allows('viewAny', CourseActivity::class)) {
+            return null;
+        }
+
+        return [
+            'pending' => $this->courseAlerts->pendingCount(),
+            'overdue' => $this->courseAlerts->overdueCount(),
         ];
     }
 

@@ -3664,3 +3664,145 @@ Untracked new files: 202 + 42 + 542 = 786 lines.
 - **Not marked:** every aggregate Slice 7 row (the two RED rows, the five GREEN rows, TRIANGULATE, REFACTOR, the verification row, the parent review row) stays exactly as it was, and no aggregate row anywhere (including `6.e` / `6.f`) was touched. The persisted artifact was re-read after the edit: the `7.a` row reads `[x]`, the aggregate rows read `[ ]`, and a marker audit over the whole file shows 91 `sdd-owner: implementation` + 14 `sdd-owner: parent` terminal markers with no malformed form.
 - No commit, push, branch or worktree. `git status --short` shows one modified tracked file (`app/Models/Courses/CourseCommercialDocument.php`), three new untracked files, and the two bookkeeping files (`tasks.md`, this file) — **nothing staged**.
 - Hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit, pre-push, pre-PR or release gate was validated.
+
+## Slice 7 unit 7.b — delivery alert dashboards and the filterable alert list
+
+- Authorized work unit: `slice-7b-delivery-alert-dashboards`, the bounded successor of 7.a on the `feat/course-talks-slice-6-ui` branch (stacked-to-main, HEAD `c72ac0c feat(courses): add the delivery alert domain`). No commit, no push, no branch, no worktree. Strict TDD active; runner `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH).
+- Structured status consumed: the parent prompt supplied the structured SDD status (artifact store `openspec`, repo-local workspace `C:\laragon\www\crm-maia-consultores`, chained delivery `stacked-to-main` already approved, an allowed-edit-root list covering every file changed below, strict TDD active with the absolute PHP runner). No native `sdd-status` JSON was included in this prompt, so readiness was resolved from the bounded work unit plus direct reads of `tasks.md`, the 7.a domain (`CourseAlertService`), the dashboard payload/views/tests, the module's read surfaces, the delivery service predicates and the document policies. Warning (unchanged from earlier entries): `openspec/config.yaml` still documents the unrelated `b12-ui` change and its bare `php artisan test` command; the absolute PHP executable was used instead and that file was not rewritten. No unsafe `actionContext` was present and no edited file falls outside the allowed surfaces.
+- Review Workload Gate: `tasks.md` forecasts `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent resolved the delivery path for this stacked slice, so no `Decision needed` blocker remained.
+- Workload / PR boundary: the two dashboards (main-dashboard card + the module alert screen), the eight filters, the undeliverable state and the 7.a discard action. Out of scope and untouched: audit regression (7.c), rollout controls (7.d), the academic/commercial deduplication, the `mailOperation` stub, certificate template settings, pagination/CSV export, and every documented external failure in `suite-baseline.md`.
+
+### A — the main dashboard counters: decision and justification
+
+**Decision: the section belongs in `DashboardService`, not in the controller.**
+
+- The repo's established pattern is that `DashboardService::forUser()` owns the aggregated payload (data scope per ADR-006, multimoneda buckets per ADR-004) and `DashboardController` is a two-line resolver that hands the payload to Blade. The service's own docblock states the payload is a plain associative array so the UI can consume it. Putting the counts in the controller would have created a second, competing owner of dashboard aggregates and left the controller deciding module visibility.
+- The visibility decision is a *scope* decision, which is already this service's job: `Gate::forUser($viewer)->allows('viewAny', CourseActivity::class)` is the exact ability (`course-talks.view`) the module's read routes, the sidebar entry and the new alert route ask for, so the card's link always opens (no rendered control can answer 403).
+- A viewer who cannot open the module gets `null` from `courseDeliveryAlerts()`, and the Blade card is wrapped in `@if (($course_delivery_alerts ?? null) !== null)`: the numbers are never computed for that viewer and neither the card, nor the counts, nor the link is rendered. The negative test asserts the absence of the card title, of the `kpi-course-alerts-pending` anchor and of the `/course-talks/alerts` path while the dashboard itself still renders.
+- The counts are `CourseAlertService::pendingCount()` / `overdueCount()` — the domain's own numbers. Nothing on the dashboard re-derives outstandingness or the due rule, and the card exposes only two integers plus a link: no participant, payer, code, document or file data.
+
+### B — the module alert screen
+
+- `GET course-talks/alerts` → `alerts.index`, inside the existing authenticated (`auth`+`active`) `course-talks.` group, authorized by `Gate::authorize('viewAny', CourseActivity::class)` (`CourseActivityPolicy::viewAny` → `course-talks.view`), the same ability the module's read surfaces use.
+- One table lists BOTH channels — each row carries a `Documento académico` / `Comprobante` badge so the kind is unambiguous — with per row: the document/comprobante type and its identifier (academic `code`, commercial `series-number`), the activity and edition (`Actividad · ED-CODE`), the participant (or the group payer name for a group comprobante, the field the commercial screens already show) and the responsible user, the delivery status badge, the due/overdue state (`Vencida` / `En plazo` plus the anchor date), the undeliverable/deliverable verdict, the channel of the last attempt with the delivery-history summary (attempt count, last change, status, recorded error) and the discard form.
+- The counts header shows the domain's aggregate `pendingCount()`/`overdueCount()` (labelled "Entregas pendientes"/"Entregas vencidas") plus a separate "Resultado del filtro" row count — the module workload stays visible while the list is filtered, and the equality assertions against `CourseAlertService` are exact.
+- Only what the module already shows is exposed: no private storage path (the `docs` path is asserted absent), no raw QR token, no token hash (asserted absent using the stored `qr_token_hash`), no signed URL, no payer document number, and every value is escaped with `{{ }}`; there is no `{!! !!}` anywhere in the new view.
+- Because the alert domain deliberately does NOT check the private file (7.a's declared risk), an outstanding-but-undeliverable document is still listed and is still discardable: discarding is precisely how an operator stops chasing a document that cannot be sent. The test asserts the discard form is rendered for the undeliverable row.
+
+### C — the filters: decision and justification
+
+**Decision: filtering lives in `CourseAlertService` (extended with the filterable query only); the controller only normalizes input.**
+
+- `outstandingAcademicDocuments(array $filters = [])` and `outstandingCommercialDocuments(array $filters = [])` START FROM `pendingAcademicDocuments()` / `pendingCommercialDocuments()`, so a filter can only choose a subset of what the domain's rules already returned: it can never resurrect a follow-up closed by a send/discard, nor widen the outstanding set, nor change the overdue rule. This is the same reasoning 7.a used to keep the predicates in one place — a controller that built its own `where`s would have had to know the outstanding predicate.
+- The service treats every value as untrusted: `filterValue()` accepts only scalars, so an array posted as `?channel[]=mail` never reaches a query (it is ignored rather than narrowing).
+- The commercial query ORs two relation paths for edition/activity/responsible (`enrollment.*` and `group.*`), so a group comprobante is not lost by an edition/activity/responsible filter; the channel filter uses a correlated subquery on `outbound_deliveries` (highest id = newest row) so the LAST attempt decides and a document with no attempt matches no channel; the date range compares the SAME anchor expression the overdue rule uses (`COALESCE(issue_date, DATE(created_at))`, now a named private constant reused by `overdue()` with byte-identical SQL), so a range and the due state can never disagree.
+- The controller (`CourseAlertController::filters()`) whitelists nine keys, drops non-scalars (reporting them), casts digit-only id values to int, and reports any value outside the documented vocabulary. An unknown value is still passed through, so it narrows the list to nothing — an observable result — while the screen also shows a Spanish warning listing the offending filters. Net effect: an invalid filter value cannot 500, and it is never silently treated as if no filter had been sent.
+- The entity options offered by the form come from the whole outstanding set (not from the narrowed result), so a filter can always be changed or cleared; the empty option always clears it.
+
+### The discard route: how it resolves both document kinds
+
+Two routes, not one:
+
+- `POST course-talks/alerts/academic-documents/{academicDocument}/discard` → `alerts.academic-discard`
+- `POST course-talks/alerts/commercial-documents/{commercialDocument}/discard` → `alerts.commercial-discard`
+
+Laravel binds exactly one model class per route parameter, so a single `alerts/{document}/discard` parameter could only be resolved by hand from a kind string, losing route-model binding and its 404; that also needs a `whereIn` constraint that can drift from the table. Each route therefore binds its own model class implicitly and both delegate to the same private `discard()` helper, which authorizes `send` on the concrete instance (the same ability 7.a enforces inside the domain: `CourseAcademicDocumentPolicy::send` / `CourseCommercialDocumentPolicy::send`, both `course-talks.documents.send`) and calls the single `CourseAlertService::discard()` union-typed method. A missing document yields the framework's 404, not a 500.
+
+### The undeliverable state: how it is computed and kept out of Blade
+
+- The controller builds each row and stores `deliverable` by calling the delivery service's public predicates — `hasDeliverableAcademicDocument()` / `hasStreamableCommercialDocument()` — through the same read-only face the other listing surfaces use (`new CourseDocumentDeliveryService(static fn (): bool => true)`, only its side-effect-free predicates are called). The rule stays single-sourced in the delivery service; it is never re-implemented.
+- No `Storage` call, no model query and no `exists()` in Blade: the view receives a boolean per row and renders `Archivo disponible: la entrega puede intentarse.` (`data-testid="course-talks-alert-deliverable-…"`) or `No entregable: falta el archivo privado. Restáurelo para poder enviarlo.` (`data-testid="course-talks-alert-undeliverable-…"`), with text (not only color) carrying the distinction.
+- The test proves the distinction is computed from real filesystem state: one document with a file present is `deliverable`, one with no `document_id` and one whose file was deleted after being registered are both `undeliverable`, and all three remain listed (they are outstanding per the domain).
+
+### Strict TDD evidence (RED → GREEN → TRIANGULATE → REFACTOR)
+
+Safety net before touching anything: the 7.a suite `--filter=CourseDeliveryAlertsTest` 15 / 134 passing and the module baseline `--filter=Course` 401 / 3,093 passing (the number stated in the brief, reproduced). No pre-existing failure was fixed, skipped or commented out.
+
+| Round | Scope | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|---|
+| RED-0 | every rule of unit 7.b | `tests/Feature/Courses/CourseDeliveryAlertsDashboardTest.php` | Feature / HTTP | ✅ 15/134 + 401/3,093 | ✅ 18 tests, **17 real failures, 0 errors, 0 fatals**: `Expected response status code [200] but received 404` on every module-screen test (the route did not exist yet), `Session is missing expected key [errors]` on the discard guard, `Expected response status code [201, 301, 302, …] but received 404` on the guest redirect, and `Failed asserting that -1 is identical to 2` on the dashboard counter (the helper returns -1 for a missing anchor, so a missing counter can never equal a real zero). URLs are written literally instead of through `route()` precisely so a missing route fails as an HTTP assertion instead of erroring before any rule is exercised. | ✅ 18 tests / 169 assertions passing after the service extension, controller, routes, views and dashboard payload | ✅ 22 tests / 199 assertions (4 triangulation tests added, see below) | ✅ `ANCHOR_DAY` extracted so the date-range filter and the overdue rule share one expression; placeholder `assertNotNull` leftovers removed; full test re-run green |
+| GREEN fix | absolute vs relative link URL | same | Feature / HTTP | — | The only RED→GREEN failure of production code was my own assertion: it expected `href="/course-talks/alerts"` while `route()` renders an absolute URL. **The test was corrected, not the view** (the link was already correct); the assertion now checks the `data-testid="dashboard-course-alerts-link"` anchor plus the `/course-talks/alerts` path. | 18/18 green | — | — |
+| TRIANGULATE 1 | the filterable query obeys the outstanding predicate | same | Feature / DB | 18/169 | new test | green | A `sent` and a `discarded` follow-up cannot be returned even by a filter naming their own status; a `failed` one can; a non-scalar filter value is ignored; the screen shows exactly that set | — |
+| TRIANGULATE 2 | filters intersect | same | Feature / HTTP | — | new test | green | `activity_type=course` alone still allows two documents; `+ document_type=boleta` leaves exactly one | — |
+| TRIANGULATE 3 | the commercial discard route | same | Feature / HTTP | — | new test **failed first as a real fixture defect**: `SQLSTATE[HY000]: General error: 1 no such column: qr_token_hash … update "course_commercial_documents" set "document_id" = 1, "qr_token_hash" = …` — the shared private-file helper wrote the academic QR column on the commercial table | green after the helper branched per document class (test fix; no production change) | Proves the second route binds the comprobante, records the reason, removes it from both counts, and leaves `status = registered`, the amount and the attachment untouched (`hasStreamableCommercialDocument()` still true) | — |
+| TRIANGULATE 4 | a reason posted as an array | same | Feature / HTTP | — | new test | green | `reason[]=motivo` redirects with the domain's Spanish error instead of a 500 (the controller's `is_scalar` guard), and the follow-up stays pending | — |
+
+TDD cycle summary: 22 tests written in this unit, 22 passing, 199 assertions, Feature layer only. RED produced real behavioural failures (404/302/200, a missing session key, `-1` vs `2`) and **no** PHP fatal, parse error or missing-class error was ever counted as RED — which is why the HTTP tests use literal URLs. Two RED→GREEN failures were test-side defects (the relative-URL assumption and the QR column on the commercial fixture) and are reported rather than hidden. The final state contains no scaffold code and no TODO.
+
+### Existing dashboard assertions touched — none
+
+- `tests/Feature/DashboardServiceTest.php` and `tests/Feature/DashboardHttpTest.php` were **NOT edited**: the payload addition is additive (`course_delivery_alerts`), no existing test asserts the payload's key set or its exact size, and the card was appended as the LAST content row so the pre-existing `assertSeeInOrder(['Dashboard', 'Tendencia comercial', 'Próximas reuniones', 'Rendimiento por vendedor'])` and every `assertSee`/`assertDontSee`/`counterForKpi` anchor stay intact. Zero assertions were touched, so there is nothing to report as changed. Both suites run green (14 tests / 44 assertions for the pair).
+- The only non-behavioral edit in that area is one docblock in `app/Http/Controllers/DashboardController.php`: it claimed `forUser()` returns a "12-key payload", which was already stale (14 keys) and is now 15. It now says "the aggregated payload" with no count, so it cannot go stale again. No code line changed.
+
+### Commands and real results (sequential, in the brief's order)
+
+1. RED (pre-implementation): `--filter=CourseDeliveryAlertsDashboardTest` → `{"result":"failed","tests":18,"passed":1,"assertions":28,"failed":17}`. The one passing test is the negative dashboard guard (it cannot fail before the card exists; it must stay green afterwards, recorded here so it is not mistaken for evidence of the feature).
+2. GREEN: the same command → `{"result":"failed","tests":18,"passed":17,"assertions":167,"failed":1}` (the absolute-URL assertion), then after the test correction → `{"result":"passed","tests":18,"passed":18,"assertions":169}`.
+3. TRIANGULATE / REFACTOR and verification order 1: `--filter=CourseDeliveryAlertsDashboardTest` → `{"result":"passed","tests":22,"passed":22,"assertions":199,"duration_ms":3728}`.
+4. Verification order 2: `--filter=CourseDeliveryAlertsTest` → `{"result":"passed","tests":15,"passed":15,"assertions":134}` — the 7.a domain suite is unchanged.
+5. Verification order 3: `--filter=Dashboard` → `{"result":"passed","tests":40,"passed":40,"assertions":275}`. That filter also matches this unit's class (its name contains "Dashboard") and four unrelated tests whose method names contain "dashboard"; the two pre-existing dashboard suites measured alone (`tests/Feature/DashboardHttpTest.php tests/Feature/DashboardServiceTest.php`) → `{"result":"passed","tests":14,"passed":14,"assertions":44}`. Baseline for `--filter=Dashboard` before this unit: 18 tests / 76 assertions.
+6. Verification order 4: `--filter=Course` → `{"result":"passed","tests":423,"passed":423,"assertions":3292,"duration_ms":34607}` against the 401 / 3,093 baseline, i.e. exactly this unit's 22 new tests / 199 assertions.
+7. Adjacent consumers of the dashboard route, run after the payload/constructor change: `--filter='AuthTest|CourseTalksNavigationTest'` → `{"result":"passed","tests":30,"passed":30,"assertions":246}`; the `auth`+`active` middleware was verified on all three new routes through `artisan route:list --name=course-talks.alerts --json` (`web`, `Illuminate\Auth\Middleware\Authenticate`, `App\Http\Middleware\EnsureUserIsActive`).
+8. Hygiene: `php.exe -l` reported no syntax errors for all six PHP files touched; `git diff --check` clean; `git diff --cached --name-only` empty (nothing staged, no commit). No migration, reset, seeder or database operation beyond the in-memory SQLite test database ran.
+9. The full suite (`artisan test`) was deliberately NOT run: the documented 11 pre-existing failures belong to other in-flight changes (`suite-baseline.md`) and the brief's verification order stops at the module regression, which is green.
+
+### Files changed (exact line counts)
+
+| File | Status | Lines |
+|---|---|---|
+| `app/Services/Courses/CourseAlertService.php` | modified | +190 / −1 (two public filterable queries + five private filter helpers + the `ANCHOR_DAY` constant; no existing rule changed) |
+| `app/Http/Controllers/CourseTalks/CourseAlertController.php` | new | 523 |
+| `resources/views/course-talks/alerts/index.blade.php` | new | 285 |
+| `tests/Feature/Courses/CourseDeliveryAlertsDashboardTest.php` | new | 851 |
+| `app/Services/DashboardService.php` | modified | +36 / −1 (constructor injection of the alert service, the `course_delivery_alerts` payload key and the gated `courseDeliveryAlerts()` method) |
+| `resources/views/dashboard/index.blade.php` | modified | +42 / −0 (the card only, appended as the last content row) |
+| `resources/views/course-talks/activities/index.blade.php` | modified | +8 / −0 (the access-point link only) |
+| `routes/web.php` | modified | +21 / −0 (one `use` line + the three routes inside the existing group; the public certificate/commercial routes untouched) |
+| `app/Http/Controllers/DashboardController.php` | modified | +2 / −2 (one stale docblock sentence; no code change) |
+| `openspec/changes/course-talks-management/tasks.md` | bookkeeping | +2 / −0 |
+| `openspec/changes/course-talks-management/apply-progress.md` | bookkeeping | this section |
+
+### Changed-line count / review workload
+
+`git diff --numstat` for tracked files:
+
+```
+2    2    app/Http/Controllers/DashboardController.php
+190  1    app/Services/Courses/CourseAlertService.php
+36   1    app/Services/DashboardService.php
+8    0    resources/views/course-talks/activities/index.blade.php
+42   0    resources/views/dashboard/index.blade.php
+21   0    routes/web.php
+```
+
+Untracked new files: 523 + 285 + 851 = 1,659 lines.
+
+- **Production/application lines: 299 added + 523 + 285 = 1,107** (service, controller, view, dashboard payload/card, routes, one docblock) — this is OVER the 400-line budget on its own.
+- **Total added lines including tests and bookkeeping: 299 + 1,659 + 2 = 1,960** — roughly 4.9× the 400-line budget.
+- Reported honestly rather than thinned. The brief mandates: two dashboard surfaces with a visibility split, a row payload of eight operator fields, eight filter dimensions each with its own narrowing proof, an invalid-filter proof, the deliverability distinction, the discard reason/validity/authorization proofs, and strict TDD. The overage is ~43% test lines (851) and ~27% view lines (285); cutting to 400 would mean deleting mandated scenarios or the operator row fields. Recommendation: accept as a `size:exception`, or split a follow-up bounded unit that defers the view/filter UI while keeping the domain + payload (the service extension and the dashboard card alone are ~270 lines). The chained-PR reviewer's boundary for this unit is: the alert service extension, the new controller, the new view, the dashboard card and this unit's test file.
+
+### Task persistence (what was marked, exactly)
+
+- **Marked:** the new implementation-owned row `7.b Delivery alert dashboards and the filterable alert list (unit 7.b) …` → **`[x]`**, with a terminal `<!-- sdd-owner: implementation -->` marker, placed under `### Slice 7 units` immediately AFTER the 7.a row and BEFORE the Slice 7 aggregate rows.
+- **Not marked:** every aggregate Slice 7 row (the two RED rows, the five GREEN rows, TRIANGULATE, REFACTOR, the verification row, the parent review row) stays exactly as it was, and no aggregate row anywhere (including `6.e` / `6.f`) was touched. The persisted artifact was re-read after the edit: 7.a and 7.b read `[x]`, the aggregate rows read `[ ]`, and a marker audit over the whole file shows 92 terminal `sdd-owner: implementation` + 14 terminal `sdd-owner: parent` markers with no malformed form.
+- No commit, push, branch or worktree. Six modified tracked files, three new untracked ones and the two bookkeeping files — **nothing staged**.
+- Hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit, pre-push, pre-PR or release gate was validated.
+
+### Deviations (every one)
+
+1. **Two discard routes instead of the single `alerts/{document}/discard` the brief sketched.** Laravel binds one model class per route parameter; the brief explicitly allowed two routes and asked for the reason, which is above. Same ability, same controller action body, same domain call.
+2. **The filter vocabulary is validated in the controller, not in a FormRequest.** `app/Http/Requests/CourseTalks/**` is outside this unit's allowed edit surfaces, and the filter is a GET query-string contract, so the (small) normalization/validation lives in the controller as private methods while the (real) narrowing lives in the service. No domain rule was duplicated: the controller never decides what is outstanding.
+3. **An unknown filter value narrows to nothing AND is reported** (the brief allowed either). Chosen because silently ignoring it would show an unfiltered list under a filter the operator believes is active.
+4. **One test assertion was corrected (not the view) when the link failed as an absolute-vs-relative URL mismatch.** Reported in the TDD table: the production link was already correct.
+5. **A test fixture defect surfaced during triangulation:** the shared private-file helper wrote `qr_token_hash` on the commercial table. The helper now branches per document class; no production change was made for it.
+6. **`DashboardService`'s constructor changed** (`+ CourseAlertService`). Autowiring resolves it; verified with `--filter=Dashboard`, `--filter='AuthTest|CourseTalksNavigationTest'` and `--filter=Course`. No manual `new DashboardService(...)` exists in `app/` or `tests/`.
+7. **One stale docblock sentence was corrected in `DashboardController`** ("12-key payload" → "the aggregated payload"), because this unit made the stale number more wrong. No code line changed. This is the only touch on that file.
+8. **The alert list is not paginated and the entity filter options come from the outstanding set.** Both are deliberate bounded-unit choices: pagination is out of scope, and offering only values the list contains means no offered filter can match nothing. The whole outstanding set is loaded twice (once unfiltered for the options, once filtered for the rows), which is consistent with the unbounded list itself and stated here for the reviewer.
+9. **The alert screen's counters are the module-wide totals, not a count of the rendered rows** (the "Resultado del filtro" card shows the row count separately), so the "counts on screen equal what `CourseAlertService` computes" assertion stays exact under filtering.
+10. **Discarding an already-discarded follow-up is not reachable from this screen** (only outstanding rows are listed) — 7.a's behaviour is unchanged and untouched; `sent` is still refused by the domain and rendered as a visible Spanish error (covered by the 7.a suite).
+11. **`config/courses.php`, policies, permissions, enums, models, seeders and migrations were NOT touched.** No new permission was introduced: the screen reuses `course-talks.view` and `course-talks.documents.send`.
+12. **The full suite was not run** (see commands, item 9).
+
+### Evidence revision
+
+- SHA-256 over the ordered SHA-256 manifest of the nine code/test files touched (service, controller, dashboard service, dashboard controller, routes, alerts view, activities view, dashboard view, test file): `48c52081e09955f0e566c6c81a3531aa29b35f4a98c99fb5114efc73e7ef544d` (captured before this evidence entry).

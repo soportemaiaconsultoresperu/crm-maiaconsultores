@@ -45,6 +45,14 @@ final class CourseAlertService
     private const SERVABLE_COMMERCIAL_STATUSES = ['registered', 'sent'];
 
     /**
+     * The day a follow-up is anchored on: the issue date when the document has
+     * one, otherwise the day it was created. It is the same expression the overdue
+     * rule compares against, so "overdue" and "older than" can never disagree
+     * about when a follow-up started.
+     */
+    private const ANCHOR_DAY = 'COALESCE(issue_date, DATE(created_at))';
+
+    /**
      * Outstanding academic follow-ups: the certificate is usable (current, QR
      * live) and its delivery has not been closed by a send.
      *
@@ -95,6 +103,78 @@ final class CourseAlertService
     public function overdueCommercialDocuments(): Builder
     {
         return $this->overdue($this->pendingCommercialDocuments());
+    }
+
+    /**
+     * The outstanding academic follow-ups a caller asked for, narrowed by the
+     * given filters.
+     *
+     * The filters start from {@see pendingAcademicDocuments()}, so no filter can
+     * resurrect a follow-up the domain already closed nor drop one it still
+     * demands: the caller only chooses a subset of what the rules above already
+     * returned. Filtering lives here, with the rules, because "which follow-ups
+     * an operator is looking at" is the same question as "which follow-ups are
+     * outstanding" — a controller that narrowed the query itself would have to
+     * know the predicate.
+     *
+     * Every value is treated as untrusted: a non-scalar (an array posted as
+     * `?channel[]=mail`) is not a filter at all and is ignored instead of being
+     * handed to a query, so no filter value can fail a request.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return Builder<CourseAcademicDocument>
+     */
+    public function outstandingAcademicDocuments(array $filters = []): Builder
+    {
+        $query = $this->pendingAcademicDocuments();
+
+        // An academic document reaches its edition, participant, responsible and
+        // activity through its single enrollment.
+        $this->filterByRelation($query, $filters, 'edition_id', ['enrollment' => 'course_edition_id']);
+        $this->filterByRelation($query, $filters, 'participant_id', ['enrollment' => 'course_participant_id']);
+        $this->filterByRelation($query, $filters, 'responsible_user_id', ['enrollment.edition' => 'responsible_user_id']);
+        $this->filterByRelation($query, $filters, 'activity_type', ['enrollment.edition.activity' => 'type']);
+        $this->filterByColumn($query, $filters, 'delivery_status', 'delivery_status');
+        $this->filterByColumn($query, $filters, 'document_type', 'type');
+        $this->filterByLastAttemptChannel($query, $filters, CourseAcademicDocument::class);
+        $this->filterByAnchorDateRange($query, $filters);
+
+        return $query;
+    }
+
+    /**
+     * The outstanding commercial follow-ups a caller asked for, narrowed by the
+     * same filters. A comprobante reaches its edition through the enrollment it
+     * documents OR through its group purchase, so both paths are offered to every
+     * relation filter and the group comprobante is never lost by an edition,
+     * activity or responsible filter.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return Builder<CourseCommercialDocument>
+     */
+    public function outstandingCommercialDocuments(array $filters = []): Builder
+    {
+        $query = $this->pendingCommercialDocuments();
+
+        $this->filterByRelation($query, $filters, 'edition_id', [
+            'enrollment' => 'course_edition_id',
+            'group' => 'course_edition_id',
+        ]);
+        $this->filterByRelation($query, $filters, 'participant_id', ['enrollment' => 'course_participant_id']);
+        $this->filterByRelation($query, $filters, 'responsible_user_id', [
+            'enrollment.edition' => 'responsible_user_id',
+            'group.edition' => 'responsible_user_id',
+        ]);
+        $this->filterByRelation($query, $filters, 'activity_type', [
+            'enrollment.edition.activity' => 'type',
+            'group.edition.activity' => 'type',
+        ]);
+        $this->filterByColumn($query, $filters, 'delivery_status', 'delivery_status');
+        $this->filterByColumn($query, $filters, 'document_type', 'type');
+        $this->filterByLastAttemptChannel($query, $filters, CourseCommercialDocument::class);
+        $this->filterByAnchorDateRange($query, $filters);
+
+        return $query;
     }
 
     public function pendingCount(): int
@@ -179,7 +259,116 @@ final class CourseAlertService
      */
     private function overdue(Builder $query): Builder
     {
-        return $query->whereRaw('COALESCE(issue_date, DATE(created_at)) < ?', [$this->overdueCutoff()]);
+        return $query->whereRaw(self::ANCHOR_DAY.' < ?', [$this->overdueCutoff()]);
+    }
+
+    /**
+     * Narrow a query by a plain column.
+     *
+     * @param  Builder<Model>  $query
+     * @param  array<string, mixed>  $filters
+     */
+    private function filterByColumn(Builder $query, array $filters, string $key, string $column): void
+    {
+        $value = $this->filterValue($filters, $key);
+
+        if ($value !== null) {
+            $query->where($column, $value);
+        }
+    }
+
+    /**
+     * Narrow a query by one or more relation paths, OR-ed together: a comprobante
+     * has two ways of belonging to an edition and matching either one is enough.
+     *
+     * @param  Builder<Model>  $query
+     * @param  array<string, mixed>  $filters
+     * @param  array<string, string>  $paths  relation path => column on the related table
+     */
+    private function filterByRelation(Builder $query, array $filters, string $key, array $paths): void
+    {
+        $value = $this->filterValue($filters, $key);
+
+        if ($value === null) {
+            return;
+        }
+
+        $query->where(function (Builder $group) use ($paths, $value): void {
+            foreach ($paths as $path => $column) {
+                $group->orWhereHas($path, static fn (Builder $related): Builder => $related->where($column, $value));
+            }
+        });
+    }
+
+    /**
+     * Narrow by the channel of the LAST attempt. The ledger is append-only and its
+     * highest id is its newest row — the same row the operator sees — so a filter
+     * cannot be satisfied by an older attempt on another channel. A document with
+     * no attempt at all matches no channel.
+     *
+     * The correlated subquery keeps the rule on every driver (no window
+     * functions) and leaves the main table unaliased.
+     *
+     * @param  Builder<Model>  $query
+     * @param  array<string, mixed>  $filters
+     * @param  class-string<Model>  $documentType
+     */
+    private function filterByLastAttemptChannel(Builder $query, array $filters, string $documentType): void
+    {
+        $channel = $this->filterValue($filters, 'channel');
+
+        if ($channel === null) {
+            return;
+        }
+
+        $query->whereRaw(
+            '(select outbound_deliveries.channel from outbound_deliveries'
+            .' where outbound_deliveries.related_entity_type = ?'
+            .' and outbound_deliveries.related_entity_id = '.$query->getModel()->getTable().'.id'
+            .' order by outbound_deliveries.id desc limit 1) = ?',
+            [$documentType, $channel],
+        );
+    }
+
+    /**
+     * Narrow by the anchor day: the same day the overdue rule measures, so a range
+     * and the due state can never disagree.
+     *
+     * @param  Builder<Model>  $query
+     * @param  array<string, mixed>  $filters
+     */
+    private function filterByAnchorDateRange(Builder $query, array $filters): void
+    {
+        $from = $this->filterValue($filters, 'date_from');
+        $to = $this->filterValue($filters, 'date_to');
+
+        if ($from !== null) {
+            $query->whereRaw(self::ANCHOR_DAY.' >= ?', [$from]);
+        }
+
+        if ($to !== null) {
+            $query->whereRaw(self::ANCHOR_DAY.' <= ?', [$to]);
+        }
+    }
+
+    /**
+     * A filter value, or null when there is no usable one. Only a scalar can reach
+     * a column, so a malformed request narrows nothing instead of breaking the
+     * query.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    private function filterValue(array $filters, string $key): ?string
+    {
+        $value = $filters[$key] ?? null;
+
+        if (! is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 
     private function overdueCutoff(): string

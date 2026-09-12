@@ -17,6 +17,14 @@
             @can('manage', App\Models\Courses\CourseCertificateTemplate::class)
                 <a class="btn btn-sm btn-outline-primary" data-testid="course-talks-template-list-link" href="{{ route('course-talks.templates.index') }}">Plantillas de certificados</a>
             @endcan
+            {{-- Contextual access point to the delivery alert screen (Slice 7 unit
+                 7.b). The screen's list is gated by exactly the ability this page
+                 already requires (CourseActivityPolicy::viewAny), so the link is
+                 only rendered for a user who can open it: no rendered control can
+                 answer 403. --}}
+            @can('viewAny', App\Models\Courses\CourseActivity::class)
+                <a class="btn btn-sm btn-outline-danger" data-testid="course-talks-alerts-link" href="{{ route('course-talks.alerts.index') }}">Alertas de entrega</a>
+            @endcan
         @endslot
         @slot('headers')
             <tr><th>Código</th><th>Tipo</th><th>Actividad</th><th>Horas</th><th>Ediciones</th><th></th></tr>
