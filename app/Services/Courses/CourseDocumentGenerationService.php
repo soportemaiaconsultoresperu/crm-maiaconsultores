@@ -30,6 +30,80 @@ class CourseDocumentGenerationService
         return CourseAuditActor::asActor($actor, fn (): CourseAcademicDocument => $this->generateDocument($enrollment, $actor));
     }
 
+    /**
+     * The automatic entrance: the document the eligibility job generates because
+     * the last missing condition of the delta spec completed, with no user behind
+     * the act.
+     *
+     * It exists because the operator path cannot express this case. `generate()`
+     * requires the human who asked for the document and authorizes that human;
+     * here nobody asked, so `$systemAuthor` is the dedicated non-human account the
+     * module attributes automatic generation to, and it passes the very same
+     * `generate` gate an operator passes — deliberately, without a bypass: the
+     * authorization control stays exactly where it was, and the account is granted
+     * exactly that one ability.
+     *
+     * Every other rule is the operator path's, unchanged: the same
+     * `generateDocument()` evaluates eligibility, selects the document type, builds
+     * the filename and code, mints the QR token and stores the private PDF. The
+     * only differences are the three this method owns:
+     *
+     * 1. WHO — the audit trail names the SYSTEM author, and the generation also
+     *    writes an explicit `course-academic-document-auto-generated` entry saying
+     *    that the document was produced automatically (with the trigger reason),
+     *    so the trail is never silently anonymous.
+     * 2. WHAT IS NOISE — `current_already_exists` and `not_eligible` are returned as
+     *    "nothing to generate" instead of an exception. Both mean the condition
+     *    stopped holding between the job's locked check and this call (a concurrent
+     *    worker generated it first, or the enrollment stopped qualifying). A queue
+     *    that failed on a benign race would be wrong; a queue that minted a second
+     *    document would be worse. Neither happens: the duplicate refusal is not
+     *    weakened, it is honoured — no second document is created either way.
+     * 3. WHERE THE FILE IS DURABLE — the caller's transaction is this operation's
+     *    boundary, so the PDF is stored inside it rather than deferred to a later
+     *    commit (see the parameter's note in `generateDocument()`). The caller must
+     *    therefore be the transaction that owns the write; the job is.
+     */
+    public function generateAutomatically(CourseEnrollment $enrollment, User $systemAuthor, string $triggerReason): ?CourseAcademicDocument
+    {
+        try {
+            $document = CourseAuditActor::asActor($systemAuthor, fn (): CourseAcademicDocument => $this->generateDocument(
+                $enrollment,
+                $systemAuthor,
+                deferStorageUntilOuterCommit: false,
+            ));
+        } catch (InvalidCourseDocumentState $exception) {
+            if (in_array($exception->reason(), [
+                InvalidCourseDocumentState::CURRENT_ALREADY_EXISTS,
+                InvalidCourseDocumentState::NOT_ELIGIBLE,
+            ], true)) {
+                return null;
+            }
+
+            throw $exception;
+        }
+
+        // The explicit half of the WHO decision: the model's own `course-created`
+        // entry names the SYSTEM account as causer, and this service-written entry
+        // states that the generation was automatic and which condition completed.
+        // It carries no private path, no signed link and no raw QR token.
+        activity()
+            ->performedOn($document)
+            ->causedBy($systemAuthor)
+            ->event('course-academic-document-auto-generated')
+            ->withProperties([
+                'course_enrollment_id' => $enrollment->id,
+                'document_type' => $document->type->value,
+                'document_code' => $document->code,
+                'trigger_reason' => $triggerReason,
+                'actor_type' => 'system',
+                'system_action' => 'course-eligibility-job',
+            ])
+            ->log('Generación automática del documento académico al completarse la última condición');
+
+        return $document;
+    }
+
     public function regenerate(CourseAcademicDocument $document, User $actor, string $reason): CourseAcademicDocument
     {
         if (trim($reason) === '') {
@@ -60,7 +134,7 @@ class CourseDocumentGenerationService
         }));
     }
 
-    private function generateDocument(CourseEnrollment $enrollment, User $actor, ?callable $afterAcademicCreated = null): CourseAcademicDocument
+    private function generateDocument(CourseEnrollment $enrollment, User $actor, ?callable $afterAcademicCreated = null, ?bool $deferStorageUntilOuterCommit = null): CourseAcademicDocument
     {
         Gate::forUser($actor)->authorize('generate', CourseAcademicDocument::class);
 
@@ -90,7 +164,14 @@ class CourseDocumentGenerationService
             $this->companyName($enrollment),
         );
         $transactionBaseline = app()->runningUnitTests() ? 1 : 0;
-        $deferStorageUntilOuterCommit = DB::transactionLevel() > $transactionBaseline;
+        // `null` keeps the historical rule: a caller that already opened a
+        // transaction gets the private file written only after that transaction
+        // commits, so a rollback downstream cannot leave a PDF behind. `false` is
+        // the automatic path saying that the transaction it runs in IS the boundary
+        // of the operation, so there is no later commit to wait for and the file is
+        // stored with the rows it belongs to — that is what makes an asynchronously
+        // generated document observable in the same request/test that triggered it.
+        $deferStorageUntilOuterCommit ??= DB::transactionLevel() > $transactionBaseline;
 
         // Resolved once, before the transaction, so the view and the settings
         // that produced this PDF come from the same row that the document then

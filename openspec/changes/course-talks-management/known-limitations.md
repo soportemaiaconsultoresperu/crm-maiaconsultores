@@ -191,3 +191,21 @@ referenced. Two consequences stay open:
 - If the physical delete fails AFTER the row is gone (a disk problem), the outcome is an
   orphaned file with no row — a storage leak, never a dangling reference, which is the safe
   direction of the two.
+
+## 13. Automatic generation has no trigger for participant-data corrections
+
+Automatic generation is now wired (see the remediation section in `apply-progress.md`), but only
+FOUR conditions reach the eligibility job: payment, grade/result, participation, and
+edition-validation completion. `CourseEligibilityTriggerService` has exactly `paymentChanged`,
+`gradeChanged`, `participationChanged` and `editionValidationChanged`, and nothing calls a
+trigger from any participant-data path.
+
+Consequence: when the spec's "final missing condition" is a piece of PARTICIPANT data — the case
+the eligibility service explicitly reports as missing — the automatic generation never fires, and
+the certificate waits for an operator. Closing it means wiring a trigger from the
+enrollment/participant services, which was outside the remediation unit's authorized surfaces and
+is therefore declared rather than silently omitted.
+
+The generation itself is safe either way: the operator's path still produces the document, and
+the job remains idempotent, so a manual generation followed by a later trigger cannot mint a
+second certificate.

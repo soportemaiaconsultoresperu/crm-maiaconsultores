@@ -4347,3 +4347,36 @@ Every aggregate Slice 7 row and every earlier slice row is still `[ ]` by design
 - Every edited file is inside the allowed surfaces. The strict `sessions.manage` variant was NOT taken because it would have required `tests/Feature/Courses/CourseEditionSessionsHttpTest.php`, `tests/Feature/Courses/CourseTalksNavigationTest.php` and `resources/views/course-talks/editions/show.blade.php`, all outside them; the additive rule closes the finding without touching those surfaces.
 - Two files are reported, not edited: `app/Http/Controllers/DocumentController.php` (does not map the new 409 to a flash message — the 409 error page is the in-scope outcome) and the Blade navigation block above (a `sessions.manage`-only holder reaches the route but sees no link).
 - Handed off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt created or approved, no pre-commit/pre-push/pre-PR/release gate run.
+
+## Remediation — automatic certificate generation (the verification FAIL)
+
+### What and why
+
+The delta spec requires the system to generate the applicable PDF automatically "WHEN the final missing condition becomes complete". `EvaluateCourseDocumentEligibility::handle()` evaluated eligibility, returned when ineligible or when a current document existed, and then ended on `// Future slice: dispatch document generation here.` — so the only path to a certificate was the operator's POST, and `CourseEligibilityAutomationTest` asserted that gap AS INTENDED, which is exactly what hid it from a green suite. The independent verification reported it as the change's single FAIL and the archive gate was blocked on it.
+
+### Where
+
+`app/Jobs/Courses/EvaluateCourseDocumentEligibility.php`, `app/Services/Courses/CourseAuditActor.php` (`systemAuthor()`), `app/Services/Courses/CourseDocumentGenerationService.php`, `config/courses.php`, `database/seeders/CourseSystemAuthorSeeder.php` (new), `database/seeders/DatabaseSeeder.php`, `tests/Feature/Courses/CourseEligibilityAutomationTest.php` (the camouflage test replaced by 12), `tests/Feature/Courses/CourseRolloutTest.php`, `tests/Feature/SeedersTest.php`.
+
+### Decisions, each justified in the code
+
+1. **Author — a dedicated SYSTEM account, never a fabricated human and never an anonymous trail.** Two properties of the domain force a real account: `documents.uploaded_by` is a NOT NULL reference to `users` (a table shared by the whole CRM, which this unit does not change), so a userless job cannot register the private PDF at all; and `generateDocument()` authorizes through `Gate::forUser($actor)`, a control this unit deliberately does not bypass. The account is explicitly non-human, holds EXACTLY ONE ability (`course-talks.documents.generate` — the same one an operator needs), has NO role, a random password nobody is told, and `is_active = false` so `EnsureUserIsActive` refuses it every authenticated request. It is named in the trail and cannot log in.
+2. **Idempotency**: the job still returns when a current document exists, and `generateDocument()` independently refuses a second one, so a re-trigger cannot mint a second certificate. Both asserted.
+3. **Failure**: the exception escapes the job so the queue's own retry policy owns the outcome, and it is logged with the context the queue record does not carry. Nothing half-generated survives — the escaping exception rolls the transaction back, so no document row and no private file remain, and the enrollment stays eligible for a later trigger. `AcademicDocumentStatus::Failed` is deliberately NOT used: it is the instrument for a document row that already exists and whose file could not be stored (which the deferred storage path marks itself), and a failure before that row exists has no row to mark.
+4. **Stop switch**: `courses.automatic_document_generation_enabled` (default `true`) is checked before anything else in `handle()`. Generation is now ASYNCHRONOUS, and Slice 7's own TRIANGULATE row requires rollback control for an asynchronous generation "if introduced" — this unit is what introduces it. Revoking `course-talks.*` permissions hides the module and stops human actions, but it cannot recall a dispatch that already happened and does not stop the trigger services; the flag is the switch that does.
+
+### Authorized surface expansion (declared, not assumed)
+
+`CourseRolloutTest` (its rollback test asserted the job generates nothing, which the fix invalidates), `DatabaseSeeder` (its rollback guidance called the job a no-op, now false), `config/courses.php`, a new `CourseSystemAuthorSeeder`, and `SeedersTest` (it pinned `User::count() === 1`; the SYSTEM author is a real, deliberate row, so the assertion was rewritten to keep the "no fake users" intent by asserting that the only users a full seed creates are the bootstrap admin and the SYSTEM author, once each, identified by role and by the seeder's own constant rather than by `env()`, because a direct `env()` read returns null under a cached config and would pass vacuously).
+
+### Evidence (parent-run, after the subagent timed out on its final step)
+
+`CourseEligibilityAutomationTest` 12 tests / 68 assertions; `CourseRolloutTest` 10 / 110; `SeedersTest` 2 / 35; `--filter=Course` **472 tests / 3,599 assertions** against the 463 / 3,527 baseline (+9 / +72, exactly the new cases). Full suite **1276 tests, 1253 passed, 11 failed** — EXACTLY the documented external baseline, so the two new `SeedersTest` failures this fix initially caused are gone and nothing else regressed.
+
+### Declared residual, NOT fixed
+
+Only four conditions reach the job — payment, grade/result, participation and edition-validation completion (`CourseEligibilityTriggerService` has exactly `paymentChanged`, `gradeChanged`, `participationChanged`, `editionValidationChanged`). A participant-data correction has NO trigger, so if the spec's "final missing condition" is a participant datum, automatic generation never fires for it and the certificate waits for an operator. Closing it requires wiring a trigger from the enrollment/participant services, outside this unit's surfaces. Recorded in `known-limitations.md`.
+
+### Process note
+
+The subagent timed out at 30 minutes while applying the last assertion fix, so the parent verified the resulting tree, ran the module regression and the full suite, and wrote this record. The subagent staged and committed nothing.

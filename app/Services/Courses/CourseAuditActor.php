@@ -37,6 +37,36 @@ use Spatie\Activitylog\CauserResolver;
 final class CourseAuditActor
 {
     /**
+     * The SYSTEM author of an automatic course write.
+     *
+     * The eligibility job runs with no authenticated user, so the document it
+     * generates has no human author. The module does not invent a human one: the
+     * act is attributed to the dedicated, explicitly non-human account named by
+     * `courses.system_author_email` (seeded by `CourseSystemAuthorSeeder`), which
+     * is the actor every entry of that write then names.
+     *
+     * The decision belongs in this class because this class is the module's only
+     * authority on "which actor is this write attributed to", and the automatic
+     * path is exactly a case where the answer is not the authenticated user. The
+     * account is resolved, never created: the domain has no business inventing
+     * users, and a missing account must be visible rather than absorbed. A `null`
+     * return therefore means "there is no author to attribute this write to", and
+     * every caller must fail closed on it — for generation it is also a hard
+     * requirement, because `documents.uploaded_by` is a NOT NULL reference to
+     * `users` and the generated private file cannot be registered without it.
+     */
+    public static function systemAuthor(): ?User
+    {
+        $email = trim((string) config('courses.system_author_email'));
+
+        if ($email === '') {
+            return null;
+        }
+
+        return User::query()->where('email', $email)->first();
+    }
+
+    /**
      * @template T
      *
      * @param  Closure(): T  $callback

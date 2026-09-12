@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Courses;
 
+use App\Contracts\Courses\PdfRenderer;
+use App\Contracts\Courses\QrRenderer;
 use App\Enums\Courses\AcademicDocumentStatus;
 use App\Enums\Courses\AcademicDocumentType;
 use App\Enums\Courses\CommercialDocumentType;
@@ -22,10 +24,12 @@ use App\Models\Document;
 use App\Models\User;
 use App\Services\Courses\CertificateQrTokenService;
 use App\Services\Courses\CourseAlertService;
+use App\Services\Courses\CourseDocumentGenerationService;
 use App\Services\Courses\CourseEligibilityService;
 use Database\Seeders\CoursePermissionsSeeder;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Permission;
@@ -259,38 +263,153 @@ class CourseRolloutTest extends TestCase
     }
 
     /**
-     * The design's "stop eligibility jobs through queue/config" control, measured: the module's only
-     * eligibility job, `EvaluateCourseDocumentEligibility`, is a DOCUMENTED no-op — it evaluates and
-     * returns without generating a document or writing a file. There is therefore no asynchronous
-     * generation a permission rollback would have to stop, and no queue/config switch is introduced.
+     * The design's "stop eligibility jobs through queue/config" control, measured
+     * — and the correction of the claim this test used to make. It asserted that the
+     * eligibility job was a documented no-op, so a permission rollback had "no
+     * asynchronous generation to stop". That was true only because the job did
+     * nothing. Now the job generates the document the delta spec requires, so a
+     * permission rollback really does leave asynchronous generation running, and the
+     * control has two halves:
+     *
+     * 1. Revoking every module permission from every role hides the module and
+     *    denies human actions, and does NOT stop the automatic generation — it is
+     *    attributed to the SYSTEM author, not to whoever completed the condition, so
+     *    no role's permissions are consulted and no dispatch that already happened
+     *    can be recalled.
+     * 2. `courses.automatic_document_generation_enabled = false` IS the switch: with
+     *    it off, completing an eligible condition generates nothing and writes no
+     *    file, and the enrollment is left eligible and untouched.
      */
-    public function test_the_only_eligibility_job_is_a_documented_no_op_so_a_rollback_has_no_job_to_stop(): void
+    public function test_automatic_generation_is_stopped_by_the_config_switch_and_not_by_the_permission_rollback(): void
     {
         Storage::fake('docs');
+        $payloads = [];
+        $pdfCalls = [];
+        $this->bindGenerationWithFakeDrivers($payloads, $pdfCalls);
         $this->seed(DatabaseSeeder::class);
 
+        [$first, $second] = $this->eligibleSeats(2);
+        $eligibility = app(CourseEligibilityService::class);
+
+        foreach ([$first, $second] as $seat) {
+            $this->assertTrue(
+                $eligibility->evaluate($seat->fresh())->eligible,
+                'Both probe enrollments must be eligible, otherwise the job returns early and this test proves nothing.'
+            );
+        }
+
+        // 1. The module's documented rollback, executed: every module permission
+        //    leaves every role.
+        foreach (Role::query()->get() as $role) {
+            $role->revokePermissionTo(CoursePermissionsSeeder::PERMISSIONS);
+        }
+        foreach (Role::query()->get() as $role) {
+            $this->assertSame(0, $role->permissions()->whereIn('name', CoursePermissionsSeeder::PERMISSIONS)->count());
+        }
+
+        (new EvaluateCourseDocumentEligibility($first->id, 'rollout-control-probe'))->handle($eligibility);
+
+        $this->assertSame(1, CourseAcademicDocument::count(), 'A permission rollback must NOT stop the asynchronous generation.');
+        $this->assertSame(AcademicDocumentStatus::Current, CourseAcademicDocument::query()->sole()->status);
+        $this->assertNotSame([], Storage::disk('docs')->allFiles(), 'The rollback must not stop the private file from being stored.');
+
+        // 2. The switch that does stop it, on a second, still-eligible enrollment.
+        config(['courses.automatic_document_generation_enabled' => false]);
+
+        (new EvaluateCourseDocumentEligibility($second->id, 'rollout-control-probe'))->handle($eligibility);
+
+        $this->assertSame(1, CourseAcademicDocument::count(), 'With the switch off, completing an eligible condition must generate nothing.');
+        $this->assertCount(1, Storage::disk('docs')->allFiles(), 'With the switch off, no private file may be written.');
+        $this->assertTrue(
+            $eligibility->evaluate($second->fresh())->eligible,
+            'The switch stops the job; it must not change the enrollment.'
+        );
+    }
+
+    /**
+     * WHO the automatic generation is attributed to, as the real full seed ships it:
+     * a dedicated, explicitly non-human SYSTEM account that holds exactly the one
+     * ability the generation gate asks for. It must not hold a role (the `admin` role
+     * would widen it to every ability through the `Gate::before` bypass), it must not
+     * be able to hold a session, and it must not expose the module to itself.
+     */
+    public function test_the_system_author_is_seeded_with_exactly_the_generation_ability_and_no_usable_access(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $author = User::query()->where('email', config('courses.system_author_email'))->sole();
+
+        $this->assertSame('Sistema (generación automática de certificados)', $author->name);
+        $this->assertFalse((bool) $author->is_active, 'The system author must not be able to hold a session.');
+        $this->assertSame([], $author->getRoleNames()->all(), 'The system author must hold no role at all.');
+        $this->assertSame(
+            ['course-talks.documents.generate'],
+            $author->getPermissionNames()->all(),
+            'The system author holds exactly the generation ability and nothing else.'
+        );
+
+        // The one ability is real; nothing else in the module opens for it.
+        $this->assertTrue($author->can('generate', CourseAcademicDocument::class));
+        $this->assertFalse($author->can('viewAny', CourseActivity::class));
+        $this->assertFalse($author->can('viewAny', CourseEdition::class));
+        $this->assertFalse($author->can('create', CourseAcademicDocument::class));
+
+        // No usable credentials: neither the bootstrap admin's password nor the
+        // framework default opens the account.
+        $this->assertFalse(Hash::check((string) env('ADMIN_PASSWORD'), (string) $author->password));
+        $this->assertFalse(Hash::check('password', (string) $author->password));
+    }
+
+    private function eligibleSeats(int $count): array
+    {
         $activity = CourseActivity::factory()->create(['type' => CourseActivityType::Course]);
         $edition = CourseEdition::factory()->for($activity, 'activity')->create([
             'state' => CourseEditionState::InProgress,
             'validations_completed_at' => now(),
         ]);
-        $participant = CourseParticipant::factory()->create();
-        $enrollment = CourseEnrollment::factory()->for($edition, 'edition')->for($participant, 'participant')->create([
-            'state' => CourseEnrollmentState::Completed,
-            'payment_status' => PaymentStatus::Paid,
-            'final_result' => FinalResult::Approved,
-        ]);
 
-        $eligibility = app(CourseEligibilityService::class);
-        $this->assertTrue(
-            $eligibility->evaluate($enrollment->fresh())->eligible,
-            'The probe enrollment must be eligible, otherwise the job returns early and this test proves nothing.'
-        );
+        return collect(range(1, $count))->map(function () use ($edition): CourseEnrollment {
+            $participant = CourseParticipant::factory()->create();
 
-        (new EvaluateCourseDocumentEligibility($enrollment->id, 'rollout-control-probe'))->handle($eligibility);
+            return CourseEnrollment::factory()->for($edition, 'edition')->for($participant, 'participant')->create([
+                'state' => CourseEnrollmentState::Completed,
+                'payment_status' => PaymentStatus::Paid,
+                'final_result' => FinalResult::Approved,
+            ]);
+        })->all();
+    }
 
-        $this->assertSame(0, CourseAcademicDocument::count(), 'The eligibility job must not generate documents (it is a no-op).');
-        $this->assertSame([], Storage::disk('docs')->allFiles(), 'The eligibility job must not write files (it is a no-op).');
+    /**
+     * Binds the real generation service with the two drivers that touch the outside
+     * world faked: every rule stays the production one, so the assertions above
+     * observe real rows, real private files and a real QR token hash.
+     */
+    private function bindGenerationWithFakeDrivers(array &$payloads, array &$calls): void
+    {
+        $this->app->instance(CourseDocumentGenerationService::class, new CourseDocumentGenerationService(
+            pdfRenderer: new class($calls) implements PdfRenderer
+            {
+                public function __construct(private array &$calls) {}
+
+                public function render(string $view, array $data): string
+                {
+                    $this->calls[] = compact('view', 'data');
+
+                    return '%PDF '.$view.' '.view($view, $data)->render();
+                }
+            },
+            qrTokens: new CertificateQrTokenService(new class($payloads) implements QrRenderer
+            {
+                public function __construct(private array &$payloads) {}
+
+                public function renderSvg(string $payload): string
+                {
+                    $this->payloads[] = $payload;
+
+                    return '<svg>QR '.$payload.'</svg>';
+                }
+            }),
+        ));
     }
 
     /**
