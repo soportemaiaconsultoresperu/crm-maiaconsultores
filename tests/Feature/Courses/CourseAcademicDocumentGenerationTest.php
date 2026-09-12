@@ -5,7 +5,7 @@ namespace Tests\Feature\Courses;
 use App\Contracts\Courses\{PdfRenderer, QrRenderer};
 use App\Enums\Courses\{AcademicDocumentStatus,AcademicDocumentType,CourseActivityType,CourseEnrollmentState,FinalResult,PaymentStatus};
 use App\Exceptions\Courses\InvalidCourseDocumentState;
-use App\Models\Courses\{CourseActivity,CourseAcademicDocument,CourseEdition,CourseEnrollment,CourseEnrollmentGroup,CourseParticipant,CourseSession};
+use App\Models\Courses\{CourseActivity,CourseAcademicDocument,CourseCertificateTemplate,CourseEdition,CourseEnrollment,CourseEnrollmentGroup,CourseParticipant,CourseSession};
 use App\Models\User;
 use App\Services\Courses\CertificateQrTokenService;
 use App\Services\Courses\CourseDocumentGenerationService;
@@ -304,6 +304,130 @@ class CourseAcademicDocumentGenerationTest extends TestCase
 
         $this->assertSame($current->id, CourseAcademicDocument::query()->where('status', AcademicDocumentStatus::Current)->sole()->id);
         $this->assertSame(1, CourseAcademicDocument::query()->where('status', AcademicDocumentStatus::Current)->count());
+    }
+
+    /**
+     * The counterpart of the hardcoded-view regression: a template configured
+     * for the document type being generated must decide what is rendered, and
+     * the document must record which template produced it. The row is written
+     * with the columns the template domain owns, so this test proves what
+     * generation does with a configured template and does not depend on the
+     * configuration API.
+     */
+    public function test_an_active_template_supplies_its_view_and_settings_and_is_persisted_on_the_document(): void
+    {
+        Storage::fake('docs');
+        $template = CourseCertificateTemplate::query()->create([
+            'name' => 'Plantilla de aprobación',
+            'type_scope' => AcademicDocumentType::ApprovalCertificate->value,
+            'version' => 1,
+            'is_active' => true,
+            'blade_view' => 'course-talks.certificates.reference',
+            'settings_json' => [
+                'title' => 'Constancia oficial',
+                'intro_text' => 'Otorga la presente constancia a',
+                'company' => 'Maia Academy',
+                'signatures' => [['name' => 'Firma Uno', 'role' => 'Gerencia']],
+            ],
+        ]);
+        $pdfCalls = [];
+        [$enrollment, $actor] = $this->eligibleEnrollment(FinalResult::Approved);
+
+        $academic = $this->service(null, $pdfCalls)->generate($enrollment, $actor);
+
+        $this->assertSame($template->id, $academic->course_certificate_template_id);
+        $this->assertSame($template->id, $academic->fresh()->template?->id);
+        $this->assertSame('course-talks.certificates.reference', $pdfCalls[0]['view']);
+        $certificate = $pdfCalls[0]['data']['certificate'];
+        $this->assertSame('Constancia oficial', $certificate->title);
+        $this->assertSame('Otorga la presente constancia a', $certificate->introText);
+        $this->assertSame('Maia Academy', $certificate->company);
+        $this->assertSame([['name' => 'Firma Uno', 'role' => 'Gerencia']], $certificate->signatures);
+        $this->assertSame('Alvaro Segundo Alama Silva', $certificate->participant);
+        $this->assertSame($academic->code, $certificate->certificateCode);
+
+        $pdf = Storage::disk('docs')->get($academic->document->path);
+        foreach (['Constancia oficial', 'Otorga la presente constancia a', 'Maia Academy', 'Firma Uno'] as $expected) {
+            $this->assertStringContainsString($expected, $pdf);
+        }
+        // The service defaults a configured template replaces must be gone.
+        $this->assertStringNotContainsString('Otorga el presente certificado a', $pdf);
+        $this->assertStringNotContainsString('Dirección Académica', $pdf);
+    }
+
+    /**
+     * Lock on today's behaviour: with nothing activated for the type, the view
+     * name and every configurable field are exactly the pre-template ones.
+     */
+    public function test_generation_without_an_active_template_keeps_the_reference_view_and_the_service_defaults(): void
+    {
+        Storage::fake('docs');
+        $pdfCalls = [];
+        [$enrollment, $actor] = $this->eligibleEnrollment(FinalResult::Approved);
+        $service = $this->service(null, $pdfCalls);
+
+        $untemplated = $service->generate($enrollment, $actor);
+
+        $this->assertSame('course-talks.certificates.reference', $pdfCalls[0]['view']);
+        $this->assertNull($untemplated->course_certificate_template_id);
+        $certificate = $pdfCalls[0]['data']['certificate'];
+        $this->assertSame('Certificado de aprobación', $certificate->title);
+        $this->assertSame('Otorga el presente certificado a', $certificate->introText);
+        $this->assertSame('Maia Consultores', $certificate->company);
+        $this->assertSame([
+            ['name' => 'Dirección Académica', 'role' => 'Maia Consultores'],
+            ['name' => 'Coordinación Académica', 'role' => 'Maia Consultores'],
+        ], $certificate->signatures);
+
+        // Resolution reads actives only: an inactive template of the same type
+        // changes nothing.
+        CourseCertificateTemplate::query()->create([
+            'name' => 'Apagada',
+            'type_scope' => AcademicDocumentType::ApprovalCertificate->value,
+            'version' => 1,
+            'is_active' => false,
+            'blade_view' => 'course-talks.certificates.reference',
+            'settings_json' => ['title' => 'No debe usarse', 'company' => 'No debe usarse'],
+        ]);
+        [$secondEnrollment] = $this->eligibleEnrollment(FinalResult::Approved, CourseActivityType::Course, $actor);
+
+        $second = $service->generate($secondEnrollment, $actor);
+
+        $this->assertNull($second->course_certificate_template_id);
+        $this->assertSame('course-talks.certificates.reference', $pdfCalls[1]['view']);
+        $this->assertSame('Certificado de aprobación', $pdfCalls[1]['data']['certificate']->title);
+        $this->assertSame('Maia Consultores', $pdfCalls[1]['data']['certificate']->company);
+    }
+
+    /**
+     * A row written outside the domain (direct database write, restore, a
+     * future surface) cannot steer the render: an off-allowlist `blade_view`
+     * makes the template unusable and `html_template` — raw administrator HTML
+     * — is never rendered into a PDF.
+     */
+    public function test_a_row_with_an_off_allowlist_blade_view_or_raw_html_is_never_rendered(): void
+    {
+        Storage::fake('docs');
+        CourseCertificateTemplate::query()->create([
+            'name' => 'Plantilla manipulada',
+            'type_scope' => AcademicDocumentType::ApprovalCertificate->value,
+            'version' => 1,
+            'is_active' => true,
+            'blade_view' => 'admin.users.index',
+            'html_template' => '<p>INYECTADO-POR-HTML-TEMPLATE</p>',
+            'settings_json' => ['title' => 'Título inyectado'],
+        ]);
+        $pdfCalls = [];
+        [$enrollment, $actor] = $this->eligibleEnrollment(FinalResult::Approved);
+
+        $academic = $this->service(null, $pdfCalls)->generate($enrollment, $actor);
+
+        $this->assertSame('course-talks.certificates.reference', $pdfCalls[0]['view']);
+        $this->assertSame('Certificado de aprobación', $pdfCalls[0]['data']['certificate']->title);
+        $this->assertNull($academic->course_certificate_template_id);
+        $pdf = Storage::disk('docs')->get($academic->document->path);
+        $this->assertStringNotContainsString('INYECTADO-POR-HTML-TEMPLATE', $pdf);
+        $this->assertStringNotContainsString('Título inyectado', $pdf);
     }
 
     private function service(?CertificateQrTokenService $qrTokens = null, ?array &$pdfCalls = null): CourseDocumentGenerationService

@@ -5,7 +5,7 @@ namespace App\Services\Courses;
 use App\Contracts\Courses\PdfRenderer;
 use App\Enums\Courses\{AcademicDocumentStatus, AcademicDocumentType, DeliveryStatus};
 use App\Exceptions\Courses\InvalidCourseDocumentState;
-use App\Models\Courses\{CourseAcademicDocument, CourseEnrollment};
+use App\Models\Courses\{CourseAcademicDocument, CourseCertificateTemplate, CourseEnrollment};
 use App\Models\{Document, User};
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -89,9 +89,16 @@ class CourseDocumentGenerationService
         $transactionBaseline = app()->runningUnitTests() ? 1 : 0;
         $deferStorageUntilOuterCommit = DB::transactionLevel() > $transactionBaseline;
 
-        return DB::transaction(function () use ($enrollment, $actor, $eligibility, $filename, $afterAcademicCreated, $deferStorageUntilOuterCommit): CourseAcademicDocument {
+        // Resolved once, before the transaction, so the view and the settings
+        // that produced this PDF come from the same row that the document then
+        // records. No template configured means null, and null means exactly the
+        // pre-template behaviour of renderPdf().
+        $template = ($this->templates ?? new CourseCertificateTemplateService())->resolveFor($eligibility->documentType);
+
+        return DB::transaction(function () use ($enrollment, $actor, $eligibility, $filename, $template, $afterAcademicCreated, $deferStorageUntilOuterCommit): CourseAcademicDocument {
             $academic = CourseAcademicDocument::query()->create([
                 'course_enrollment_id' => $enrollment->id,
+                'course_certificate_template_id' => $template?->id,
                 'type' => $eligibility->documentType,
                 'status' => AcademicDocumentStatus::PendingGeneration,
                 'code' => $this->nextCode($eligibility->documentType),
@@ -103,7 +110,7 @@ class CourseDocumentGenerationService
             $token = $tokenService->createFor($academic);
             $qrSvg = $tokenService->renderSvg(route('certificates.qr.show', ['token' => $token]));
             $path = "course-academic-documents/{$enrollment->id}/{$academic->code}.pdf";
-            $pdf = $this->renderPdf($enrollment, $academic, $qrSvg);
+            $pdf = $this->renderPdf($enrollment, $academic, $qrSvg, $template);
             $attributes = [
                 'docable_type' => $academic->getMorphClass(),
                 'docable_id' => $academic->id,
@@ -180,9 +187,18 @@ class CourseDocumentGenerationService
         }
     }
 
-    private function renderPdf(CourseEnrollment $enrollment, CourseAcademicDocument $academic, string $qrSvg): string
+    private function renderPdf(CourseEnrollment $enrollment, CourseAcademicDocument $academic, string $qrSvg, ?CourseCertificateTemplate $template): string
     {
-        $view = 'course-talks.certificates.reference';
+        // The template decides the view and the configurable settings; without
+        // one the reference view and the service defaults are used, exactly as
+        // before templates resolved at all. The view name lives in one place
+        // (CourseCertificateTemplateService::REFERENCE_BLADE_VIEW) so the
+        // allowlist and this fallback cannot drift apart.
+        $view = $template?->blade_view ?? CourseCertificateTemplateService::REFERENCE_BLADE_VIEW;
+        $settings = array_merge(
+            ['company' => $this->companyName($enrollment)],
+            $template?->settings_json ?? [],
+        );
         $viewModel = ($this->templates ?? new CourseCertificateTemplateService())->makeViewModel([
             'title' => $this->titleFor($academic->type),
             'participant' => $this->participantName($enrollment),
@@ -199,7 +215,7 @@ class CourseDocumentGenerationService
                 'speaker' => (string) ($session->teacher_name ?: 'Maia Consultores'),
                 'date' => optional($session->session_date)->format('d.m.y') ?? '',
             ])->all(),
-        ], ['company' => $this->companyName($enrollment)]);
+        ], $settings);
 
         return ($this->pdfRenderer ?? new DomPdfRenderer())->render($view, ['certificate' => $viewModel]);
     }
