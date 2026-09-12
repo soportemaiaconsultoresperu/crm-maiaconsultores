@@ -51,7 +51,7 @@ class SeedersTest extends TestCase
 
 // Roles / permissions / admin user.
         $this->assertSame(3, Role::count());
-        $this->assertSame(130, Permission::count(), 'Permissions include the current branch baseline, AdditionalPermissionsSeeder, support lifecycle permissions, and customer-payments.view/manage.');
+        $this->assertSame(143, Permission::count(), 'Permissions include the current branch baseline, AdditionalPermissionsSeeder, support lifecycle permissions, customer-payments.view/manage, and the 13 course-talks.* permissions now wired into the full seed by DatabaseSeeder (130 + 13).');
         $this->assertTrue(Permission::where('name', 'customer-payments.view')->exists());
         $this->assertTrue(Permission::where('name', 'customer-payments.manage')->exists());
         $this->assertSame(1, User::count(), 'Only the bootstrap admin user is seeded (no fake users)');
@@ -69,7 +69,7 @@ class SeedersTest extends TestCase
         $this->assertSame(2113, Ubigeo::count());
 $this->assertSame(23, Setting::count(), 'Settings must not duplicate on re-seed across current notification/company/sequence/support defaults.');
 $this->assertSame(3, Role::count());
-$this->assertSame(130, Permission::count());
+$this->assertSame(143, Permission::count(), 'Re-seeding must not duplicate the 13 course-talks.* permissions (143 stays 143).');
         $this->assertSame(1, User::count(), 'Admin user is updated, never duplicated');
         $this->assertSame(1, User::first()->roles()->count(), 'Admin keeps exactly one role assignment');
     }

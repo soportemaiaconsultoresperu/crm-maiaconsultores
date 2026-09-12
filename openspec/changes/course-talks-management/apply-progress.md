@@ -3983,3 +3983,165 @@ $ git diff --numstat
 1. **BLOCKER — the queued email's terminal snapshot is attributed to nobody.** `app/Jobs/V2/SendEmailMessage::syncCourseDelivery()` (lines ~168–205) writes the course document's `delivery_status`/`last_sent_at` from a queued job. A queued worker has no session and the job receives no actor, so the automatic `course-updated` entry this material change produces has `causer_id = NULL` — the same defect this unit fixed everywhere the actor is known, in the ONE path that actually writes the terminal delivery state for the wired (`queueAcademicEmail` / `queueCommercialEmail`) channel. Fixing it requires either passing a responsible user into the job or resolving one from the `outbound_deliveries` row it already owns. **`app/Jobs/V2/` is outside this unit's allowed edit surfaces (the brief says a job gap must be reported, not fixed), so it is reported here.** The suite deliberately does not encode this as a passing assertion, because asserting a null causer would enshrine the defect. Decision needed from the parent: widen the surfaces for a bounded follow-up, or accept the gap as a documented exception.
 2. **NOT FIXED — `course_edition_teachers` has no audit trail and cannot have one at model level.** No `id` column (composite primary key), no audit columns, `$timestamps = false`; `performedOn()` would store a null `subject_id`. `syncTeachers()` mass-deletes through the query builder, so no model event fires, and the `CourseEditionChanged('course-edition-teachers-changed')` event it dispatches has no listener anywhere in `app/` (`CourseEditionChanged` is the only reference in the codebase). Teacher changes are **not** in the enumerated Slice 7 audit list, and a real fix needs a migration — outside this unit. Reported for the record.
 3. **Interpretation recorded, not a blocker:** the spec's auditability list also names *permission-sensitive actions*. This unit reads those as the actions the permissions protect (generation, annulment/regeneration, template management, delivery/WhatsApp confirmation, discard) and proves each one's entry and actor; it does **not** invent an audit entry for a denied attempt, which is not a change the spec asks to record. If the intent was "denied attempts must be audited too", that is new behaviour for a separate decision.
+
+## Slice 7 unit 7.d — Rollout seeding and rollback controls (final Slice 7 unit)
+
+**Status:** implementation complete, all focused suites green, no commit.
+**Persisted task row:** the new row `- [x] 7.d Rollout seeding and rollback controls …` under `### Slice 7 units`. The two aggregate slice-level rows this unit delivers
+(`GREEN: add rollout seeding/assignment path …` and `TRIANGULATE: test rollback controls …`) were **left `[ ]`** and annotated `**DELIVERED as unit 7.d**`, exactly like the `7.c` precedent —
+they are slice-level labels, not missing work. No aggregate row was marked `[x]`.
+
+### The defect (verified by the parent, re-verified here)
+
+`database/seeders/CoursePermissionsSeeder.php` created the 13 `course-talks.*` permissions plus the role grants, but **nothing in `app/` or `DatabaseSeeder` called it** — only tests did
+(`grep -rn 'CoursePermissionsSeeder'` → the seeder itself + a dozen `$this->seed(CoursePermissionsSeeder::class)` calls under `tests/Feature/Courses/`). On a real `php artisan db:seed` the permissions
+did not exist and no role held them, so the module was unreachable for every non-admin role: the sidebar entry is gated on `@can('viewAny', CourseActivity::class)` → `course-talks.view`, every module
+route answers 403. The 423+ green course tests could not prove otherwise because **each one seeds the permissions itself — the tests seed what the deploy does not.**
+**Refinement measured in this unit:** the seeded ADMIN was NOT locked out on this branch — `app/Providers/AuthServiceProvider.php` installs a `Gate::before` role bypass that returns `true` for
+`hasRole('admin')`. So the accurate statement is "unreachable for every non-admin role, and admin only by the role bypass, not by holding a permission". Both facts are asserted (see tests 2 and 7).
+
+### What changed
+
+1. `database/seeders/DatabaseSeeder.php` — added `CoursePermissionsSeeder::class` to the ordered `$this->call([...])`, **after** `RolesAndPermissionsSeeder`/`AdditionalPermissionsSeeder`/
+   `SupportPermissionsSeeder` and **before** `AdminUserSeeder`. Order is load-bearing: `RolesAndPermissionsSeeder` uses `syncPermissions`, so a course seeder running before it would have its grants
+   wiped. Idempotent by construction (`firstOrCreate` + merge-then-sync in `CoursePermissionsSeeder`).
+2. `database/seeders/DatabaseSeeder.php` — the rollback guidance as a code comment on the seeding path (per design "Keep rollback non-destructive" and the task's "code comments/config only where
+   existing project conventions support it"): remove the call or revoke the `course-talks.*` permissions to hide routes + menu; that deletes nothing (generated docs, uploads, delivery history, audit
+   rows and private files survive); a QR link is revoked only by an explicit annul/regeneration; the eligibility job is a no-op so there is nothing to drain; and the admin `Gate::before` bypass means
+   hiding the module from admin is a product decision. **No new document was created.**
+3. `tests/Feature/Courses/CourseRolloutTest.php` (new, 374 lines) — 9 tests / 92 assertions.
+4. `tests/Feature/SeedersTest.php` — the two `Permission::count()` expectations moved `130 → 143` (see counts below).
+5. `openspec/changes/course-talks-management/tasks.md` — the `7.d` row + two aggregate-row notes.
+
+`database/seeders/CoursePermissionsSeeder.php` was **left unchanged**: its role assignment already matches the shipped set (admin = all 13; supervisor = `course-talks.view` read-only). The design
+specifies no broader supervisor grant, so adding one would be inventing a product decision. The rollout test pins that assignment.
+
+### Role assignment settled on (and why)
+
+| Role | `course-talks.*` held after the full seed | Justification |
+|---|---|---|
+| `admin` | all 13 | the module owner / operator |
+| `supervisor` | `course-talks.view` only | module read access → sidebar entry + read surfaces open. The design specifies no course grant for supervisor beyond what the seeder declares (`design.md` rollout step 6 "enable menu for authorized roles only after seed permissions are assigned"); inventing `documents.send`/`revoke`/`templates.manage` would be a product decision this change does not own |
+| `vendedor` | none | never granted by any course seeder |
+
+### Test counts moved (old → new, and why)
+
+| Assertion | File:line | Old | New | Why correct |
+|---|---|---|---|---|
+| full-seed permission count | `tests/Feature/SeedersTest.php:54` | `130` | `143` | the full seed now really creates the 13 `course-talks.*` permissions (130 + 13) |
+| re-seed permission count | `tests/Feature/SeedersTest.php:72` | `130` | `143` | same 13 rows, and the assertion now pins that re-seeding keeps it at 143 (no duplicates) |
+| `--filter=Course` regression | (suite total) | 447 tests / 3,396 assertions | 456 tests / 3,488 assertions | exactly this unit's 9 tests / 92 assertions |
+
+**Unchanged, deliberately:** `tests/Feature/RolesAndPermissionsTest.php` (90 / 107 / 70 / 82) does **not** move — it seeds `RolesAndPermissionsSeeder` and `AdditionalPermissionsSeeder` individually and
+never runs `CoursePermissionsSeeder`. `--filter=CourseCertificateQrSecurityTest` stays 15 / 182. No other test counts `Permission::count()` after `DatabaseSeeder` (`UsersTest.php` seeds it but asserts
+no counts).
+
+### Strict TDD cycle evidence
+
+| Phase | Command | Real result |
+|---|---|---|
+| **RED** (before wiring the seeder) | `php.exe artisan test --filter=CourseRolloutTest` | `tests 9 passed 2 failed 4 errors 3 assertions 15`. Failures: permission `course-talks.view` absent after the real full seed; a supervisor saw **no** sidebar entry (full dashboard HTML dumped); module contributed **0** of its 13 permissions; a supervisor was **403** on the module. Errors: `hasPermissionTo('course-talks.view')` and `revokePermissionTo('course-talks.view')` threw `There is no permission named course-talks.view for guard web`. The 2 passes are the negative guard (a no-permission user is denied) and the eligibility no-op — both hold regardless, by design. |
+| **GREEN** (after wiring `DatabaseSeeder`) | `php.exe artisan test --filter=CourseRolloutTest` | `tests 9 passed 9 failed 0 errors 0 assertions 88` |
+| **TRIANGULATE** | added: exactly 13 `course-talks.*` rows (no accidental 14th); the whole module blocks after revocation (`alerts.index`, `templates.index`, not only `activities.index`); a discarded follow-up keeps its private file. | `tests 9 passed 9 assertions 92` |
+| **REFACTOR** | compacted the new suite from 435 → 374 lines (no assertion dropped) and re-ran. | `tests 9 passed 9 assertions 92` |
+
+**Why the RED test would have FAILED before this unit:** it calls `$this->seed(DatabaseSeeder::class)` and asks whether the REAL seed leaves the module usable — it never calls
+`CoursePermissionsSeeder` itself. Pre-fix the real seed created none of the 13 permissions, so the permission-existence assertion failed, the supervisor got no sidebar entry and 403, and the module
+contributed 0/13 permissions. Every other course test seeds the permission it asserts, so all of them stayed green while the deploy was broken. That is the point of this suite.
+
+### How the rollback controls are proven
+
+| Design rule | Test | Proof |
+|---|---|---|
+| hide routes/menu by permission, touch no data | `test_removing_the_module_view_permission_hides_the_routes_and_the_menu_without_touching_data` | revoking `course-talks.view` from `supervisor`: dashboard loses `sidebar-course-talks`, `activities.index`/`alerts.index`/`templates.index` all 403. Rows (`course_activities`, `course_academic_documents`, `course_commercial_documents`, `documents`), the two private files, the QR token hash and the audit rows are all unchanged; the `course-updated` audit row survives; re-granting restores access. |
+| preserve generated files / uploads / audit rows | same test | asserted explicitly after the rollback (files still on the `docs` disk, `Activity::count()` unchanged). |
+| QR revoked only by explicit annul/replacement | `test_a_qr_link_is_revoked_only_by_an_explicit_annulment_never_by_hiding_access_or_discarding_a_follow_up` | the public `/certificate/qr/{token}` stays 200 through (1) hiding access, (2) an unauthorized annul attempt (403), (3) a delivery-follow-up **discard**; only an authorized `CertificateQrTokenService::revoke()` flips `qr_token_revoked_at` and turns the link 404. |
+| stop eligibility jobs through queue/config | `test_the_only_eligibility_job_is_a_documented_no_op_so_a_rollback_has_no_job_to_stop` | the module's only eligibility job, `App\Jobs\Courses\EvaluateCourseDocumentEligibility`, is a documented no-op. With a proven-ELIGIBLE enrollment, `handle()` wrote **0** `course_academic_documents` and **0** files. There is no asynchronous generation to stop and no queue/config switch is introduced. |
+| admin rollback reality | `test_revoking_the_permission_hides_the_module_from_non_admin_roles_while_admin_keeps_the_role_bypass` | after `revokePermissionTo('course-talks.view')` on `admin`, `hasPermissionTo` is false but the admin still gets 200 — the `Gate::before` role bypass. Recorded, not "fixed": hiding it from admin is a product decision. |
+
+### Human acceptance (advisory — NOT run)
+
+Per the `acceptance-checklist` skill, these are the human scenarios a person should still run against a real deploy; every one is **`not run`** here (automated evidence is listed separately).
+**Preconditions:** a real database, `php artisan db:seed`, the bootstrap admin credentials from `.env`, and a supervisor user.
+
+| # | Action | Expected visible result | Failure evidence to capture | Status |
+|---|---|---|---|---|
+| 1 | deploy → `php artisan db:seed` → log in as admin | the **Cursos y charlas** sidebar entry is visible and opens the activity list | screenshot of the sidebar; HTTP 403 | **not run** |
+| 2 | log in as a supervisor (holds `course-talks.view`) | the sidebar entry is visible; the activity list opens; management buttons are not offered | sidebar screenshot; 403 | **not run** |
+| 3 | log in as a user with no course permission | no **Cursos y charlas** entry; typing the URL answers 403 | screenshot; status code | **not run** |
+| 4 | rollback drill: revoke `course-talks.view` from supervisor, reload | entry disappears, routes 403, and a previously generated certificate + its attachment are still present in storage | before/after screenshots; row/file evidence | **not run** |
+| 5 | rollback drill: confirm a QR certificate link still resolves after the rollback | the public QR URL still streams the PDF | QR URL + response | **not run** |
+
+Automated evidence that must not be mistaken for human acceptance: `CourseRolloutTest` 9/92, `SeedersTest` 2/31, `RolesAndPermissionsTest` 10/69, `--filter=Course` 456/3,488, `CourseCertificateQrSecurityTest` 15/182, full suite 1259 with the 11 documented external failures + 12 pre-existing campaign errors.
+
+### Database-change safety (advisory)
+
+- **Target:** local/test (in-memory SQLite via `phpunit.xml`); no production execution performed or advised here.
+- **Schema change:** none. No migration was added or altered.
+- **Data change:** additive, idempotent rows — 13 `permissions` rows and role-permission pivots. `firstOrCreate` + merge-then-sync means re-seeding converges; nothing is deleted or rewritten.
+- **Rollback reality:** dropping the seeder call leaves the permission rows in place (they do not have to be deleted for the module to be hidden); the design's rollback is a hide, not a delete.
+- **Production action:** running `php artisan db:seed` on a real database remains an **owner action** under the owner workflow; this unit only makes the seeder reachable. `php artisan migrate` is still
+  a pending owner action (the two commercial-document migrations, see `known-limitations.md`).
+
+### Files changed
+
+| File | Kind | Lines |
+|---|---|---|
+| `database/seeders/DatabaseSeeder.php` | fix + rollback comment | +22 / −0 |
+| `tests/Feature/Courses/CourseRolloutTest.php` | new rollout + rollback suite | +374 (new file) |
+| `tests/Feature/SeedersTest.php` | counts 130 → 143 (two places) | +2 / −2 |
+| `openspec/changes/course-talks-management/tasks.md` | bookkeeping (`7.d` row + 2 notes) | +3 / −2 |
+| `openspec/changes/course-talks-management/apply-progress.md` | bookkeeping | this section |
+
+### Changed-line count / review workload
+
+```
+$ git diff --numstat
+22    0    database/seeders/DatabaseSeeder.php
+2     2    tests/Feature/SeedersTest.php
+```
+New untracked file: `tests/Feature/Courses/CourseRolloutTest.php` (374 lines).
+
+- **Total: 398 added / 2 deleted = 400 changed lines — exactly the 400-line budget.** The new rollout suite is 94% of it and is the mandated A+B+C coverage; the production fix is 22 lines.
+- No commit, push, branch or worktree. Nothing staged.
+
+### Commands and results (exact, sequential)
+
+1. **RED** — `php.exe artisan test --filter=CourseRolloutTest` → `{"tests":9,"passed":2,"failed":4,"errors":3,"assertions":15}` (before wiring the seeder).
+2. `--filter=SeedersTest` (fresh failure) → `{"tests":2,"failed":2,"assertions":25}`: `Failed asserting that 143 is identical to 130` in both tests.
+3. **GREEN** — `--filter=CourseRolloutTest` → `{"tests":9,"passed":9,"assertions":88}`.
+4. `--filter=SeedersTest` (after the count update) → `{"tests":2,"passed":2,"assertions":31}`.
+5. `--filter=RolesAndPermissionsTest` → `{"tests":10,"passed":10,"assertions":69}` (unchanged).
+6. `--filter=Course` regression → `{"tests":456,"passed":456,"assertions":3488}` (baseline 447 / 3,396).
+7. `--filter=CourseCertificateQrSecurityTest` → `{"tests":15,"passed":15,"assertions":182}` (unchanged).
+8. **TRIANGULATE + REFACTOR** — `--filter=CourseRolloutTest` → `{"tests":9,"passed":9,"assertions":92}`.
+9. Full suite (`php.exe artisan test`) → `{"tests":1259,"passed":1236,"failed":11,"errors":12,"assertions":6570}` — exactly the 11 documented external failures (`suite-baseline.md`) and the 12
+   pre-existing campaign/Livewire errors that `7.c` already recorded; **no new failures**. Pre-7.d full suite was 1250 tests, so +9 = this unit's suite.
+
+### Deviations
+
+1. **`CoursePermissionsSeeder.php` was not modified.** The brief allowed touching it "only if its role assignment needs to match the shipped permission set". It already does, so it was left byte-for-byte
+   and the assignment is pinned by a test instead.
+2. **The rollback comment lives in `DatabaseSeeder.php`, not `CoursePermissionsSeeder.php`** — the seeding *path* is the `$this->call([...])` line, and `DatabaseSeeder.php` is squarely inside the
+   allowed edit surface.
+3. **The measured reality corrects the brief's "not even admin" claim.** Admin reaches the module through the role-based `Gate::before` bypass; that is asserted and reported rather than silently
+   accepted. The defect for every non-admin role is exactly as described.
+4. **The rollback test hides the module via `supervisor`, not `admin`**, because revoking a permission cannot hide the module from an admin — see (3).
+5. **The eligibility-job control is a no-op, stated plainly** rather than a new queue/config switch being invented (design's "if introduced" never materialised).
+6. **`openspec/config.yaml` not rewritten** (still points at `b12-ui`, as the brief instructed).
+7. **`vendor/bin/pint` not run** — the repo is not pint-clean.
+
+### Remaining tasks (unchecked rows; none are this unit's work)
+
+The aggregate Slice 7 rows stay `[ ]` by design (slice-level labels), with the two rollout rows annotated as delivered:
+`- [ ] RED: add tests for pending and overdue counts …`, `- [ ] GREEN: implement CourseAlertService …`, `- [ ] GREEN: wire main dashboard …`, `- [ ] GREEN: ensure all material changes emit …`,
+`- [ ] GREEN: add rollout seeding/assignment path …` (**DELIVERED as unit 7.d**), `- [ ] TRIANGULATE: test rollback controls …` (**DELIVERED as unit 7.d**), `- [ ] REFACTOR: consolidate dashboard
+query scopes …`, `- [ ] Run full verification with php artisan test …`, `- [ ] Review Slice 7 for alerts, audit completeness, rollout safety …` (parent-owned). The other `[ ]` rows (lines 24, 37, 81,
+95, 109, 116, 127, 130, 134–142, 172–175, 185, 195, 206) belong to other slices/units and were not touched.
+
+### Structured status / actionContext
+
+- Artifact store consumed: `openspec` (files under `openspec/changes/course-talks-management/`). No native dispatcher was invoked (the parent supplied the change and scope).
+- `actionContext` warnings: none. All edits stayed inside the allowed surfaces (`database/seeders/DatabaseSeeder.php`, `tests/Feature/Courses/CourseRolloutTest.php`, `tests/Feature/SeedersTest.php`,
+  the two bookkeeping files). No domain behaviour, route, policy, permission name, enum, model, migration, delivery/generation service or Blade view was touched.
+- Handed off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit, pre-push, pre-PR or release gate was run.
