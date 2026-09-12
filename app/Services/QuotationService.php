@@ -55,7 +55,11 @@ class QuotationService
     {
         $this->assertCreatable($data);
 
-        return DB::transaction(function () use ($data, $actor): Quotation {
+        // V2 (B12): capture the transaction result so the post-commit event
+        // emission can run (returning DB::transaction() directly made the
+        // event() call below unreachable, exactly as it did in
+        // OpportunityService::markWon/markLost).
+        $quotation = DB::transaction(function () use ($data, $actor): Quotation {
             $data['number'] = $this->codes->next('quotation');
             $data['currency_code'] ??= $this->defaultCurrency();
             $data['owner_id'] ??= $actor->id;
@@ -91,8 +95,6 @@ class QuotationService
 
             return $quotation->refresh();
         });
-
-        $quotation->refresh();
 
         // V2 (B12): automation engine emission after the transaction
         // commits. Never inside DB::transaction.
@@ -259,7 +261,10 @@ class QuotationService
             );
         }
 
-        return DB::transaction(function () use ($quotation, $actor, $note): Quotation {
+        // V2 (B12): capture the transaction result so the post-commit event
+        // emission can run (returning DB::transaction() directly made the
+        // event() call below unreachable).
+        $accepted = DB::transaction(function () use ($quotation, $actor, $note): Quotation {
             $quotation->status = 'accepted';
             $quotation->accepted_at = now();
             $quotation->updated_by = $actor->id;
@@ -280,13 +285,11 @@ class QuotationService
             return $quotation->refresh();
         });
 
-        $quotation->refresh();
-
         // V2 (B12): automation engine emission after the transaction
         // commits. Never inside DB::transaction.
-        event(new QuotationAccepted($quotation, $actor));
+        event(new QuotationAccepted($accepted, $actor));
 
-        return $quotation;
+        return $accepted;
     }
 
     /**

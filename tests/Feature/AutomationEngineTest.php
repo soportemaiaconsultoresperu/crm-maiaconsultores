@@ -17,11 +17,11 @@ use App\Models\AutomationExecutionStep;
 use App\Models\AutomationRule;
 use App\Models\Customer;
 use App\Models\Lead;
-use App\Models\Quotation;
-use App\Models\QuotationItem;
 use App\Models\Tax;
 use App\Models\User;
 use App\Services\Automation\Actions\AssignOwnerAction;
+use App\Services\QuotationService;
+use Database\Seeders\CatalogSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Database\Seeders\SettingsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -43,6 +43,7 @@ class AutomationEngineTest extends BaseTestCase
     {
         parent::setUp();
 
+        $this->seed(CatalogSeeder::class);
         $this->seed(RolesAndPermissionsSeeder::class);
         $this->seed(SettingsSeeder::class);
 
@@ -77,32 +78,32 @@ class AutomationEngineTest extends BaseTestCase
         $this->assertSame(1, AutomationExecution::query()->where('rule_id', $rule->id)->count());
     }
 
+    /**
+     * A rule bound to the quotation trigger must fire from the SERVICE, not
+     * from a hand-emitted event. The previous version of this test called
+     * event(new QuotationCreated(...)) directly, which is exactly why the
+     * unreachable emission inside QuotationService::create() went unnoticed.
+     *
+     * NOTE: this file is pinned to 10 tests / 21 assertions by
+     * HardeningCrossCutTest::test_engine_test_suite_remains_10_over_10_green
+     * (outside this unit's edit surfaces), so the test is replaced in place
+     * and the additional acceptance-trigger proof lives in
+     * {@see QuotationAutomationTriggerTest}.
+     */
     public function test_quotation_created_event_triggers_matching_rule(): void
     {
         $rule = $this->makeRule(QuotationCreated::class);
 
         $this->makeConditionGroup($rule, [['field' => 'status', 'operator' => 'eq', 'value' => 'draft', 'value_type' => 'string']]);
 
-        Tax::query()->firstOrCreate(['slug' => 'igv'], ['name' => 'IGV', 'rate' => 18, 'sort' => 1, 'is_active' => true]);
+        $tax = Tax::query()->firstOrCreate(['slug' => 'igv'], ['name' => 'IGV', 'rate' => 18, 'sort' => 1, 'is_active' => true]);
 
-        $quotation = Quotation::factory()->forOwner($this->admin)->draft()->create();
-        QuotationItem::query()->create([
-            'quotation_id' => $quotation->id,
-            'description' => 'Servicio',
-            'quantity' => 1,
-            'unit_price' => 100,
-            'discount_amount' => 0,
-            'tax_id' => null,
-            'tax_name' => '',
-            'tax_rate' => 0,
-            'line_subtotal' => 100,
-            'line_tax' => 0,
-            'line_total' => 100,
-            'created_by' => $this->admin->id,
-            'updated_by' => $this->admin->id,
-        ]);
-
-        event(new QuotationCreated($quotation, $this->admin));
+        app(QuotationService::class)->create([
+            'lead_id' => Lead::factory()->forOwner($this->admin)->create()->id,
+            'items' => [
+                ['description' => 'Servicio', 'quantity' => 1, 'unit_price' => 100, 'tax_id' => $tax->id],
+            ],
+        ], $this->admin);
 
         $this->assertSame(1, AutomationExecution::query()->where('rule_id', $rule->id)->count());
     }

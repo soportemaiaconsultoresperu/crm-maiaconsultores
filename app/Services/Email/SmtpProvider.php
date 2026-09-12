@@ -6,6 +6,7 @@ namespace App\Services\Email;
 
 use App\Contracts\Email\EmailProvider;
 use App\Mail\GenericEmail;
+use App\Models\Email\EmailAttachment;
 use App\Models\Email\EmailMessage;
 use App\Models\Email\EmailParticipant;
 use App\Models\IntegrationAccount;
@@ -39,8 +40,19 @@ class SmtpProvider implements EmailProvider
     public function send(EmailMessage $message): array
     {
         try {
+            $message->loadMissing('attachments');
+
+            // Attachments live on EmailAttachment rows (local disk), the same
+            // source GmailProvider reads; without this the SMTP channel sent no
+            // PDF at all.
             /** @var \App\Mail\GenericEmail $mailable */
-            $mailable = new GenericEmail($message);
+            $mailable = new GenericEmail($message, $message->attachments
+                ->map(fn (EmailAttachment $attachment): array => [
+                    'storage_path' => (string) $attachment->storage_path,
+                    'filename' => (string) $attachment->filename,
+                    'mime' => (string) $attachment->mime,
+                ])
+                ->all());
             $recipients = $message->participants
                 ->where('kind', EmailParticipant::KIND_TO)
                 ->pluck('email')

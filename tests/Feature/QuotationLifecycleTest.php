@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Events\V2\QuotationAccepted;
+use App\Events\V2\QuotationCreated;
 use App\Exceptions\InvalidOperationException;
 use App\Models\Tax;
 use App\Models\User;
@@ -10,6 +12,8 @@ use Database\Seeders\CatalogSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Database\Seeders\SettingsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Tests\TestCase;
 
 /**
@@ -53,6 +57,128 @@ class QuotationLifecycleTest extends TestCase
                 ],
             ],
         ], $overrides);
+    }
+
+    /**
+     * Automation trigger contract (docs/v2/00-baseline.md): QuotationService::create()
+     * must dispatch QuotationCreated for the persisted quotation and its actor.
+     *
+     * The event is dispatched THROUGH the service on purpose: emitting it by
+     * hand (event(new QuotationCreated(...))) is what hid the defect, because
+     * the production emission inside the service was unreachable code.
+     */
+    public function test_create_dispatches_quotation_created_for_the_persisted_quotation_and_actor(): void
+    {
+        Event::fake([QuotationCreated::class]);
+
+        $quotation = $this->service->create($this->validData(), $this->actor);
+
+        Event::assertDispatched(
+            QuotationCreated::class,
+            fn (QuotationCreated $event): bool => $event->quotation->id === $quotation->id
+                && $event->quotation->status === 'draft'
+                && $event->actorId() === $this->actor->id
+        );
+    }
+
+    /**
+     * Same contract for the acceptance transition.
+     */
+    public function test_accept_dispatches_quotation_accepted_for_the_persisted_quotation_and_actor(): void
+    {
+        Event::fake([QuotationAccepted::class]);
+
+        $quotation = $this->service->create($this->validData(), $this->actor);
+        $accepted = $this->service->accept($quotation, $this->actor, 'Aceptada por el cliente');
+
+        Event::assertDispatched(
+            QuotationAccepted::class,
+            fn (QuotationAccepted $event): bool => $event->quotation->id === $accepted->id
+                && $event->quotation->status === 'accepted'
+                && $event->actorId() === $this->actor->id
+        );
+    }
+
+    /**
+     * The emission must happen AFTER the service transaction commits — never
+     * inside it (B12 contract). A listener observes the transaction depth at
+     * emission time and it must equal the depth outside the service call: one
+     * level deeper means the event fired inside the transaction.
+     * (RefreshDatabase already wraps the test in its own transaction, so the
+     * baseline is not necessarily 0.)
+     */
+    public function test_quotation_created_is_emitted_only_after_the_transaction_commits(): void
+    {
+        $levelAtEmission = null;
+        $levelOutside = DB::transactionLevel();
+
+        Event::listen(QuotationCreated::class, function () use (&$levelAtEmission): void {
+            $levelAtEmission = DB::transactionLevel();
+        });
+
+        $this->service->create($this->validData(), $this->actor);
+
+        $this->assertSame(
+            $levelOutside,
+            $levelAtEmission,
+            'QuotationCreated must be emitted after the enclosing transaction commits.'
+        );
+    }
+
+    public function test_quotation_accepted_is_emitted_only_after_the_transaction_commits(): void
+    {
+        $quotation = $this->service->create($this->validData(), $this->actor);
+
+        $levelAtEmission = null;
+        $levelOutside = DB::transactionLevel();
+
+        Event::listen(QuotationAccepted::class, function () use (&$levelAtEmission): void {
+            $levelAtEmission = DB::transactionLevel();
+        });
+
+        $this->service->accept($quotation, $this->actor);
+
+        $this->assertSame(
+            $levelOutside,
+            $levelAtEmission,
+            'QuotationAccepted must be emitted after the enclosing transaction commits.'
+        );
+    }
+
+    /**
+     * Triangulation: a rejected create must not emit the trigger at all.
+     */
+    public function test_failed_create_does_not_dispatch_quotation_created(): void
+    {
+        Event::fake([QuotationCreated::class]);
+
+        try {
+            $this->service->create(['items' => [['description' => 'X', 'quantity' => 1, 'unit_price' => 1]]], $this->actor);
+        } catch (\InvalidArgumentException) {
+            // Expected: neither lead nor customer was supplied.
+        }
+
+        Event::assertNotDispatched(QuotationCreated::class);
+    }
+
+    /**
+     * Triangulation: the trigger fires once per accepted transition, not once
+     * per accept() call.
+     */
+    public function test_second_accept_does_not_dispatch_quotation_accepted_again(): void
+    {
+        Event::fake([QuotationAccepted::class]);
+
+        $quotation = $this->service->create($this->validData(), $this->actor);
+        $this->service->accept($quotation, $this->actor);
+
+        try {
+            $this->service->accept($quotation, $this->actor);
+        } catch (InvalidOperationException) {
+            // Expected: only draft/sent quotations can be accepted.
+        }
+
+        Event::assertDispatchedTimes(QuotationAccepted::class, 1);
     }
 
     public function test_create_then_send_then_accept(): void
