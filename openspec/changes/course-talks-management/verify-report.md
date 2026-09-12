@@ -1,327 +1,271 @@
 # Verify report — `course-talks-management`
 
-- **Phase**: sdd-verify (independent judgement; read-only on the product).
-- **Artifact store**: OpenSpec (`openspec/changes/course-talks-management/`).
-- **Repo**: `C:/laragon/www/crm-maia-consultores`, branch `feat/course-talks-slice-6-ui`, HEAD `7dfbcc2`, working tree clean.
+- **Phase**: sdd-verify, re-verification after remediation (independent judgement; read-only on the product).
+- **Artifact store**: OpenSpec (`openspec/changes/course-talks-management/`). Read: `spec.md`, `tasks.md`, `apply-progress.md`, `known-limitations.md`, `suite-baseline.md`, the code and the tests.
+- **Repo**: `C:/laragon/www/crm-maia-consultores`, branch `feat/course-talks-slice-6-ui`, HEAD `ce53b54`, working tree clean, nothing staged.
 - **Runner**: `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH). Every run sequential, one command per shell block.
 - **Skills loaded**: `acceptance-checklist`, `project-discovery` (injected paths).
-- **Strict TDD**: active (`openspec/config.yaml` `delivery.strict_tdd: true`; the note that `config.yaml` nominally documents the unrelated `b12-ui` change stands, but the strict-TDD requirement was supplied for this phase and is honoured).
-- **Structured status consumed (parent-supplied, native)**: `artifactStore=openspec`, `taskProgress=117/117` (`allComplete: true`), `nextRecommended=verify`, `verify=ready`, `archive=blocked` (verifyReport missing). Items this report produced that the status could not see are listed under Findings.
+- **Strict TDD**: active (`openspec/config.yaml` `delivery.strict_tdd: true`). The note that `config.yaml` nominally documents the unrelated `b12-ui` change stands; the strict-TDD requirement was supplied for this phase and is honoured.
+- **Structured status / actionContext**: no native `sdd-status` JSON was supplied for this re-verification. Readiness was resolved from the artifacts directly: the change is `openspec`-backed, all three required artifacts exist and are non-empty (`spec.md` 22 requirements / 34 scenarios, `tasks.md` **117 checked, 0 unchecked**, `apply-progress.md` with a remediation section at the end). No `blockedReasons` and no `actionContext` blocker. The previous report is REPLACED by this one and this report stands on its own.
+
+**What changed since the previous report:** the previous verification returned 19 PASS / 2 PARTIAL / 1 FAIL. Its FAIL (automatic certificate generation) was remediated in `ce53b54`; that requirement is now **PASS**. Its WARNING-2 (migration gap understated) is now **resolved** — `known-limitations.md` item 3 states all six pending migrations. Its WARNING-1 (activity-type filter) is **re-classified from WARNING to FAIL**, because the scenario carries a normative MUST. One new CRITICAL (strict-TDD evidence for the remediation unit) and two new WARNINGs are recorded below. Everything else in the previous report still holds and was re-confirmed by my own runs.
 
 ---
 
 ## 1. Verdict summary
 
-| Requirement (delta spec) | Verdict |
-|---|---|
-| Unified activities module | **PARTIAL** — unified list and visible `Tipo` pass; the required filter by `Curso`/`Charla`/all is not implemented |
-| Activity, edition, and class model | PASS |
-| Edition states and modality | PASS |
-| Participants and enrollment | PASS |
-| Enrollment and attendance states | PASS |
-| Courses versus talks | PASS |
-| Course grades and averaging | PASS |
-| Payment completion before documents | PASS |
-| Document types | PASS |
-| Automatic certificate generation | **FAIL** — nothing generates when the final condition completes |
-| Configurable PDF template matching reference design | PASS |
-| Certificate filename pattern | PASS |
-| Unique secure QR access | PASS |
-| Revocation and regeneration | PASS |
-| Receipts, invoices, and 18% IGV | PASS |
-| Email delivery | PASS |
-| Assisted WhatsApp delivery | PASS |
-| Delivery history and last sent date | PASS |
-| Pending and one-day configurable alerts | PASS |
-| Permissions | **PARTIAL** — every clause enforced except “viewing audit/history”, whose permission has no surface |
-| Auditability | PASS |
-| v1 non-goals | PASS (structural absence; no dedicated test for the tax-generation non-goal) |
-
-**Counts: 22 requirements — 19 PASS, 2 PARTIAL, 1 FAIL. 30 scenarios — 28 satisfied, 2 unmet.**
-
----
-
-## 2. Requirement-by-requirement evidence
-
-### 2.1 PASS — Activity, edition, and class model
-
-- **Create an edition from an activity** — `tests/Feature/Courses/CourseEditionCreateHttpTest.php::test_authorized_user_can_open_the_form_and_create_an_edition` (authorized user opens the form and the edition is persisted under its activity).
-- **Reject duplicate activity code** — `tests/Feature/Courses/CourseActivityCreateHttpTest.php::test_duplicate_activity_code_is_rejected_without_creating_a_second_record` (`assertDatabaseCount`, original code/row unchanged) and `tests/Feature/Courses/CourseActivityEditionServiceTest.php::test_activity_service_rejects_duplicate_manual_codes_and_emits_course_audit_event`.
-- **Structural (activity/edition/class fields)** — `database/migrations/2026_08_26_000001_create_course_domain_foundation_tables.php:4` (`course_activities`: unique `code`, `type`, `name`, `official_academic_hours`, `base_syllabus_json`, `reference_price`, talk flags); `:5` (`course_editions`: `state`, `modality`, `starts_on`/`ends_on`, `address`, `access_url`, `price_amount`, `currency`, `syllabus_override_json`, `responsible_user_id`, `delivery_due_days`); `:6` (`course_edition_teachers`); `:7` (`course_sessions`: `session_date`, `starts_at`, `ends_at`, `teacher_name`, `topic`); `:11` (`course_attendances`).
-
-### 2.2 PASS — Edition states and modality
-
-- **Configure hybrid edition** — `tests/Feature/Courses/CourseEditionValidationTest.php::test_hybrid_editions_require_address_and_access_url`; `tests/Feature/Courses/CourseEditionCreateHttpTest.php::test_hybrid_edition_without_access_link_is_rejected_on_the_access_url_field`.
-- **States `Borrador`/`Programada`/`En curso`/`Finalizada`/`Cancelada`** — `app/Enums/Courses/CourseEditionState.php:3` (`label()` returns the spec’s Spanish labels verbatim); transitions `CourseEditionValidationTest::test_valid_edition_state_progression_is_persisted`, `::test_cancellation_is_allowed_only_before_finished`, `::test_invalid_state_transitions_are_rejected_without_mutating_edition`.
-- **Modalities `Presencial`/`Virtual`/`Híbrida`** — `app/Enums/Courses/CourseModality.php:3`; `CourseEditionValidationTest::test_presential_editions_require_an_address`, `::test_virtual_editions_require_an_access_url`.
-
-### 2.3 PASS — Participants and enrollment
-
-- **Enroll participant with minimum data** — `tests/Feature/Courses/CourseEnrollmentHttpTest.php::test_individual_enrollment_creates_a_minimum_participant_record`; `tests/Feature/Courses/CourseEnrollmentServiceTest.php::test_it_links_an_existing_contact_and_rejects_a_duplicate_edition_enrollment`.
-- **Company pays for multiple participants, separate academic records** — `CourseEnrollmentHttpTest::test_group_enrollment_creates_the_payer_group_and_one_enrollment_per_participant`; `CourseEnrollmentServiceTest::test_it_creates_minimum_participants_with_separate_academic_records_under_one_group_payer`. One row per edition+participant is enforced at the schema (`migration:10`, `unique(['course_edition_id','course_participant_id'])`) and in `CourseEnrollmentService`.
-
-### 2.4 PASS — Enrollment and attendance states
-
-- **Confirm talk participation** — `tests/Feature/Courses/CourseAttendanceAndGradesTest.php::test_talk_attendance_marks_participation_and_requests_eligibility_after_commit`; `tests/Feature/Courses/CourseAttendanceHttpTest.php::test_talk_attendance_confirms_participation_and_the_matrix_shows_it`, `::test_talk_participation_is_confirmed_by_excused_and_late_statuses`.
-- **Attendance informative for courses** — `CourseAttendanceAndGradesTest::test_course_attendance_is_informational_and_does_not_request_document_eligibility`; `CourseAttendanceHttpTest::test_course_attendance_is_presented_as_informational`.
-- **States supported** — `app/Enums/Courses/CourseEnrollmentState.php:3` (`enrolled`, `confirmed`, `in_progress`, `completed`, `withdrawn`, `no_show`).
-
-### 2.5 PASS — Courses versus talks
-
-- **Talk has no grades** — `CourseAttendanceAndGradesTest::test_talk_editions_reject_grade_recording`; `tests/Feature/Courses/CourseGradeHttpTest.php::test_talk_editions_offer_no_grade_inputs_and_reject_a_submission_with_a_visible_error` (no inputs rendered **and** the submission is refused — the assertion covers both the view and the domain, not just the view).
-
-### 2.6 PASS — Course grades and averaging
-
-- `tests/Unit/Courses/CourseGradeCalculatorTest.php::test_1249_average_is_participation` (`exactAverage '12.4900'`, `displayAverage '12.49'`, `roundedResult 12`, `FinalResult::Participation`).
-- `CourseGradeCalculatorTest::test_half_up_boundary_approves_1250_and_1260` (`12.50 → 13`/`Approved`, `12.60 → 13`/`Approved`).
-- `CourseGradeCalculatorTest::test_equal_weights_and_display_round_to_two_decimals_without_float_drift` (`12.3367` exact, `12.34` display — equal weight, two decimals, decimal-string arithmetic).
-- Persistence of the exact/display average and rounded result on the enrollment: `tests/Feature/Courses/CourseAttendanceAndGradesTest.php::test_course_attendance_is_informational_for_grade_result_and_decimal_average_has_no_float_drift`; one principal grade per session+enrollment at `migration:12` (`unique(['course_session_id','course_enrollment_id'])`).
-
-### 2.7 PASS — Payment completion before documents
-
-- `tests/Feature/Courses/CourseEligibilityTest.php::test_unpaid_invalid_participant_unvalidated_course_reports_explicit_missing_conditions` (`missingConditions === ['payment','participant_data','edition_validations','academic_result']`; payment and academic state tracked independently).
-- `tests/Feature/Courses/CourseAcademicDocumentHttpTest.php::test_generation_is_refused_for_an_ineligible_enrollment_with_a_visible_spanish_error` (payment `Pending` → refusal, `assertDatabaseCount('course_academic_documents', 0)`).
-- `CourseEligibilityTest::test_refunded_withdrawn_and_no_show_enrollments_are_ineligible`.
-
-### 2.8 PASS — Document types
-
-- `tests/Feature/Courses/CourseAcademicDocumentGenerationTest.php::test_selects_participation_constancy_and_talk_certificate_from_eligibility_result` (`ParticipationConstancy` for a participation result, `TalkCertificate` for a certificate-bearing talk).
-- `CourseEligibilityTest::test_confirmed_paid_talk_with_certificate_is_eligible_for_talk_certificate`; `::test_talk_requires_confirmed_participation_and_certificate_enabled`.
-- Approval certificate on the paid+approved path: `CourseEligibilityTest::test_approved_paid_course_with_complete_data_and_validated_edition_is_eligible_for_approval_certificate`.
-
-### 2.9 FAIL — Automatic certificate generation
-
-**MUST:** *“The system MUST automatically generate the applicable academic document when all conditions are complete … WHEN the final missing condition becomes complete THEN the system MUST generate the corresponding PDF document automatically.”*
-
-**Observed:** the final-condition trigger fires an event and queues a job, and the job does nothing.
-
-- `app/Services/Courses/CourseEligibilityTriggerService.php:35` dispatches `EvaluateCourseDocumentEligibility` after commit for payment, grade, participation and edition-validation changes.
-- `app/Jobs/Courses/EvaluateCourseDocumentEligibility.php` evaluates eligibility and then returns **without generating**; the code states it in a comment: `// Future slice: dispatch document generation here. This slice only evaluates eligibility and intentionally leaves records unchanged.`
-- The only invocation of `CourseDocumentGenerationService::generate()` in `app/` is the operator-triggered HTTP action `app/Http/Controllers/CourseTalks/CourseAcademicDocumentController.php:121` (`POST course-talks/enrollments/{enrollment}/documents`, route `course-talks.documents.generate`). There is no listener for `CourseEligibilityEvaluationRequested` (`app/Listeners/` contains only V2 automations), no `GenerateCourseAcademicDocument` job, and no other auto-generation path.
-- The suite encodes the gap as intended behaviour: `tests/Feature/Courses/CourseEligibilityAutomationTest.php::test_job_evaluates_eligibility_but_does_not_create_documents_or_mutate_enrollment_data` asserts `assertDatabaseCount('course_academic_documents', 0)` after handling the job for a fully-eligible enrollment.
-
-The second sentence of the requirement (*type selected without the user choosing it*) **is** satisfied — the type is derived from `CourseEligibilityService`, never posted by the user.
-
-**Why this is a finding and not a documented limit:** `known-limitations.md` does **not** list it. `tasks.md` records the no-op on the Slice 2 row (“as a no-op until document generation exists”) — a forward reference that was never completed after Slice 3 built the generator — and `tasks.md` 7.d reframes it as a rollback virtue (“no asynchronous generation to stop”, “a documented no-op”). A documented deferred limitation and an undeclared, spec-contradicting gap are not the same thing, and this one was never surfaced as failing the delta spec.
-
-### 2.10 PASS — Configurable PDF template matching reference design
-
-- `tests/Feature/Courses/CourseCertificateTemplateTest.php::test_reference_template_renders_required_certificate_and_temario_pages` asserts the rendered HTML contains the participant, activity, modality, date range, `24 horas académicas`, issue location/date, certificate code, both signatures, `Temario` and the syllabus topics, and that the temario page is separated (`page-break-after: always`).
-- `resources/views/course-talks/certificates/reference.blade.php:40-59` (modalidad, duración, firmas, QR, código, temario).
-- Admin-configurable without removing business data: `CourseCertificateTemplateTest::test_admin_settings_customize_text_and_signatures_without_removing_required_data`; template CRUD + allowlists: `CourseCertificateTemplateTest` (18 tests) and `tests/Feature/Courses/CourseCertificateTemplateHttpTest.php` (18 tests).
-
-### 2.11 PASS — Certificate filename pattern
-
-- `tests/Unit/Courses/CourseCertificateFilenameTest.php::test_builds_human_readable_reference_filename` asserts the **exact** spec sample: `Certificado_Alvaro Segundo Alama Silva_Curso Avanzado de Saneamiento Ambiental_01-04.07.26_Maia Consultores.pdf`.
-- `app/Services/Courses/CourseCertificateFilenameService.php` builds `Certificado_{participante}_{curso}_{rango-fechas}_{empresa}.pdf` and sanitizes only forbidden filesystem characters (spaces preserved). Triangulated by `::test_sanitizes_forbidden_filesystem_characters_without_collapsing_spaces`.
-
-### 2.12 PASS — Unique secure QR access
-
-- `tests/Feature/Courses/CourseCertificateQrSecurityTest.php::test_token_creation_persists_only_hmac_hash_and_public_qr_streams_current_private_pdf` — stores `hash_hmac('sha256', $token, config('app.key'))`, `assertDatabaseMissing(... ['qr_token_hash' => $token])`, and the public route streams only the private PDF (`application/pdf`, streamed content).
-- `CourseCertificateQrSecurityTest::test_missing_revoked_or_replaced_tokens_return_same_generic_response_without_personal_data` — 404 with `Documento no vigente o no disponible.` and explicit assertions that document number, email, phone, grade and participant name are **absent** from the body.
-- `::test_qr_route_is_rate_limited_after_sixty_requests_without_leaking_private_data`; `::test_qr_token_hash_has_a_database_index_for_current_token_lookups`.
-
-### 2.13 PASS — Revocation and regeneration
-
-- `tests/Feature/Courses/CourseAcademicDocumentGenerationTest.php::test_regeneration_requires_reason_and_authorized_actor_replaces_and_revokes_the_old_document`.
-- `tests/Feature/Courses/CourseAcademicDocumentHttpTest.php::test_annulment_requires_a_reason`, `::test_annulment_revokes_the_qr_token_and_persists_the_actor_and_reason`, `::test_regeneration_replaces_the_current_document_with_a_new_current_one`, `::test_an_annulled_or_replaced_document_cannot_be_annulled_again`.
-- Domain guard re-read under lock: `CourseCertificateQrSecurityTest::test_annulment_refuses_a_stale_instance_whose_persisted_status_is_no_longer_current`.
-
-### 2.14 PASS — Receipts, invoices, and 18% IGV
-
-- `tests/Unit/Courses/CourseCommercialDocumentMoneyTest.php::test_boleta_and_factura_add_configured_igv_to_activity_and_certificate_charges` — `100.00 + 20.00 → subtotal 120.00, igv_rate 0.1800, igv 21.60, total 141.60` (exactly the spec scenario). `::test_uses_integer_half_up_arithmetic_without_float_rounding` proves the half-up integer arithmetic; `::test_recibo_has_no_igv`.
-- **Upload external invoice** — `tests/Feature/Courses/CourseCommercialDocumentRegistrationTest.php::test_it_registers_an_external_factura_for_one_enrollment_with_pending_upload_and_audit_values` + `::test_it_uploads_private_attachments_and_preserves_the_replaced_document_for_audit`; field persistence asserted in `tests/Feature/Courses/CourseCommercialDocumentHttpTest.php:336-341` (`series F001`, `payer_document_type`, `payer_document_number`, `issue_date`) and in `app/Services/Courses/CourseCommercialDocumentService.php:184-195`.
-- Attachment is a private `documents` row under `course-commercial-documents/{id}/…`; no public symlink.
-
-### 2.15 PASS — Email delivery
-
-- `tests/Feature/Courses/CourseDocumentEmailDeliveryTest.php::test_it_records_a_successful_email_attempt_with_recipient_override_snapshot_and_actor_activity`.
-- `::test_it_sanitizes_email_failures_without_marking_the_document_sent` (failure keeps the document unsent with a sanitized, visible error).
-- `::test_it_marks_an_unconfirmed_mail_operation_as_failed_without_a_send_timestamp`; `::test_it_publishes_the_email_job_only_after_the_enclosing_transaction_commits`.
-- Same contract for the commercial channel: `tests/Feature/Courses/CourseCommercialDocumentDeliveryTest.php::test_the_queued_commercial_email_carries_the_document_through_a_working_signed_link`, `::test_the_queued_commercial_email_names_the_specific_document_type`.
-
-### 2.16 PASS — Assisted WhatsApp delivery
-
-- `tests/Feature/Courses/CourseDocumentWhatsAppDeliveryTest.php::test_it_creates_an_idempotent_whatsapp_handoff_with_a_secure_document_link_and_pending_snapshot` (handoff opened → still `pending`).
-- `::test_it_confirms_an_existing_handoff_with_actor_and_recipient_before_marking_sent`; `::test_it_rejects_confirmation_when_the_recipient_does_not_match_the_existing_handoff`; commercial twin `CourseCommercialDocumentDeliveryTest::test_it_keeps_assisted_whatsapp_pending_until_manual_confirmation_for_an_enrollment_commercial_document`.
-
-### 2.17 PASS — Delivery history and last sent date
-
-- `tests/Feature/Courses/CourseAcademicDocumentDeliveryHttpTest.php::test_resending_appends_a_new_history_entry_without_touching_the_previous_one`.
-- `CourseDocumentEmailDeliveryTest::test_failed_email_history_remains_intact_when_a_later_resend_succeeds`; `::test_it_short_circuits_an_exact_duplicate_but_appends_a_resend_with_a_new_key`.
-- `CourseCommercialDocumentDeliveryHttpTest::test_the_history_shows_every_appended_attempt_of_one_comprobante`.
-
-### 2.18 PASS — Pending and one-day configurable alerts
-
-- **Overdue after one calendar day** — `tests/Feature/Courses/CourseDeliveryAlertsTest.php::test_a_follow_up_turns_overdue_only_after_the_configured_calendar_days_elapse` (issued exactly one day ago → pending, not overdue; last second of the boundary day → still not overdue; next calendar day → overdue).
-- **Configurable threshold** — `::test_the_configured_due_days_change_which_follow_ups_are_overdue`; default in `config/courses.php` (`delivery_due_days => 1`).
-- **Discard with reason, audit preserved, document still valid** — `::test_discarding_closes_the_alert_and_records_the_reason_the_actor_and_the_audit_entry` (`causer_id` and `course-delivery-alert-discarded` asserted; reason stored) and `::test_discarding_the_follow_up_leaves_the_certificate_and_its_qr_token_untouched`.
-- Dashboard/module visibility: `tests/Feature/Courses/CourseDeliveryAlertsDashboardTest.php::test_the_main_dashboard_shows_the_course_delivery_counts_to_a_user_who_can_see_the_module`, `::test_the_main_dashboard_shows_nothing_about_the_module_to_a_user_who_cannot_see_it`.
-
-### 2.19 PARTIAL — Permissions
-
-- **User without grade permission cannot grade** — `tests/Feature/Courses/CourseGradeHttpTest.php::test_users_without_grade_permission_neither_read_nor_write_the_matrix`.
-- **User without revocation permission cannot annul** — `CourseAcademicDocumentHttpTest::test_annulment_is_denied_without_the_revoke_permission`, `::test_generation_and_regeneration_are_denied_without_the_generate_permission`, `::test_regeneration_and_annulment_also_require_the_revoke_ability_the_domain_enforces`.
-- Separate permissions seeded and assignable — `tests/Feature/Courses/CoursePermissionPolicyTest.php::test_course_permissions_are_seeded_and_assignable` (13 `course-talks.*` permissions in `database/seeders/CoursePermissionsSeeder.php`); denials — `::test_course_policies_deny_restricted_actions_without_granular_permissions`; delivery/commercial/template denials — `CourseAcademicDocumentDeliveryHttpTest::test_all_delivery_actions_are_denied_without_the_send_permission`, `CourseCommercialDocumentHttpTest::test_the_commercial_actions_are_denied_and_not_offered_without_the_commercial_permission`, `CourseCertificateTemplateHttpTest::test_a_user_without_the_templates_permission_sees_no_access_control_and_is_denied_every_route`; module-wide denial — `tests/Feature/Courses/CourseTalksNavigationTest.php::test_user_without_module_view_permission_is_denied_every_module_screen_by_url` (403, never 200 and never 500).
-- **Unmet clause — “viewing audit/history”:** `course-talks.audit.view` is seeded and `CourseActivityPolicy::viewAudit` (`app/Policies/Courses/CourseActivityPolicy.php:33-36`) consumes it, but **no route, controller or view invokes that ability** — the module has no audit surface and the generic viewer uses the unrelated `audit.view`. Recorded in `known-limitations.md` item 9. The permission exists but is not enforced by anything reachable, so the clause is not satisfied in the running system.
-
-### 2.20 PASS — Auditability
-
-- **Grade correction** — `tests/Feature/Courses/CourseAuditTest.php::test_a_grade_correction_records_who_changed_it_when_the_previous_and_new_value_and_the_affected_enrollment` (who, when, previous value, new value, participant/edition).
-- 23 further enumerated changes covered by the same suite; the suite itself found and fixed two real defects (attendance had no trail; the explicit actor never reached the activitylog causer). Additional: `::test_a_grade_entered_by_an_explicit_actor_is_not_attributed_to_a_different_authenticated_user`, `::test_the_audit_trail_records_the_qr_token_hash_and_never_the_raw_qr_token`, `::test_no_activity_payload_carries_a_private_document_path_or_a_signed_link`.
-
-### 2.21 PASS — v1 non-goals
-
-- **No automatic WhatsApp send** — `CourseDocumentWhatsAppDeliveryTest::test_it_creates_an_idempotent_whatsapp_handoff_with_a_secure_document_link_and_pending_snapshot` (opening the handoff never marks it sent); `CourseAcademicDocumentDeliveryHttpTest::test_opening_the_whatsapp_handoff_creates_a_pending_entry_and_never_marks_the_document_sent`.
-- **No automatic tax generation** — structural absence: `grep -rln -i sunat app/ tests/ database/` returns only an unrelated 2026-08-20 migration; no tax-document generation, SUNAT, accounting-provider, gateway, student-portal or videoconference code exists in the module. There is **no dedicated test** for this non-goal (see Finding 6); the requirement is a MUST-NOT and is satisfied by absence.
-
----
-
-## 3. Task completion
-
-- `openspec/changes/course-talks-management/tasks.md`: **117 checked, 0 unchecked.** `grep -c '^\s*- \[ \]'` → `0`; `grep -c '^\s*- \[x\]'` → `117`. This matches the native dispatcher’s `taskProgress 117/117 (allComplete: true)` and the reconciled ledger. **No unchecked implementation task remains.**
-- The reconciliation section was read before judging, and its claims were checked rather than trusted:
-  - “Slices 1–5 implementation rows backed by the four-lens review plus parent verification” — the referenced per-unit commands/counts exist in `apply-progress.md` and the ones I re-ran match (see §4 and §6).
-  - `--filter=Course` regression figures — the latest recorded figure is 463 / 3,527 (foundation corrective unit); my re-run returned exactly **463 / 3,527**.
-  - “`CourseRolloutTest` runs the REAL full seed” — confirmed by reading the test (`$this->seed(DatabaseSeeder::class)`; the other course suites seed `CoursePermissionsSeeder` themselves).
-  - “Two rows were REFORMULATED rather than ticked” (view split, dashboard-scope refactor) — both state the residual and are recorded in `known-limitations.md`; accurate.
-- **Caveat:** the ledger does not claim the automatic-generation requirement, and every row can be `[x]` while §2.9 still fails — the ledger tracks the planned slices (which explicitly scoped the eligibility job as a no-op “until document generation exists”), not the delta spec’s outcome. A complete ledger is not by itself spec conformance.
-
----
-
-## 4. Test and validation commands (exact, sequential, real output)
-
-1. **Module regression** —
-   `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=Course`
-   → `{"tool":"phpunit","result":"passed","tests":463,"passed":463,"assertions":3527,"duration_ms":44729}`
-2. **Full suite** —
-   `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test`
-   → `{"tool":"phpunit","result":"failed","tests":1267,"passed":1244,"assertions":6613,"duration_ms":163287,"failed":11, ... "errors":12}`
-
-**Full-suite failures (the 11), verified identical to `suite-baseline.md`:**
-
-| # | Test | Group |
+| # | Requirement (delta spec) | Verdict |
 |---|---|---|
-| 1 | `AdminHttpTest::test_settings_update_round_trip_through_admin_form` | B |
-| 2 | `HistoryAndAuditCycleBreakTest::test_show_execution_renders_cycle_break_details_block` | A |
-| 3 | `HistoryAndAuditTest::test_show_filters_by_subject_type_query` | A |
-| 4 | `ActionEditorLivewireTest::test_webhook_action_renders_b14_banner` | A |
-| 5 | `ActionEditorLivewireTest::test_send_whatsapp_template_action_renders_b14_banner` | A |
-| 6 | `SendWhatsAppTemplateWidgetLivewireTest::test_b14_banner_is_present` | A |
-| 7 | `WebhookWidgetLivewireTest::test_b14_banner_is_present` | A |
-| 8 | `WebhookWidgetLivewireTest::test_empty_allow_list_shows_warning_message` | A |
-| 9 | `SettingsServiceTest::test_set_persists_typed_values_and_audits` | B |
-| 10 | `GmailProviderTest::test_send_returns_documented_error_envelope_when_credentials_missing` | C |
-| 11 | `GoogleCalendarWebhookTest::test_remote_edit_for_crm_origin_link_is_overwritten_by_crm_projection` | C |
+| 1 | Unified activities module | **PARTIAL** — unified list and visible `Tipo` pass; the MUST-level filter by `Curso`/`Charla`/all is not implemented (**FAIL**, see FAIL-1) |
+| 2 | Activity, edition, and class model | PASS |
+| 3 | Edition states and modality | PASS |
+| 4 | Participants and enrollment | PASS |
+| 5 | Enrollment and attendance states | PASS |
+| 6 | Courses versus talks | PASS |
+| 7 | Course grades and averaging | PASS |
+| 8 | Payment completion before documents | PASS |
+| 9 | Document types | PASS |
+| 10 | **Automatic certificate generation** | **PASS** (was FAIL; remediated in `ce53b54`) — see §3.1 |
+| 11 | Configurable PDF template matching reference design | PASS |
+| 12 | Certificate filename pattern | PASS |
+| 13 | Unique secure QR access | PASS |
+| 14 | Revocation and regeneration | PASS |
+| 15 | Receipts, invoices, and 18% IGV | PASS |
+| 16 | Email delivery | PASS |
+| 17 | Assisted WhatsApp delivery | PASS |
+| 18 | Delivery history and last sent date | PASS |
+| 19 | Pending and one-day configurable alerts | PASS |
+| 20 | Permissions | **PARTIAL** — every clause enforced except “viewing audit/history”, whose permission has no surface (WARNING-1) |
+| 21 | Auditability | PASS |
+| 22 | v1 non-goals | PASS (structural absence; no dedicated test for the tax-generation non-goal — SUGGESTION-4) |
 
-The **12 errors** are the pre-existing Campaign/Livewire ones (`CampaignMetricsServiceTest`, `CampaignItemActionHttpTest`, `CampaignRunLifecycleTest`, `CampaignTemplateHttpTest`) that read `User::where('email', env('ADMIN_EMAIL'))->first()` and then use it; they are the 12 the baseline’s own arithmetic folded into its 1,189 total (1,166 + 11 + 12). **No new failure appeared.** A corroborating check: `git log --oneline main..HEAD --` over the seven failing tests’ files is **empty**, i.e. this branch never touched the admin, settings, email-provider, calendar or automation code those failures live in.
+**Counts: 22 requirements — 20 PASS, 2 PARTIAL, 0 FAIL at requirement level; but the “Unified activities module” PARTIAL contains a MUST-level scenario gap (FAIL-1) that blocks a clean archive on its own.**
+**Scenarios: 34 measured (`grep -c '^#### Scenario:' spec.md`). 33 satisfied, 1 unmet (`Filter activities by type`). The previously unmet scenario `Conditions complete trigger generation` is now satisfied.**
 
-3. **Migration state (read-only, real MySQL connection from `.env`)** —
-   `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan migrate:status` (filtered)
-   → all six course-related migrations report `Pending`:
-   `2026_08_26_000001_create_course_domain_foundation_tables`, `…_000002_add_course_academic_document_qr_token_hash_index`, `…_000003_add_email_message_id_to_outbound_deliveries`, `…_000004_add_delivery_status_to_course_commercial_documents`, `…_000005_add_course_commercial_document_idempotency_key`, `…_000006_add_delivery_discard_reason_to_course_commercial_documents`. `grep -c Pending` → `6`.
+Findings: **1 CRITICAL, 4 WARNING, 4 SUGGESTION.** One previous WARNING is resolved, one is elevated to FAIL.
+
+---
+
+## 2. Verification performed (exact commands and measured results)
+
+All runs at HEAD `ce53b54`, sequential, one command per shell block.
+
+1. **Module regression**
+   `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=Course`
+   → `{"tool":"phpunit","result":"passed","tests":472,"passed":472,"assertions":3599,"duration_ms":125500}`
+   Previous verification measured **463 / 3,527**. Delta **+9 tests / +72 assertions**, exactly the remediation's new cases.
+
+2. **Full suite**
+   `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test`
+   → `{"tool":"phpunit","result":"failed","tests":1276,"passed":1253,"assertions":6689,"duration_ms":544377,"failed":11,"errors":12}`
+   Previous verification measured **1267 tests / 11 failures / 12 errors**. Delta **+9 tests**, and the **same 11 failures and the same 12 pre-existing errors**, verified by name against `suite-baseline.md`:
+
+   | # | Failure | Baseline group |
+   |---|---|---|
+   | 1 | `AdminHttpTest::test_settings_update_round_trip_through_admin_form` | B |
+   | 2 | `HistoryAndAuditCycleBreakTest::test_show_execution_renders_cycle_break_details_block` | A |
+   | 3 | `HistoryAndAuditTest::test_show_filters_by_subject_type_query` | A |
+   | 4 | `ActionEditorLivewireTest::test_webhook_action_renders_b14_banner` | A |
+   | 5 | `ActionEditorLivewireTest::test_send_whatsapp_template_action_renders_b14_banner` | A |
+   | 6 | `SendWhatsAppTemplateWidgetLivewireTest::test_b14_banner_is_present` | A |
+   | 7 | `WebhookWidgetLivewireTest::test_b14_banner_is_present` | A |
+   | 8 | `WebhookWidgetLivewireTest::test_empty_allow_list_shows_warning_message` | A |
+   | 9 | `SettingsServiceTest::test_set_persists_typed_values_and_audits` | B |
+   | 10 | `GmailProviderTest::test_send_returns_documented_error_envelope_when_credentials_missing` | C |
+   | 11 | `GoogleCalendarWebhookTest::test_remote_edit_for_crm_origin_link_is_overwritten_by_crm_projection` | C |
+
+   The **12 errors** are the pre-existing Campaign/Livewire ones (`CampaignMetricsServiceTest` ×4, `CampaignItemActionHttpTest` ×3, `CampaignRunLifecycleTest` ×2, `CampaignTemplateHttpTest` ×3), all `User::where('email', env('ADMIN_EMAIL'))->first()` returning null. **No new failure appeared and no baseline failure disappeared.**
+
+3. **Focused remediation suite**
+   `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=CourseEligibilityAutomationTest`
+   → `{"tool":"phpunit","result":"passed","tests":12,"passed":12,"assertions":68,"duration_ms":2000}` — matches the remediation's recorded 12 / 68 exactly.
+
+4. **Migration state (read-only, real MySQL from `.env`)**
+   `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan migrate:status`
+   → all six course migrations `Pending` (`grep -c Pending` → `6`): `2026_08_26_000001_create_course_domain_foundation_tables`, `…_000002_add_course_academic_document_qr_token_hash_index`, `…_000003_add_email_message_id_to_outbound_deliveries`, `…_000004_add_delivery_status_to_course_commercial_documents`, `…_000005_add_course_commercial_document_idempotency_key`, `…_000006_add_delivery_discard_reason_to_course_commercial_documents`. The remediation added no migration, so six remains correct.
+
+**Interpretation of the previous report's §2 (untouched requirements).** The previous report's per-requirement evidence for requirements 2–9, 11–19, 21, 22 was based on tests that are all inside the module suite I re-ran green (472 / 3,599). I re-read the specific code and test files it cites for the remediated surface and spot-checked the rest; nothing contradicted it, so those verdicts are kept and not re-narrated here. The requirements re-examined in depth for this re-verification are §3.1 (automatic generation), §3.2 (system author), §3.3 (stop switch), §3.4 (no regressions), §3.5 (re-judged warnings), §3.6 (declared residual).
+
+---
+
+## 3. Re-verification of the remediated surface
+
+### 3.1 Automatic certificate generation — now PASS
+
+**Requirement:** *“The system MUST automatically generate the applicable academic document when all conditions are complete… WHEN the final missing condition becomes complete THEN the system MUST generate the corresponding PDF document automatically.”*
+
+**From the code, not from a test name:**
+
+- `app/Jobs/Courses/EvaluateCourseDocumentEligibility.php:48-125` now, inside a single `DB::transaction`: locks the enrollment (`lockForUpdate`), evaluates eligibility through the production `CourseEligibilityService`, returns when ineligible or when a `Current` document of the required type already exists (idempotency under the lock), and otherwise calls `CourseDocumentGenerationService::generateAutomatically($enrollment, $systemAuthor, $this->reason)`.
+- `CourseDocumentGenerationService::generateAutomatically()` (`app/Services/Courses/CourseDocumentGenerationService.php:80-131`) delegates to the SAME private `generateDocument()` the operator path uses: it authorizes `Gate::forUser($systemAuthor)->authorize('generate', CourseAcademicDocument::class)`, evaluates eligibility again, selects the document type from eligibility, builds the filename/code, mints the QR token, renders the configured template and registers a private `documents` row. No eligibility, type, filename, code, QR or storage rule is reimplemented in the job. The automatic entry passes `deferStorageUntilOuterCommit: false`, so the PDF is stored inside the caller's transaction.
+- It then writes an explicit service-level audit entry `course-academic-document-auto-generated` naming the SYSTEM author and the trigger reason, with no private path, no signed link and no raw QR token.
+- The **stop switch** is the first statement of `handle()` (see §3.3). The **missing-author fail-closed** path is `courses.system_author_email` resolution returning `null` → log `error` and return without generating (see §3.2 and WARNING-3). The **failure path** catches `Throwable`, logs with queue-missing context, and re-throws so the queue owns retry; the transaction rolls the rows back and `storeAndRegisterDocument()` deletes the file on any post-write exception.
+
+**Proof of the required end state, not of a job detail.** `tests/Feature/Courses/CourseEligibilityAutomationTest.php::test_completing_the_final_condition_generates_the_certificate_automatically_and_the_qr_route_streams_it` binds the real generation service with only the two outside-world drivers faked (PDF renderer, QR renderer), asserts the probe enrollment is really eligible *before* acting, then asserts after the job: exactly 1 `course_academic_documents` row, `type = ApprovalCertificate`, `status = Current`, a non-null `document_id`, a recorded `course_certificate_template_id`, a `qr_token_hash`, a `documents` row whose `docable_type` is `CourseAcademicDocument`, the named template title present in the **stored private file**, and finally `GET /certificate/qr/{token}` (built from `basename($payloads[0])`, i.e. the raw token actually handed to the QR renderer) returning `200` with `content-type: application/pdf`. That is a stored, registered, current document reachable through the public QR route.
+
+**The old camouflage test is gone, in every form I could find.** `grep -rn "does_not_create_documents\|but_does_not_create\|evaluates_eligibility_but" tests/ app/` → no match; `git show ce53b54` shows `test_job_evaluates_eligibility_but_does_not_create_documents_or_mutate_enrollment_data` removed, and its replacement `test_job_generates_the_current_document_without_mutating_enrollment_data` asserts the same non-mutation claim while asserting **1** document instead of pinning 0. `grep -rn "no-op" tests/` finds no surviving assertion that the eligibility job is a no-op; the only remaining `assertDatabaseCount('course_academic_documents', 0)` occurrences in the module are the ineligible/duplicate-refusal/queued cases (`CourseEligibilityAutomationTest:57`, `CourseAcademicDocumentGenerationTest:179,236`, `CourseAcademicDocumentHttpTest:244,305`), none of which pins the job's absence of generation. The `// Future slice: dispatch document generation here.` comment no longer exists anywhere.
+
+**Verdict: PASS.** The two `Cache`/queue drivers are faked exactly as the pre-existing generation suite does; every domain rule is the production one and the assertion is on observable state (row + private file + QR response), not on internals.
+
+### 3.2 The SYSTEM author decision — adversarially
+
+`database/seeders/CourseSystemAuthorSeeder.php` + `app/Services/Courses/CourseAuditActor::systemAuthor()` + `app/Jobs/Courses/EvaluateCourseDocumentEligibility.php:59-67`.
+
+| Claim | Evidence | Verified? |
+|---|---|---|
+| Genuinely non-human | name `Sistema (generación automática de certificados)`; email default `sistema.certificados@crm-maia.invalid` — RFC 2606 `.invalid` can never resolve | yes (code + test assertion on the name) |
+| No role | seeder `syncRoles([])`; rollout test asserts `getRoleNames() === []` | yes |
+| Exactly one ability | seeder `syncPermissions(['course-talks.documents.generate'])`; rollout test asserts `getPermissionNames() === ['course-talks.documents.generate']` | yes |
+| Cannot authenticate | `is_active = false`; **two** independent guards: `LoginRequest::authenticate()` (`app/Http/Requests/Auth/LoginRequest.php:71` — inactive users get the generic `auth.failed` and the session is destroyed) and `EnsureUserIsActive` middleware (logs out and redirects every authenticated request); random 64-char password never disclosed | yes (code); the test asserts only the `is_active` flag, not an actual login attempt — see SUGGESTION-1 |
+| Named in the audit trail | the model's `course-created` entry and the explicit `course-academic-document-auto-generated` entry both carry `causer_id = author->id` (asserted), plus `actor_type = system`, `system_action = course-eligibility-job`, `trigger_reason` | yes |
+| Could it bypass anything else? | the single ability is consumed only by `CourseAcademicDocumentPolicy::generate` (and therefore the one `documents.generate` route/action). The `Gate::before` admin bypass in `app/Providers/AuthServiceProvider.php:93` fires **only** on the `admin` role, which this account does not hold (asserted), so there is no broad bypass. The rollout test asserts `can('generate', CourseAcademicDocument::class) === true` and `can('viewAny', CourseActivity::class) === false`, `can('viewAny', CourseEdition::class) === false`, `can('create', CourseAcademicDocument::class) === false`. | yes |
+| Does any other surface admit it? | it holds no module-read ability, so it cannot open the module; it cannot hold a session; the seeder runs after `CoursePermissionsSeeder` (so its one permission exists) and after `AdminUserSeeder` (so the bootstrap admin stays the first user row, which `SeedersTest` and the automation actions rely on) | yes |
+| Does its absence fail closed? | `systemAuthor() === null` → `logger()->error(...)` and `return`; nothing is generated and no anonymous `documents` row can exist (`uploaded_by` is NOT NULL) | yes in code, **NO TEST** — WARNING-3 |
+
+`documents.uploaded_by` being a NOT NULL FK to `users`, and `generateDocument()` authorizing through `Gate::forUser($actor)`, are both confirmed in the code, so a userless job genuinely cannot register the private PDF without an account and the generation gate is genuinely exercised (not bypassed). The decision is sound and honestly justified.
+
+### 3.3 The stop switch
+
+- **Checked before any side effect:** it is the first statement in `handle()` (`if (! (bool) config('courses.automatic_document_generation_enabled')) { return; }`), before the author lookup, before the transaction and before any file or row.
+- **Default matches the spec:** `config/courses.php` → `env('COURSES_AUTOMATIC_DOCUMENT_GENERATION_ENABLED', true)` — the requirement is the default state, and a deployment must opt out explicitly. The config block documents exactly why the switch exists.
+- **The rewritten rollback test proves the new truth**, not the old one. `CourseRolloutTest::test_automatic_generation_is_stopped_by_the_config_switch_and_not_by_the_permission_rollback` runs the REAL `DatabaseSeeder`, asserts both probe enrollments are eligible first, then **actually revokes every `CoursePermissionsSeeder::PERMISSIONS` entry from every role** and asserts each role now holds zero of them, then handles the job and asserts **1** current document and a non-empty private disk — i.e. revoking permissions alone does **not** stop asynchronous generation — and only then sets the config flag to `false` on a second eligible enrollment and asserts nothing more is generated and no further file is written. The previous test (`test_the_only_eligibility_job_is_a_documented_no_op_so_a_rollback_has_no_job_to_stop`) asserted the opposite and was correctly replaced, not quietly kept.
+
+### 3.4 No regressions
+
+See §2. Full suite 1276 tests, **the same 11 documented failures and the same 12 pre-existing errors** as `suite-baseline.md` and as the previous measurement. Module suite 472 / 3,599, green (+9 tests over the 463/3,527 previous measurement, exactly the new cases). No new failure, none removed. The remediation also touched `tests/Feature/SeedersTest.php` (its `User::count() === 1` pin became an assertion that a full seed creates exactly the bootstrap admin and the system author once each, identified by role and by the seeder constant rather than a direct `env()` read) and `tests/Feature/Courses/CourseRolloutTest.php`. I read both diffs: they are honest adaptations to a genuinely new seeded row and to the corrected job behaviour — the replacement assertions are **stronger**, not weaker (the `SeedersTest` assertion now also proves no other non-admin user is seeded; the rollout test now exercises the real rollback rather than asserting the defect).
+
+### 3.5 The previously reported WARNINGs, re-judged
+
+- **WARNING-1 (activity-type filter) → now FAIL-1.** See §7. The spec scenario `Filter activities by type` contains a normative **MUST** (“the user MUST be able to filter by `Curso`, `Charla`, or all activities”), so its absence is a spec contradiction, not advice. Re-confirmed in the current tree: `app/Http/Controllers/CourseTalks/CourseActivityReadController.php::index()` loads every activity with no query-parameter handling, `resources/views/course-talks/activities/index.blade.php` renders no filter control (the `filters` slot holds only action buttons), and `grep` over the `CourseTalks` controllers and the activities view finds no `type` filter. The alerts screen’s own activity-type filter filters **delivery follow-ups**, not the unified activities list, so it does not satisfy the scenario.
+- **WARNING-3 previously (`course-talks.audit.view`) → carried as WARNING-1.** Still true and still documented (`known-limitations.md` item 9): the permission is seeded, `CourseActivityPolicy::viewAudit` consumes it, and nothing reachable invokes it (the generic audit viewer uses the unrelated `audit.view`). The `Permissions` requirement’s *viewing audit/history* clause is therefore not enforced. Requirement verdict: PARTIAL (11 of 12 clauses enforced).
+- **WARNING-4 previously (review budget) → carried as WARNING-2.** See §6. Two units do record in prose that the maintainer accepted a `size:exception` (`apply-progress.md:1248`, `:1323`), but there is still **no `size:exception` token anywhere in `tasks.md`**, the largest overruns (7.c at ~1,043 lines, the foundation corrective at 616) carry only recommendations, and the remediation unit (1,001 insertions / 59 deletions) declares no changed-line count at all.
+- **WARNING-2 previously (migration gap understated) → RESOLVED.** `known-limitations.md` item 3 now states “ALL SIX course migrations are NOT applied”, tabulates all six, and says explicitly that the previous “TWO” was measured and corrected. My own `migrate:status` run confirms six pending.
+
+### 3.6 The declared residual
+
+**Judgement: the residual does NOT make automatic generation PARTIAL. The requirement is PASS.**
+
+The spec’s scenario is: *GIVEN a participant has all required data AND payment is complete AND the edition validations pass AND the participant has an eligible result or participation. WHEN the final missing condition becomes complete THEN the system MUST generate…*. The GIVEN already assumes complete participant data, so the “final missing condition” that can complete is always payment, edition validations, result or participation — and all four are dispatched after commit by `CourseEligibilityTriggerService` (which has exactly `paymentChanged`, `gradeChanged`, `participationChanged`, `editionValidationChanged`) and all four reach the job and generate. I also checked the one structural hole that would break this reasoning: could enrollment creation itself complete the final condition without a trigger? No — the enrollment HTTP surface (`StoreCourseEnrollmentRequest`) cannot set `payment_status` or `final_result`, and the schema defaults them to `pending`, so a newly created enrollment is never eligible; through every reachable surface the last completed condition is one of the four triggered ones.
+
+The residual is real but lies outside the scenario: a participant datum can never *become* complete after enrollment because the module exposes no participant-edit surface at all. That is why no trigger exists — and it is also a sharper consequence than the artifact states (see WARNING-4). The honest summary is: **the automatic-generation mechanism is complete and proven for every condition-completion path the system offers; it has no path to fire for a participant-data completion because no path exists to complete participant data.** PASS, with the gap recorded as a WARNING, not as a partial implementation.
+
+---
+
+## 4. Task completion
+
+- `openspec/changes/course-talks-management/tasks.md`: **117 checked, 0 unchecked.** `grep -n '^\s*- \[ \]'` → no output; `grep -c '^\s*- \[x\]'` → `117`. **No unchecked implementation task remains.** The exact set of unchecked lines is empty.
+- The ledger's own reconciliation section was read before judging and its claims were spot-checked rather than trusted: the per-unit `--filter=Course` counts and focused-suite counts it cites exist in `apply-progress.md`, and the ones I re-ran match (the module run is now 472/3,599). The two REFORMULATED rows (view split, dashboard-scope refactor) state their residual and are recorded in `known-limitations.md`. `CourseRolloutTest` does run the real full seed (`$this->seed(DatabaseSeeder::class)`).
+- **Caveat (unchanged):** every row can be `[x]` while a delta-spec MUST is unmet; the ledger tracks the planned slices, not spec conformance. Today the ledger is complete but FAIL-1 remains an unmet MUST.
 
 ---
 
 ## 5. Strict-TDD verification
 
-- `apply-progress.md` contains a `TDD Cycle Evidence` section/table for **every** unit (search `TDD Cycle Evidence` → 40 occurrences). The gate is satisfied.
-- **Reported test files cross-referenced against the codebase:** every class named in the evidence exists (`tests/Feature/Courses/*` ×32, `tests/Unit/Courses/*` ×4, plus `DocumentServiceTest`, `DocumentHttpTest`, `tests/Feature/Email/SendEmailMessageCorrelationTest`, `tests/Feature/SeedersTest`). No ghost file.
-- **GREEN still true:** the relevant suites are green in my own runs — `--filter=Course` 463/3,527 green, and the sampled units (`CourseAcademicDocumentGenerationTest`, `CourseAcademicDocumentHttpTest`, `CourseEligibilityAutomationTest`, `CourseCertificateQrSecurityTest`, `CourseDeliveryAlertsTest`, `CourseRolloutTest`) are included in that green run.
-- **RED sampled and checked (behavioural failure, not a fatal):**
-
-| Unit | Recorded RED (real) | Behavioural? |
-|---|---|---|
-| Delivery cycle (Defect A — commercial terminal state) | `{"result":"failed","tests":7,"passed":4,"assertions":33,"failed":3}` — `Failed asserting that two strings are identical -'sent' +'queued'`; `-'failed' +'queued'`; `Failed asserting that null is identical to 'No fue posible confirmar…'` | Yes — assertion failures on the state the defect is about |
-| Duplicate-certificate refusal (Defect B) | `Failed asserting that 2 is identical to 1` (a second `Current` row), and at HTTP `Session is missing expected key [errors]` | Yes — assertion failures |
-| Actor attribution (7.c) | 18 of 24 failed, all `causer=NULL` or `causer=4` (wrong session user); none a fatal | Yes — assertion failures |
-| Document-deletion guard | `DocumentServiceTest` `{"passed":5,"failed":2,"errors":2}` — two assertion failures (`El archivo privado … Failed asserting that false is true`) **plus two uncaught FK `QueryException` errors that are the defect itself**; `DocumentHttpTest` `Expected response status code [409] but received 500` | Yes — the two “errors” are the defective delete path throwing, and the HTTP RED is a status assertion; not a test-harness fatal |
-| Rollout seeding (7.d) | `{"tests":9,"passed":2,"failed":4,"errors":3}` — 4 assertion failures (permission absent, no sidebar entry, 0/13 permissions) and 3 errors from `hasPermissionTo('course-talks.view')` throwing `PermissionDoesNotExist` | Yes — the errors are the missing permission manifesting, not a fatal; the two passes are the by-design negative guard and the eligibility no-op |
-
-- **Assertion-quality audit:** the sampled suites assert concrete values (exact filenames, `120.00/21.60/141.60`, `12.49→12`, HTTP status + session error bag + DB counts, streamed `application/pdf` content), not types or existence alone. No `markTestSkipped`, no `expectNotToPerformAssertions`, no `assertTrue(true)`, no ghost loops. One genuine implementation-detail assertion was found (Finding 5).
+- `apply-progress.md` contains a `TDD Cycle Evidence` heading **45 times** (`grep -c`), for the slices and corrective units. The document-level gate is therefore satisfied.
+- **But the remediation unit has NONE.** The last TDD Cycle Evidence table is at line 3399 (unit 7.d); the remediation section at line 4351 has “What and why / Where / Decisions / Authorized surface expansion / Evidence / Declared residual / Process note” and **no TDD cycle table**, no RED run for the replacement tests, and no RED→GREEN→TRIANGULATE→REFACTOR record. The record itself explains why: “the subagent timed out at 30 minutes while applying the last assertion fix, so the parent verified the resulting tree.” The fix for this change’s only FAIL is therefore shipped without the RED evidence strict TDD requires. **CRITICAL-1** (it does not mean the implementation is wrong — the replacement tests are correct and green — but the process evidence is missing for the most critical unit of the change).
+- **Reported test files cross-referenced against the codebase:** every class named in the evidence exists; no ghost file. The remediation's new/modified test files all exist: `tests/Feature/Courses/CourseEligibilityAutomationTest.php` (12 tests / 68 assertions, re-run green), `tests/Feature/Courses/CourseRolloutTest.php` (10 tests / 110 assertions, inside the green module run), `tests/Feature/SeedersTest.php` (2 / 35).
+- **GREEN still true:** confirmed by my own runs — module 472/3,599 green; focused automation 12/68 green; full suite with only the documented baseline failures.
+- **Assertion-quality audit (remediation tests):** no tautologies, no ghost loops, no type-only assertions, no smoke-only tests, no `markTestSkipped`/`expectNotToPerformAssertions`/`assertTrue(true)`. The assertions are behavioural and value-bearing: exact document counts, `status === Current`, non-null `document_id`/`qr_token_hash`, the template title **inside the stored bytes**, `content-type: application/pdf` off the real public route, the exact causer id and property bag of the audit row, exactly one role / exactly one permission name, `Hash::check` against the admin password and against `password`. The one carried-over implementation-detail assertion (`page-break-after: always`) is SUGGESTION-2.
+- **Note on a test that the remediation modified to keep the suite green (`SeedersTest`).** Its `User::count() === 1` pin was replaced because the SYSTEM author is a real new seeded row. I verified the replacement is not a weakening: it asserts exactly one admin (by role), exactly one SYSTEM author (by the seeder constant, not `env()`), and zero users that are neither — which is a stronger claim than the original integer.
 
 ---
 
 ## 6. Review-workload / PR-boundary verification
 
 - `tasks.md` `Review Workload Forecast`: `Chained PRs recommended: Yes`, `400-line budget risk: High`, `Chain strategy: stacked-to-main (approved)`, `Decision needed before apply: No`.
-- The artifacts record the overruns honestly: the commercial delivery cycle 369 lines (under budget); **R1 641**; **foundation corrective 616** (831 counting bookkeeping); **7.c 1,043** (2.6× budget); 7.d exactly 400; 6.f-1b, 6.t1 and 6.t2 each above budget; `apply-progress.md` explicitly recommends `size:exception` for 7.c and the foundation unit.
-- **No formal `size:exception` record exists in `tasks.md`**; only recommendations in `apply-progress.md`. The 400-line budget was exceeded repeatedly and the exception was never formally recorded (Finding 4).
-- **PR boundary:** relative to `main` the change is a single branch (`feat/course-talks-slice-6-ui`, 29 commits, **205 files, +32,958 / −188**). The units are separable commits (e.g. `c72ac0c`, `be1b793`, `a0165df`, `038f312`, `1eb1260`, `7dfbcc2`), but the approved stacked chain of seven separate branches/PRs was not materialised at branch level. I could only verify the branch/commit structure; whether separate PRs exist outside git was not observable here.
+- Overruns are recorded honestly in `apply-progress.md` and, for two units, an accepted `size:exception` is stated in prose (lines 1248, 1323). But there is **no `size:exception` token in `tasks.md`**, the largest units (7.c ~1,043 lines ≈ 2.6×; foundation corrective 616 / 831 with bookkeeping) carry recommendations only, and the remediation unit itself (1,001 insertions / 59 deletions) declares no changed-line count and no exception. → WARNING-2.
+- **PR boundary:** relative to `main` the change is still a single branch (`feat/course-talks-slice-6-ui`, 31 commits, **207 files, +34,240 / −190**), so the approved stacked chain of separate branches/PRs was never materialised at branch level. I can verify the branch/commit structure only; whether separate PRs exist outside git is not observable here. The remediation is one commit, `ce53b54`.
 
 ---
 
 ## 7. Findings
 
-### CRITICAL-1 — Automatic certificate generation is not implemented (contradicts the delta spec; not declared)
+### CRITICAL-1 — The remediation unit ships without strict-TDD evidence
 
-- **Requirement:** “Automatic certificate generation” — *WHEN the final missing condition becomes complete THEN the system MUST generate the corresponding PDF document automatically.*
-- **Evidence:** `app/Jobs/Courses/EvaluateCourseDocumentEligibility.php` returns before generating (`// Future slice: dispatch document generation here…`); `app/Services/Courses/CourseEligibilityTriggerService.php:35` is the only caller and it dispatches that no-op; the sole generation path in `app/` is the operator POST handled by `CourseAcademicDocumentController.php:121`; the suite pins the gap in `CourseEligibilityAutomationTest::test_job_evaluates_eligibility_but_does_not_create_documents_or_mutate_enrollment_data`.
-- **Attributable to this change:** yes (Slice 2 deferred it; Slice 3 built the generator; neither changed the job). The tests are green **because they assert the wrong edge** — exactly the failure shape this change’s own history already produced once (the delivery cycle whose tests stopped where the defect began).
-- **Not in `known-limitations.md`.** It must be either implemented or explicitly declared as a deliberately unmet spec requirement before archive.
+- **What:** the fix for this change’s only FAIL has no `TDD Cycle Evidence` table, no recorded RED run for the twelve replacement tests, and no RED→GREEN→TRIANGULATE→REFACTOR cycle in `apply-progress.md`. The record states the subagent timed out before its final step and the parent ran the verification.
+- **Evidence:** last `TDD Cycle Evidence` heading at `apply-progress.md:3399`; remediation section begins at `:4351` with no such table; `awk` over lines 4351-4382 finds no RED/GREEN/failure record.
+- **Attribution:** the remediation unit (parent-run after subagent timeout). Under the strict-TDD contract the phase is instructed to flag missing or incomplete TDD evidence as CRITICAL.
+- **Impact:** process evidence only. The implementation and its tests are correct and green; this does not change any requirement verdict.
 
-### WARNING-1 — The required filter by activity type is missing
+### FAIL-1 — The activity-type filter required by the spec is missing (MUST unmet)
 
-- **Requirement:** “Unified activities module” — *the user MUST be able to filter by `Curso`, `Charla`, or all activities.*
-- **Evidence:** `app/Http/Controllers/CourseTalks/CourseActivityReadController.php:14-24` loads every activity (`orderBy('type')->orderBy('name')`) with no query-parameter handling; `resources/views/course-talks/activities/index.blade.php` renders no filter form or control (the `filters` slot holds only action buttons); `grep` over the `CourseTalks` controllers finds no `type` filter anywhere except the alert screen’s own eight filters and the create form’s type selector. `CourseTalksReadOnlyHttpTest::test_authorized_user_can_view_all_activity_types_and_activity_detail` asserts the unified list only — it never exercises a filter.
-- **Attributable to this change:** yes. Verdict for the requirement: PARTIAL.
+- **Requirement:** `Unified activities module` — *“…with a visible `Tipo` value of `Curso` or `Charla`, shared filters, and shared operational tracking.”* Scenario `Filter activities by type`: *“…AND the user MUST be able to filter by `Curso`, `Charla`, or all activities.”*
+- **Why FAIL and not WARNING:** the scenario contains a normative **MUST**, so the absence is a contradiction of the delta spec, which is a FAIL by this contract, not advisory advice. (The previous report classified it WARNING and left the requirement PARTIAL; on re-reading the spec text the classification is wrong.)
+- **Evidence:** `app/Http/Controllers/CourseTalks/CourseActivityReadController.php:14-24` loads every activity (`orderBy('type')->orderBy('name')`) with no query-parameter handling; `resources/views/course-talks/activities/index.blade.php` renders no filter form or control (the `filters` slot contains only the create, templates and alerts links); `grep` over `app/Http/Controllers/CourseTalks/` and `resources/views/course-talks/activities/` finds no `type` filter. `CourseTalksReadOnlyHttpTest::test_authorized_user_can_view_all_activity_types_and_activity_detail` asserts the unified list only and never exercises a filter. The alerts screen’s eight filters (unit 7.b) filter delivery follow-ups, not the activities list.
+- **Attribution:** this change. Untouched by the remediation.
+- **Requirement verdict:** PARTIAL.
 
-### WARNING-2 — `known-limitations.md` item 3 understates the migration gap (says two; measured six)
+### WARNING-1 — `course-talks.audit.view` is seeded but enforces nothing
 
-- **Declared:** “**Two migrations** are NOT applied to any real database” (`…000005`, `…000006`), with the consequence “commercial registration idempotency and commercial follow-up discard will fail on a real database with a missing-column error”.
-- **Measured:** `artisan migrate:status` against the real MySQL database reports **all six** course-related migrations `Pending`, including `2026_08_26_000001_create_course_domain_foundation_tables` (which creates the module’s 12 tables) and `…000003_add_email_message_id_to_outbound_deliveries`. The real consequence is broader than the artifact states: on that database the module has **no tables at all**, so every module screen fails, not just idempotency/discard; and a shared-infrastructure migration is pending too.
-- **Attributable to this change:** yes — an artifact accuracy defect in the deployment-readiness record. Not a spec contradiction (the spec has no deployment requirement), but it must be corrected before archive because the rollout story is materially wrong.
+- As in `known-limitations.md` item 9: `CourseActivityPolicy::viewAudit` (`app/Policies/Courses/CourseActivityPolicy.php:33-36`) is the only consumer and nothing reachable invokes it; the module exposes no audit surface and the generic viewer uses the unrelated `audit.view`. The `Permissions` requirement’s *viewing audit/history* clause is not enforced in the running system. Documented open product decision; report, not fix. Requirement verdict: PARTIAL.
 
-### WARNING-3 — `course-talks.audit.view` is seeded but enforces nothing
+### WARNING-2 — Review budget repeatedly exceeded and no `size:exception` was recorded
 
-- As recorded in `known-limitations.md` item 9 and confirmed by reading the policies: `CourseActivityPolicy::viewAudit` (`app/Policies/Courses/CourseActivityPolicy.php:33-36`) is the only consumer and nothing invokes it; the module exposes no audit surface and the generic viewer uses the unrelated `audit.view`. The “Permissions” requirement’s *viewing audit/history* clause is therefore not enforced. Documented open decision — report, not fix. Verdict for the requirement: PARTIAL.
+- See §6. Two units state in prose that a `size:exception` was accepted; no exception token exists in `tasks.md`; the largest two units and the remediation unit itself record no exception and the remediation records no changed-line count. Attribution: this change.
 
-### WARNING-4 — Review budget repeatedly exceeded and no `size:exception` was recorded
+### WARNING-3 — The fail-closed path for a missing SYSTEM author has no test
 
-- See §6. Largest unit **7.c at 1,043 changed lines** (~2.6×) and the foundation corrective at 616 (831 with bookkeeping). Recommendations for `size:exception` appear in `apply-progress.md` but no exception token is recorded in `tasks.md`, and the approved stacked chain landed as one 205-file branch. Attributable to this change.
+- **What:** `EvaluateCourseDocumentEligibility::handle()` (`app/Jobs/Courses/EvaluateCourseDocumentEligibility.php:59-72`) returns without generating and logs an error when `CourseAuditActor::systemAuthor()` is null. This is the fail-closed guarantee that the module never generates anonymously — and nothing tests it.
+- **Evidence:** `grep -rn "systemAuthor() === null\|nothing was generated\|fail-closed" tests/` → no match; `CourseEligibilityAutomationTest` always seeds its own author fixture.
+- **Attribution:** the remediation unit. The behaviour is correct in code; the guarantee is unproven by a test. The task explicitly asked to check this path, so it is recorded rather than passed silently.
 
-### SUGGESTION-1 — One implementation-detail assertion
+### WARNING-4 — A participant-data dead-end, and the declared residual is imprecise
 
-- `tests/Feature/Courses/CourseCertificateTemplateTest.php:53` asserts `page-break-after: always` — a CSS declaration rather than rendered structure. It is paired with content assertions (participant, temario topics), so it is not a smoke-only test, but it is the one presentation-detail assertion in the audited surface.
+- **What:** `known-limitations.md` item 13 says automatic generation does not fire for a participant-data correction and that “the certificate waits for an operator”. That is inaccurate: the operator path is gated by the same `CourseEligibilityService`, so an enrollment with incomplete participant data is refused by the operator too. Worse, the module has **no participant-edit surface** (`grep` finds only `CourseParticipant::firstOrCreate` inside `CourseEnrollmentService`), so the data can never be completed.
+- **Reachable consequence:** resolving a participant from an existing contact (`CourseEnrollmentService::contactAttributes()`) copies `email` from `$contact->email` and `mobile` from `$contact->phone ?? $contact->whatsapp`; a contact without email or phone yields a participant that fails `hasCompleteParticipantData()`, which makes the enrollment permanently ineligible for **any** document, automatic or manual, with no remediation path in v1.
+- **Not a spec violation:** the spec requires enrolling from contacts or creating a minimum record, and the automatic requirement only fires when “participant required data is complete”. Both hold. It is a workflow gap that should be stated accurately before archive.
+- **Attribution:** this change (the eligibility design), surfaced by the re-verification of the remediation’s declared residual.
 
-### SUGGESTION-2 — The tax-generation non-goal has no dedicated test
+### SUGGESTION-1 — `systemAuthor()` trusts the email; the account’s invariants are unguarded and login is untested
 
-- “No automatic tax generation” is satisfied by structural absence (no SUNAT/accounting-provider/gateway code in `app/`, confirmed by grep) but there is no test asserting the absence of tax side effects, unlike the WhatsApp non-goal which has explicit coverage.
+- `CourseAuditActor::systemAuthor()` resolves `User::where('email', $email)->first()` with no check that the row is the seeded non-human account (no assertion that it lacks roles or holds only the generation ability). Because `generateDocument()` authorizes *as that user*, a human row that happened to occupy `courses.system_author_email` would be both the author and the authorizing actor (and, if it carried the `admin` role, would pass through the `Gate::before` bypass). Nothing today can produce that row — the seeder is absolute and idempotent — but there is no invariant enforcing it. Separately, the rollout test asserts `is_active === false` but never drives a login attempt with the SYSTEM credentials; the two guards (`LoginRequest`, `EnsureUserIsActive`) are verified by code reading only.
 
-### Accepted open product decisions (documented; do **not** contradict any spec requirement)
+### SUGGESTION-2 — Carried over: one implementation-detail assertion
 
-Both were consciously left to the owner and are **not** findings:
+- `tests/Feature/Courses/CourseCertificateTemplateTest.php:53` asserts `page-break-after: always`, a CSS declaration rather than rendered structure. Paired with content assertions, so not smoke-only, but it is the one presentation-detail assertion in the audited surface.
 
-1. **`course-talks.view` grants participant-PII read access across all editions with no team data-scope.** Confirmed: `CourseActivityPolicy::viewAny`/`view` and `CourseEditionPolicy::viewAny` check only the permission, and `CourseEditionPolicy::view` is `permission OR responsible_user_id` — so the permission alone opens every edition’s enrollments/documents/commercial surfaces. The spec’s “Permissions” requirement asks for permission separation and “unauthorized users MUST NOT perform restricted actions”; it does not require team/ownership scoping, so nothing in the delta spec is contradicted.
-2. **Mutation policies take no model instance, so one permission mutates any resource by id.** Confirmed by reading all six policies (`create`/`update`/`delete`/`manage`/`generate`/`revoke`/`send`/`manageAttendance`/`manageGrades` are all `User`-only). The spec is satisfied (the actions are permission-gated and unauthorized users are denied); cross-resource scoping is a product decision, not a spec gap.
+### SUGGESTION-3 — Stale docblock left by the remediation
+
+- `tests/Feature/Courses/CourseRolloutTest.php:53` (class docblock) still claims “the eligibility job is a documented no-op (nothing to stop)”, which the remediation made false. The individual test method’s docblock was corrected; the class-level one was not.
+
+### SUGGESTION-4 — Carried over: the tax-generation non-goal has no dedicated test
+
+- “No automatic tax generation” is satisfied by structural absence, but unlike the WhatsApp non-goal it has no test asserting the absence of tax side effects.
+
+### Accepted open product decisions (documented; do not contradict any spec requirement)
+
+1. **`course-talks.view` grants participant-PII read access across all editions with no team data-scope** — the spec asks for permission separation and denial of restricted actions, which hold; it does not require ownership scoping.
+2. **Mutation policies take no model instance, so one permission mutates any resource by id** — permission-gated and denied for unauthorized users; cross-resource scoping is a product decision.
 
 ### Documented limitations reviewed — none contradicts a spec requirement
 
-`known-limitations.md` items 1 (queued-email terminal transition with a null causer — the human act is audited; the technical transition has no actor to attribute), 2 (`course_edition_teachers` unauditable — teacher changes are not in the spec’s enumerated audit list), 4 (the inert `mailOperation` stub — nothing in `app/` calls it; the wired paths use the real queued email), 5 (`HasAuditColumns` session-only — a different mechanism from the activitylog causer, which is what the spec asks to record), 6 (academic/commercial duplication — no defect), 7 (the 11 pre-existing failures — excluded, confirmed), 8 (destructive schema rollback — no spec requirement), 10 (reserved commercial `sent` status — a declared schema value with live readers), 11 (two raw status columns without enums — no spec requirement), 12 (referenced documents fail closed) — **each is a genuine documented limitation and none contradicts a delta-spec requirement.** Item 3 is the exception: it is documented but factually understated (WARNING-2).
+`known-limitations.md` items 1, 2, 4, 5, 6, 7, 8, 10, 11, 12 remain genuine documented limitations with no delta-spec requirement behind them. Item 3 is now correct (resolved). Item 9 (WARNING-1) and item 13 (WARNING-4) are the two that interact with a requirement, and both are recorded above.
 
 ---
 
 ## 8. What is NOT verified (no coverage claimed)
 
-- **Deployment / migrations.** No migration was applied and none will be by me. All six course-related migrations are **pending** on the real (dev MySQL) database — the module has no tables there. No real-database schema, unique index (including the MySQL/InnoDB “unique index permits many NULLs” property, documented but not measured), seeding (`php artisan db:seed`) or rollback was executed or exercised. Anything requiring a real database is unverified.
-- **Browser / human acceptance.** Nothing was run in a browser. `apply-progress.md` correctly records every human scenario as `not run`, including the rollout drills and the duplicate-registration double-click. Human acceptance remains pending.
-- **PDF rendering fidelity.** The PDF assertions are Blade-render assertions and DomPDF is faked at the service boundary in tests; the visual output against the approved official reference design was not inspected.
-- **Real email/WhatsApp transport.** The email pipeline is exercised with fakes/queued jobs; no real message was sent and no real `wa.me` handoff was opened.
-- **Secondary baseline claims.** The baseline’s “fails identically on `main`” was corroborated (the branch never touched those files: `git log main..HEAD -- <files>` empty) but I did not check out `main` or run the suite there — a read-only verify must not mutate the worktree.
-- **PR structure.** Whether the approved chained PRs were created outside this repository was not observable; only the branch/commit structure vs `main` is verified.
-- **The automatic-generation gap’s blast radius on the product** is inferred from code reading, not observed in a running deployment.
+- **Deployment / migrations.** Nothing was applied and nothing will be. All six course migrations are **Pending** on the real dev MySQL database, so the module has **no tables** there and every module screen would fail; `php artisan migrate` is a pending owner action and deploy prerequisite. No real-database schema, unique index, seeding or rollback was exercised.
+- **Browser / human acceptance.** Nothing was run in a browser. Every human scenario, including the rollout drills and the duplicate-registration double-click, remains `not run`. Human acceptance is pending until a human records results.
+- **PDF rendering fidelity.** The PDF assertions are Blade-render assertions with the PDF renderer faked at the service boundary; the visual output against the approved reference design was not inspected.
+- **Real email/WhatsApp transport.** Exercised with fakes and queued jobs only; no real message was sent and no real `wa.me` handoff was opened.
+- **The audit trail in a real queue worker.** The remediation’s tests invoke `handle()` synchronously; no real queue worker processed the job, so the queue’s retry/ownership behaviour after the escaping exception is asserted from code and the `Log::spy()` call, not observed in a worker.
+- **The SYSTEM author’s login refusal.** Verified by reading `LoginRequest` and `EnsureUserIsActive`, not by driving a login attempt.
+- **Secondary baseline claims.** The baseline’s “fails identically on `main`” was corroborated by the empty `git log main..HEAD -- <files>` over the failing tests’ surfaces but I did not check out `main` or run the suite there — a read-only verify must not mutate the worktree.
+- **PR structure.** Whether the approved chained PRs exist outside this repository is not observable; only branch/commit structure vs `main` is verified.
 
 ---
 
 ## 9. Archive-gate recommendation
 
-**Do not archive yet.** The module is substantively delivered and most of the delta spec is met with behavioural, independently re-run evidence: the module suite is green (463/3,527) and the full suite shows no new failure against the documented baseline (11 failures + 12 pre-existing errors, identical set). Tasks are 117/117 with a credible reconciliation.
+**Do not archive yet.** The remediation did what the previous report required: the delta spec’s automatic-generation requirement is now genuinely implemented — a stored, registered, current document reachable through the public QR route — and the change adds **no new failure** (full suite 1276 tests, the same 11 baseline failures and 12 pre-existing errors; module 472/3,599 green). Tasks are 117/117. The system-author design is sound and adversarially verified, and the stop switch both defaults correctly and is proven by a rewritten rollback test that asserts the new truth.
 
-Two things block a clean archive:
+Three things stand between this and a clean archive:
 
-1. **CRITICAL-1** — the delta spec requires automatic generation and the system does not do it, and the gap is undeclared. Either wire `EvaluateCourseDocumentEligibility` (or a `GenerateCourseAcademicDocument` job) to `CourseDocumentGenerationService` and add the RED→GREEN test that proves generation on the final condition, **or** get an explicit owner decision to record it as a deliberately unmet requirement in `known-limitations.md` and amend the spec. A green suite that asserts the opposite of the scenario is not acceptance.
-2. **WARNING-2** — correct `known-limitations.md` item 3 (six pending migrations, not two) so the rollout story is truthful, and make `php artisan migrate` an explicit owner gate.
+1. **FAIL-1 — the activity-type filter.** The spec scenario `Filter activities by type` is a MUST and is unmet. Either implement the filter on the unified activities list (a bounded unit: query parameter + control + a focused test that actually exercises `Curso`, `Charla` and “all”), **or** obtain an explicit owner decision to re-scope that clause and record it in `known-limitations.md`. It was not touched by the remediation and cannot be waved through as a WARNING: a normative MUST that the running system does not honour is a spec contradiction.
+2. **CRITICAL-1 — strict-TDD evidence for the remediation unit.** The change’s most important fix ships without a RED→GREEN record. This is cheap to close: run the twelve replacement tests against the pre-`ce53b54` job and record the RED, or record an explicit, owner-approved TDD deviation for the parent-run remediation. Under `delivery.strict_tdd: true` this is not optional bookkeeping.
+3. **WARNING-2 — record the `size:exception` (and the remediation’s line count) in `tasks.md`.** The largest units and the remediation itself are well over the 400-line budget with no formal exception.
 
-**Recommended (not blocking by themselves):** WARNING-1 (activity-type filter — implement or record as a known gap), WARNING-3 (`audit.view` — decide surface or drop), WARNING-4 (formally record the `size:exception`), and the two suggestions.
+**Recommended (not blocking by themselves):** WARNING-1 (`audit.view` — decide surface or drop), WARNING-3 (add the missing-author fail-closed test), WARNING-4 (correct `known-limitations.md` item 13 and decide whether to add a participant-edit path), and the four suggestions.
 
-Once CRITICAL-1 is resolved (implemented or explicitly re-scoped with the owner) and WARNING-2 is corrected, this change is archive-ready on the evidence above.
+Once FAIL-1 is implemented or explicitly re-scoped by the owner and CRITICAL-1 is closed, this change is archive-ready on the evidence above.

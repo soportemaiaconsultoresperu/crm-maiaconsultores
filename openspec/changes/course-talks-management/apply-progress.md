@@ -4380,3 +4380,130 @@ Only four conditions reach the job — payment, grade/result, participation and 
 ### Process note
 
 The subagent timed out at 30 minutes while applying the last assertion fix, so the parent verified the resulting tree, ran the module regression and the full suite, and wrote this record. The subagent staged and committed nothing.
+
+### Retro-recorded RED (reproduced by the parent, first-hand evidence)
+
+The remediation's original RED was LOST when the subagent timed out — the subagent obtained one before implementing (it reported `8 tests / 4 passed / 4 failed`, all behavioural) but never wrote the evidence table, and the parent recorded the unit without it. The verification caught that as a process finding. It was therefore REPRODUCED rather than narrated: the job file was restored from `ce53b54^` (the pre-fix revision), the twelve tests were run against it, and the file was then restored and verified byte-for-byte with `git status`.
+
+```
+php.exe artisan test --filter=CourseEligibilityAutomationTest
+-> {"result":"failed","tests":12,"passed":5,"assertions":32,"failed":6,
+    "failures":[{"test":"...test_completing_the_final_condition_generates_the_certificate_automatically_and_the_qr_route_streams_it",
+                 "message":"Completing the last missing condition must generate the corresponding document automatically.\nFailed asserting that 0 is identical to 1."}, ...]}
+```
+
+Six of the twelve fail against the pre-fix job, each on a BEHAVIOURAL assertion — a document that was not generated, an author that was not recorded, a stop switch that did not exist — never on a fatal. The same twelve pass afterwards (`12 / 68`). **Why this is recorded instead of hidden**: a fix whose RED is missing is a fix whose future regression cannot be told apart from a rewrite, so the RED was re-run on purpose.
+
+---
+
+# Bounded unit — activity-type filter on the unified activities list (closes verification FAIL-1)
+
+**Cycle**: sdd-apply, strict TDD active (`openspec/config.yaml` → `delivery.strict_tdd: true`, `tdd_cycle: RED, GREEN, TRIANGULATE, REFACTOR`).
+**Branch**: `feat/course-talks-slice-6-ui`, HEAD `ce53b54` plus this unit's uncommitted edits. Nothing staged, nothing committed.
+**Allowed surfaces used** (all four, nothing outside): `app/Http/Controllers/CourseTalks/CourseActivityReadController.php`, `resources/views/course-talks/activities/index.blade.php`, `tests/Feature/Courses/CourseTalksReadOnlyHttpTest.php`, and this file plus `tasks.md` (bookkeeping).
+**Inputs read before writing code**: `verify-report.md` (the report that elevated this to FAIL-1 and quotes the requirement), the delta spec's "Unified activities module" requirement and its `Filter activities by type` scenario, `tasks.md`, `known-limitations.md`, the controller, the view, the read-only HTTP test, `x-table`/`x-alert`, `CourseActivityType`, the alerts controller's `filters()` (the module's established unknown-value rule) and its view.
+
+## What and why
+
+The delta spec's `Unified activities module` requirement says the module MUST have *"a visible `Tipo` value of `Curso` or `Charla`, shared filters, and shared operational tracking"*, and its scenario `Filter activities by type` says the user MUST be able to filter by `Curso`, `Charla`, or all activities. That is a normative MUST, the verification re-classified its absence from WARNING to **FAIL-1**, and the archive gate is blocked on it.
+
+The reason it survived a green suite is worse than the gap itself: `CourseActivityReadController::index()` had no `Request` parameter at all, the view had no control, and `CourseTalksReadOnlyHttpTest` asserted only the unfiltered list — so **no test exercised the filter**, and a green run proved nothing about it. This unit closes the gap and, just as importantly, makes it observable: the RED below is the first time the requirement was ever executed.
+
+## Where (exact files and line counts)
+
+| File | Added | Deleted | What changed |
+|---|---|---|---|
+| `app/Http/Controllers/CourseTalks/CourseActivityReadController.php` | 85 | 6 | `index(Request)` now normalizes the filter and narrows the query; two private helpers (`typeOptions()`, `typeFilter()`). `show()` and `showEdition()` are byte-for-byte unchanged. |
+| `resources/views/course-talks/activities/index.blade.php` | 39 | 0 | The GET filter form, the active-filter badge and the two visible reject messages. The `x-table` block — including its `filters` slot and the whole table — is untouched. |
+| `tests/Feature/Courses/CourseTalksReadOnlyHttpTest.php` | 237 | 0 | 10 new tests (2 shared fixtures + 5 RED tests, 1 authorization lock, 3 triangulation tests). No existing test was modified. |
+| **Code total** | **361** | **6** | **367 changed lines — inside the 400-line budget. No `size:exception` is requested.** |
+| `tasks.md` (bookkeeping) | +6 | 0 | The unit section and its one implementation-owned `[x]` row. |
+
+No file was reformatted; `git diff` on the controller shows the original `index()` body relocated into a query builder plus the new methods, and nothing else.
+
+## Decisions, each justified in the code
+
+**1. Parameter name and value vocabulary — `activity_type`, with the enum's own backing values `course` / `talk`; absent or blank means all.**
+The name is the one the module's alert screen already uses for the same concept, so the module has ONE query-string vocabulary for activity type instead of two; the values are `CourseActivityType::cases()`' backing values (`course`, `talk`) and the option list and its Spanish labels are built from the enum itself (`$type->value` / `$type->label()`), so no parallel vocabulary exists to drift. "All" is represented by the parameter being absent or blank, not by a magic value. The spec's `Curso`/`Charla` are the *labels* the operator sees; they are not the wire values, which keeps the URL stable if a label is ever reworded. `course`/`talk` are also exactly the two values the alerts screen's `activity_type` filter already sends, so the two screens cannot disagree.
+
+**2. Unknown or malformed value — narrow to nothing AND report it (`unknown`), or discard it and report it while the list stays complete (`discarded`).**
+Two distinct cases, because they are not the same thing:
+- **Unknown scalar** (`?activity_type=webinar`): the value is applied to the query as it came in, `where('type', 'webinar')` matches no row, so the list is narrowed **to nothing** and the screen says *"El tipo de actividad webinar no es un valor válido y no encontró ninguna actividad."*, naming the rejected value back. **Why narrow rather than fall back to the full list**: this module already established that rule on the alerts screen, whose `filters()` passes an unknown scalar straight through to the query and reports the key. Silently showing every activity while a filter is visibly applied is the failure mode that rule exists to prevent — the operator would read an unfiltered list as "no talks match", which is a false statement about the data.
+- **Non-scalar** (`?activity_type[]=course`): an array is not a filter at all, so it is dropped **before any query** — an array in a `where` is precisely the 500 this locks out — and the screen says the value arrived invalid and *"se descartó: se muestra la lista completa"*. **Why not narrow here too**: no value was requested that could be compared, so there is nothing to match against; the honest outcome is the complete list plus a visible statement that the filter was ignored. The full list is therefore never shown *silently*.
+Both paths answer **200**, never 500, and anything echoed back is escaped by Blade `{{ }}`.
+The third case that looks like a filter but is not — a blank or whitespace-only value — is treated as **absent**: no filter, no warning, so a cleared form never looks like a failed filter.
+
+**3. Read-only, and behind exactly the ability the route already required.**
+The filter is a listing query: no write, no service call, no domain rule. `Gate::authorize('viewAny', CourseActivity::class)` stays the first statement of `index()` and is unchanged, so a user without `course-talks.view` gets 403 even when the query parameter is present (asserted). Filtering by activity type is a query concern and stays one: `CourseActivityService`, the eligibility rules and every other module surface are untouched, and routes, policies, permissions, enums, migrations and models were not modified.
+
+## Strict TDD cycle evidence
+
+| Cycle | Command | Measured result |
+|---|---|---|
+| **RED** | `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=CourseTalksReadOnlyHttpTest` against the unmodified controller and view | `{"result":"failed","tests":16,"passed":11,"assertions":81,"failed":5}` — 5 real assertion failures, zero fatals: `test_filtering_the_activity_list_by_course_hides_talks` ("does not contain `data-testid="course-talks-activity-2"`"), `test_filtering_the_activity_list_by_talk_hides_courses` (the mirror), `test_the_activity_type_filter_control_uses_the_enum_vocabulary_and_marks_the_active_filter` (`name="activity_type"` absent), `test_an_unknown_activity_type_filter_narrows_to_nothing_and_is_reported` (the reject message absent and the full list still rendered), `test_a_non_scalar_activity_type_filter_is_discarded_and_reported_instead_of_failing` (same). **Every failure is behavioural** — no missing view variable, no fatal, no 500 — which is the first executed proof the requirement was missing. |
+| **GREEN** | same command after the controller and the view | `{"result":"passed","tests":16,"passed":16,"assertions":95}` |
+| **TRIANGULATE** | +3 cases and one control change, same command | `{"result":"passed","tests":19,"passed":19,"assertions":126}`. The new cases: (a) four activities, two per type — the filter shows BOTH matching rows and neither of the other type, so it is a real predicate and not "hide the one row I know about"; (b) `?activity_type=` and `?activity_type=%20%20%20` behave as NO filter and report nothing; (c) the control is a linkable `GET` form whose action is the index route, whose `id`/`for` pair names it for assistive tech, whose `Todas las actividades` option is `selected` when unfiltered, and whose active filter is both `selected` and stated in text. |
+| **REFACTOR** | two checks | (1) `pint --test` on the controller and the test file → `{"result":"passed"}` — no formatting debt introduced; (2) **mutation proof**: with `$activities->where('type', $typeFilter['value'])` commented out, the same command returns `{"result":"failed","tests":19,"passed":15,"assertions":112,"failed":4}` — the 4 list-narrowing tests die (both type filters and both triangulation assertions) while the control/vocabulary assertions survive, which is exactly the separation the previous verification demanded: the tests prove the **query**, not the presence of markup in the HTML. The file was restored and verified (`git diff --numstat` back to `85 6`). |
+
+## Verification (exact commands, sequential, one command per shell block, real results)
+
+1. `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=CourseTalksReadOnlyHttpTest`
+   → `{"tool":"phpunit","result":"passed","tests":19,"passed":19,"assertions":126,"duration_ms":2592}`
+2. `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=Course`
+   → `{"tool":"phpunit","result":"passed","tests":482,"passed":482,"assertions":3668,"duration_ms":47522}`
+   **Baseline 472 tests / 3,599 assertions → 482 / 3,668, i.e. +10 tests / +69 assertions, exactly this unit's new cases and nothing else. No regression.**
+3. `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe vendor/bin/pint --test <controller> <test file>` → `{"tool":"pint","result":"passed"}`
+
+## Review workload / PR boundary
+
+**367 changed lines (361 added / 6 deleted) of code, plus 6 bookkeeping lines in `tasks.md` — inside the 400-line review budget**, so the review-workload gate needs no `size:exception` here. The change is one bounded unit on the existing branch `feat/course-talks-slice-6-ui`; no new branch or PR boundary was created (the approved `stacked-to-main` chain was never materialised at branch level, as the verification already records).
+
+## Deviations
+
+1. **No production-code deviation.** The controller and the view are the only production surfaces touched and both are inside the allowed set.
+2. **Two view variables beyond the bare minimum were added** (`typeOptions`, `typeFilterWarning`) instead of hard-coding the option list in Blade. Reason: the requirement is that the vocabulary stay aligned with `CourseActivityType`; building the options from `CourseActivityType::cases()` in the controller makes that alignment structural, whereas a Blade-side copy of `course`/`talk`/`Curso`/`Charla` is exactly the parallel vocabulary the brief forbids.
+3. **A second, milder warning message was added** for the non-scalar case rather than reusing the unknown-value text. Reason: the alerts screen's single message claims the filters "no encontraron ninguna entrega" even when an array was merely dropped, which would be a false statement on this screen (the list is complete). Two accurate messages beat one that can lie.
+4. **`tasks.md` was appended to, not just ticked.** The ledger had 117 checked and 0 unchecked rows and no row for this unit, so the unit was added as its own bounded section with one **implementation-owned** `[x]` row (now 118 checked / 0 unchecked, `grep` verified). No aggregate row was marked, and no parent-owned row was created — the review row for this unit is the parent's to add and is listed as deferred below.
+5. **Nothing else was touched**: no route, policy, permission, enum, migration, model, service, config, alerts screen, or academic/commercial surface. `verify-report.md` is unmodified by this unit (it arrived already modified in the working tree).
+
+## Remaining tasks (exact unchecked lines)
+
+This unit adds no unchecked implementation row. The one deferred, parent-owned action:
+
+```
+- [ ] Review the bounded activity-type-filter unit: the `activity_type` query contract and its enum-derived vocabulary, the unknown-vs-discarded normalization and its two visible messages, the unchanged `viewAny` ability, the mutation-proven tests, and the untouched aggregate rows and out-of-scope verification findings. <!-- sdd-owner: parent -->
+```
+
+Parent-lifecycle / not this unit's ownership: the verification's remaining findings stay open and are NOT touched here — CRITICAL-1 (strict-TDD bookkeeping for the auto-generation remediation), WARNING-1 (`course-talks.audit.view` has no surface), WARNING-2 (review-budget paperwork in `tasks.md`), WARNING-3 (no test for the missing-SYSTEM-author fail-closed path), WARNING-4 (`known-limitations.md` item 13 and the participant-edit dead-end) and SUGGESTIONs 1–4.
+
+## Structured status / actionContext
+
+- **Artifact store**: `openspec` (files under `openspec/changes/course-talks-management/`). No native dispatcher was invoked; the parent supplied the change and the unit scope, and the FAIL-1 text was taken from `verify-report.md` §7 and the delta spec.
+- **Not a non-authoritative-store case**: no `blockedReasons`, no `actionContext` blocker. Every edited file is inside the allowed edit surfaces; no target file is outside the workspace.
+- **Ownership markers**: the rows read were all terminal `<!-- sdd-owner: implementation -->` / `<!-- sdd-owner: parent -->`; no malformed marker was found. Only implementation-owned rows were selected/checked.
+- **Boundaries respected**: no bounded-review, refutation, correction or validation actor was started; no receipt created or approved; no pre-commit, pre-push, pre-PR or release gate run. Handed off to `parent-lifecycle`.
+
+## Human acceptance (advisory — NOT run, per the `acceptance-checklist` skill)
+
+Every row is **`not run`**; the automated evidence above is listed separately and is not a substitute.
+
+| # | Action | Expected visible result | Failure evidence to capture | Status |
+|---|---|---|---|---|
+| 1 | open Cursos y charlas as a `course-talks.view` holder | the full list, `Tipo de actividad` showing `Todas las actividades` | screenshot | **not run** |
+| 2 | choose `Curso` → Filtrar | only courses; the list URL carries `?activity_type=course`; reload keeps the filter; the badge reads "Filtro activo: Curso" | before/after screenshot + copied URL | **not run** |
+| 3 | choose `Charla` → Filtrar | only talks | screenshot | **not run** |
+| 4 | hand-edit the URL to `?activity_type=webinar` | no rows, an amber message naming `webinar`, HTTP 200 (never the error page) | screenshot + response status | **not run** |
+| 5 | hand-edit the URL to `?activity_type[]=course` | the complete list plus the "se descartó" message, HTTP 200 | screenshot + response status | **not run** |
+| 6 | press `Ver todas` | back to the unfiltered list, no badge, no message | screenshot | **not run** |
+| 7 | as a user without `course-talks.view`, open `?activity_type=course` | 403, not a filtered list | screenshot + status | **not run** |
+
+Open question for the human: whether "all activities" should also be selectable as an explicit option (today it is the blank option) — the option currently reads `Todas las actividades`, which reads as the all-value regardless.
+
+## UX / accessibility advisory (read-only, per the `ux-accessibility-review` skill)
+
+No project accessibility policy document was found to cite, so these are advisory and **not** WCAG compliance claims. Static evidence only: the rendered Blade, the repository's existing AdminLTE/Bootstrap 5 patterns, and the passing assertions. **No browser, screenshot, keyboard, screen-reader or contrast check was performed — every such check is unperformed.**
+
+- *Observed*: the select has a real `<label for="activities-type">` bound to `id="activities-type"`, so it has an accessible name (asserted). A native `<select>` gives full keyboard operation without custom JS. The active filter is stated in **text** ("Filtro activo: …") as well as by the option's `selected` state, so it is not a colour-only cue. The rejected value is echoed inside an `x-alert`, which renders `role="alert"`.
+- *Advisory (P2)*: the reject message is not programmatically associated with the select (`aria-describedby` would tie them). A visual and screen-reader user both read it because `role="alert"` announces it, so this is polish, not a blocker.
+- *Advisory (P2)*: the submit button is labelled `Filtrar` although the select already submits; this is the module's no-JS pattern (the alerts screen is identical), so nothing was invented here.
+- *Unperformed*: colour contrast of `badge text-bg-info` and `alert-warning` against the AdminLTE theme; keyboard tab order in a real browser; focus return after submit; behaviour at 200% zoom.
