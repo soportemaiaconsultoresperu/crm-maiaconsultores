@@ -178,6 +178,130 @@ class QuotationHttpTest extends TestCase
         $this->assertSame(0, Quotation::query()->count());
     }
 
+    /**
+     * D-4. `1 × 100` with a `1000` discount and IGV 18% is the audit's
+     * reproduction: the form preview clamps to `0.00` while the server used to
+     * store `line_tax = -162.00` and `total = -1062.00`. The server must refuse
+     * the payload the preview will not honour.
+     *
+     * @return array<string, mixed>
+     */
+    private function oversizedDiscountPayload(): array
+    {
+        return [
+            'lead_id' => Lead::factory()->create()->id,
+            'currency_code' => 'PEN',
+            'owner_id' => $this->salesperson->id,
+            'items' => [
+                [
+                    'description' => 'Servicio con descuento desmedido',
+                    'quantity' => '1',
+                    'unit_price' => '100.00',
+                    'discount_amount' => '1000.00',
+                    'tax_id' => Tax::where('slug', 'gravado-igv')->value('id'),
+                ],
+            ],
+        ];
+    }
+
+    public function test_store_rejects_a_discount_higher_than_the_line_subtotal(): void
+    {
+        $this->actingAs($this->salesperson)
+            ->from('/quotations/create')
+            ->post('/quotations', $this->oversizedDiscountPayload())
+            ->assertSessionHasErrors('items.0.discount_amount');
+
+        $this->assertSame(0, Quotation::query()->count());
+    }
+
+    public function test_store_renders_the_oversized_discount_error_on_the_line_and_keeps_the_typed_value(): void
+    {
+        $response = $this->actingAs($this->salesperson)
+            ->from('/quotations/create')
+            ->followingRedirects()
+            ->post('/quotations', $this->oversizedDiscountPayload());
+
+        $response->assertOk();
+        $response->assertSee('El descuento de la línea 1 no puede superar su subtotal (100.00).');
+        $response->assertSee('1000.00');
+        $response->assertSee('max="100.00"', false);    }
+
+    public function test_update_rejects_a_discount_higher_than_the_line_subtotal(): void
+    {
+        // D-4 is reachable through the edit form too: the update path ends in
+        // the same replaceItems()/calculateTotals() math, so it must enforce the
+        // same limit with the same visible error.
+        $quotation = $this->makeDraftQuotation();
+        $igv = Tax::where('slug', 'gravado-igv')->firstOrFail();
+
+        $this->actingAs($this->salesperson)
+            ->from("/quotations/{$quotation->id}/edit")
+            ->put("/quotations/{$quotation->id}", [
+                'lead_id' => $quotation->lead_id,
+                'currency_code' => 'PEN',
+                'owner_id' => $this->salesperson->id,
+                'items' => [
+                    [
+                        'description' => 'Servicio con descuento desmedido',
+                        'quantity' => '1',
+                        'unit_price' => '100.00',
+                        'discount_amount' => '1000.00',
+                        'tax_id' => $igv->id,
+                    ],
+                ],
+            ])
+            ->assertSessionHasErrors('items.0.discount_amount');
+
+        $quotation->refresh();
+        $item = $quotation->items()->firstOrFail();
+
+        $this->assertSame('0.00', (string) $item->discount_amount);
+        $this->assertGreaterThanOrEqual(0, (float) $item->line_tax);
+        $this->assertGreaterThanOrEqual(0, (float) $quotation->total);
+    }
+
+    public function test_store_accepts_a_discount_equal_to_the_line_subtotal(): void
+    {
+        $igv = Tax::where('slug', 'gravado-igv')->firstOrFail();
+        $lead = Lead::factory()->create();
+
+        $this->actingAs($this->salesperson)
+            ->post('/quotations', [
+                'lead_id' => $lead->id,
+                'currency_code' => 'PEN',
+                'owner_id' => $this->salesperson->id,
+                'items' => [
+                    [
+                        'description' => 'Línea bonificada al 100%',
+                        'quantity' => '1',
+                        'unit_price' => '100.00',
+                        'discount_amount' => '100.00',
+                        'tax_id' => $igv->id,
+                    ],
+                ],
+            ])
+            ->assertRedirect();
+
+        $quotation = Quotation::query()->latest('id')->firstOrFail();
+        $item = $quotation->items()->firstOrFail();
+
+        $this->assertSame('100.00', (string) $item->discount_amount);
+        $this->assertSame('0.00', (string) $item->line_tax);
+        $this->assertSame('0.00', (string) $item->line_total);
+        $this->assertSame('0.00', (string) $quotation->total);
+    }
+
+    public function test_edit_form_bounds_the_discount_input_by_the_line_subtotal(): void
+    {
+        // makeDraftQuotation() is 1 × 100 with IGV 18%: the discount input must
+        // advertise the same ceiling the server enforces (100.00), not infinity.
+        $quotation = $this->makeDraftQuotation();
+
+        $this->actingAs($this->salesperson)
+            ->get("/quotations/{$quotation->id}/edit")
+            ->assertOk()
+            ->assertSee('max="100.00"', false);    }
+
     public function test_accept_without_opportunity_just_accepts(): void
     {
         $quotation = $this->makeSentQuotation();

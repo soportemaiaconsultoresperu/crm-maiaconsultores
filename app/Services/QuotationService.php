@@ -11,6 +11,7 @@ use App\Models\QuotationItem;
 use App\Models\Setting;
 use App\Models\Tax;
 use App\Models\User;
+use App\Support\Quotations\LineDiscountRule;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -112,6 +113,8 @@ class QuotationService
      *
      * @throws InvalidOperationException When the quotation is not in
      *                                   draft status.
+     * @throws \InvalidArgumentException When a line discount exceeds its own
+     *                                   line subtotal (D-4).
      */
     public function update(Quotation $quotation, array $data, User $actor): Quotation
     {
@@ -119,6 +122,7 @@ class QuotationService
 
         if (array_key_exists('items', $data)) {
             $this->assertHasItems($data['items']);
+            $this->assertLineDiscountsWithinSubtotals($data['items']);
         }
 
         return DB::transaction(function () use ($quotation, $data, $actor): Quotation {
@@ -426,7 +430,13 @@ class QuotationService
             }
 
             $lineSubtotal = round($quantity * $unitPrice, 2);
-            $lineDiscount = round($discount, 2);
+            // D-4: a line discount can never exceed its own subtotal. The
+            // request classes and assertLineDiscountsWithinSubtotals() refuse
+            // such a payload, but duplicate() feeds stored rows back through
+            // this method and rows written before the fix can still carry the
+            // oversized discount — this cap is what keeps negative line_tax /
+            // line_total from ever being written again.
+            $lineDiscount = min(round($discount, 2), $lineSubtotal);
             $lineTax = $taxId
                 ? round(($lineSubtotal - $lineDiscount) * $taxRate / 100, 2)
                 : 0.0;
@@ -471,6 +481,23 @@ class QuotationService
         }
 
         $this->assertHasItems($data['items'] ?? []);
+        $this->assertLineDiscountsWithinSubtotals((array) ($data['items'] ?? []));
+    }
+
+    /**
+     * D-4 defensive guard for callers that bypass the HTTP request (tests,
+     * imports, future API): the same rule the requests enforce through
+     * LineDiscountRule, raised as an exception instead of a field error.
+     *
+     * @param  array<array-key, mixed>  $items
+     */
+    private function assertLineDiscountsWithinSubtotals(array $items): void
+    {
+        $violations = LineDiscountRule::violations($items);
+
+        if ($violations !== []) {
+            throw new \InvalidArgumentException((string) reset($violations));
+        }
     }
 
     /**

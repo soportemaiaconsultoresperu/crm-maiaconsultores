@@ -18,6 +18,17 @@
     ])->all();
     $defaultTaxId = $taxes->firstWhere('slug', 'gravado-igv')?->id ?? $taxes->first()?->id;
     $taxId = $item['tax_id'] ?? null;
+
+    // D-4: the discount input is bounded by this line's own subtotal, mirroring
+    // QuotationStoreRequest/QuotationUpdateRequest (LineDiscountRule) and the
+    // cap QuotationService applies. The tiny JS below republishes it on every
+    // recalculation so the bound follows the quantity/price the user types.
+    $discountCeiling = number_format(
+        round(((float) ($item['quantity'] ?? 0)) * ((float) ($item['unit_price'] ?? 0)), 2),
+        2,
+        '.',
+        '',
+    );
 @endphp
 <tr data-line-form data-index="{{ $index }}" data-testid="quotation-line-row">
     <td class="text-center align-middle text-secondary" data-line-index>{{ (int) $index + 1 }}</td>
@@ -52,8 +63,12 @@
                class="form-control form-control-sm" required data-line-field="unit_price" data-line-output="price" aria-label="Precio unitario">
     </td>
     <td>
-        <input type="number" name="items[{{ $index }}][discount_amount]" value="{{ $item['discount_amount'] ?? '0.00' }}" min="0" step="0.01"
-               class="form-control form-control-sm" data-line-field="discount" data-line-output="discount" aria-label="Descuento">
+        <input type="number" name="items[{{ $index }}][discount_amount]" value="{{ $item['discount_amount'] ?? '0.00' }}" min="0" max="{{ $discountCeiling }}" step="0.01"
+               class="form-control form-control-sm @error('items.'.$index.'.discount_amount') is-invalid @enderror"
+               data-line-field="discount" data-line-output="discount" aria-label="Descuento">
+        @error('items.'.$index.'.discount_amount')
+            <div class="invalid-feedback d-block">{{ $message }}</div>
+        @enderror
     </td>
     <td>
         <select name="items[{{ $index }}][tax_id]" class="form-select form-select-sm" data-line-field="tax_id" aria-label="Impuesto">

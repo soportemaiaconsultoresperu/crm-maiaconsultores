@@ -91,7 +91,44 @@ se persiste:      line_tax = -162.00, total = -1062.00
 **Riesgo**: el vendedor ve un número y el cliente recibe otro; al aceptar, `markWon` rechaza
 `final_amount <= 0` y el cierre falla de forma incomprensible.
 
-**Estado**: ⏳ pendiente.
+**Estado**: ✅ **ARREGLADO** (2026-09-12). Decisión: **rechazar** la línea cuyo descuento supera su
+propio subtotal, no clampear en silencio. Clampear habría cambiado el descuento que el vendedor
+tipeó (1000 → 100) sin decírselo: es la misma clase de deshonestidad que el total negativo, porque
+el número guardado no es el que se escribió. El borde es **inclusivo**: un descuento exactamente
+igual al subtotal es una línea bonificada al 100 % (subtotal 100, descuento 100, IGV 0, total 0) y se
+acepta; solo un descuento **mayor** se rechaza.
+
+La regla quedó en **una sola fuente de verdad**, `app/Support/Quotations/LineDiscountRule.php`, y sus
+tres consumidores —los que antes divergían— la leen de ahí:
+
+| Consumidor | Efecto |
+|---|---|
+| `QuotationStoreRequest` (POST /quotations) | error visible `items.N.discount_amount`: «El descuento de la línea N no puede superar su subtotal (X).» |
+| `QuotationUpdateRequest` (PUT /quotations/{id}) | el mismo error: el defecto era alcanzable por **ambas** rutas de escritura y arreglar una sola habría sido mentira |
+| `QuotationService::create()/update()` | `InvalidArgumentException` para quien no pasa por el HTTP request (tests, importaciones, futura API) |
+
+Y `replaceItems()` **capea** el descuento al subtotal como última barrera: `duplicate()` reinyecta
+filas guardadas, y las filas corruptas que el defecto dejó ya no pueden volver a escribir IGV ni
+totales negativos.
+
+El formulario dejó de mostrar un número que el servidor no honra: `_line_form.blade.php` publica
+`max` por línea (el subtotal de esa línea), el preview **capea el descuento** en lugar de la base
+(`Math.max(subtotal - discount, 0)` mostraba IGV/total que el servidor no escribía), la suma del
+preview usa el descuento capeado, y el input queda marcado (`is-invalid` + `setCustomValidity` con el
+texto del servidor) además del `@error` que renderiza el mensaje del request. La comparación es en
+**centavos enteros** en los tres lados, para que `7 × 0.29 = 2.03` con descuento exacto 2.03 no se
+rechace por ruido de float.
+
+Downstream: la aceptación sigue rechazando `final_amount <= 0` en `OpportunityService::markWon`
+(verificado en `OpportunityService:240`), igual que antes. El cambio reemplaza los negativos por
+`0.00`, así que una cotización bonificada al 100 % sigue sin poder cerrarse como ganada con
+`total = 0`: es una decisión de producto **preexistente** y fuera de este hallazgo, no un efecto
+nuevo.
+
+Evidencia RED (antes del arreglo): `QuotationMathTest` 2 fallos —`-162.0 is equal to 0 or is greater
+than 0` en la línea duplicada y el servicio aceptando el descuento desmedido— y `QuotationHttpTest`
+3 fallos —store y update aceptando el payload y el `max` ausente en el formulario—. Después:
+`--filter=Quotation` 60/60 (236 aserciones).
 
 ### D-5 a D-8 · WARNING · Precisión, config muerta, exports y ownership
 
@@ -200,7 +237,34 @@ código muerto en tests.
 **Riesgo**: agregar una ruta a `except` o quitar el middleware deja la app vulnerable con la suite
 verde y un test que dice "CSRF verificado".
 
-**Estado**: ⏳ pendiente.
+**Estado**: ✅ **ARREGLADO** (2026-09-12). El test ya no aserta un status HTTP: hay dos resultados
+posibles (419 con CSRF, 302 sin él) y en el harness el rechazo ni corre (`runningUnitTests()`), así
+que cualquier aserción sobre el código de respuesta nacía ambigua. El objetivo honesto es la
+**configuración** que decide si la protección existe, y eso es lo que pinea ahora
+`SecurityHardeningTest::test_csrf_protection_is_configured_on_the_web_group_and_not_excluded_for_state_changing_routes`:
+
+1. el grupo `web` resuelto por el Router contiene `PreventRequestForgery` (o una subclase);
+2. `allowSameSite` no está habilitado (dejaría pasar un request same-site sin token);
+3. nueve rutas que cambian estado (`login.store`, `logout`, `leads.store`, `customers.store`,
+   `products.store`, `quotations.store`, `quotations.update`, `admin.users.store`,
+   `admin.settings.update`) **corren** el middleware de verdad: se consulta
+   `Router::gatherRouteMiddleware()`, que resuelve alias/grupos y **resta** el middleware excluido de
+   la ruta, así que detecta tanto salir del grupo `web` como un `withoutMiddleware(...)` en la ruta;
+4. ninguna de esas URIs cae en la lista de exclusión, consultada con el **propio predicado del
+   middleware** (`inExceptArray()` expuesto por una subclase anónima en el test, porque `handle()`
+   cortocircuita bajo tests).
+
+La fallabilidad se **demostró** mutando la configuración y observando cada fallo, no se afirmó:
+
+| Mutación aplicada | Resultado observado |
+|---|---|
+| `$middleware->web(remove: [PreventRequestForgery::class])` | falla (1): «The `web` middleware group must include …PreventRequestForgery» (1 aserción de 29) |
+| `$middleware->preventRequestForgery(allowSameSite: true)` | falla (2): «PreventRequestForgery::allowSameSite() weakens CSRF verification…» (2 de 29) |
+| `$middleware->validateCsrfTokens(except: ['login', 'login.store'])` | falla (4): «POST /login (route [login.store]) must not be excluded from CSRF verification» (5 de 29) |
+| `->withoutMiddleware('web')` en `products.store` | falla (3): «Route [products.store] must run …PreventRequestForgery (via the `web` group): []» (16 de 29) |
+
+Las cuatro mutaciones se revirtieron (`git diff bootstrap/app.php` y `git diff routes/web.php`
+vacíos) y con los archivos prístinos el test pasa con **29 aserciones**.
 
 ### A-4 a A-8 · WARNING · Ownership, tautologías y dos fuentes de verdad
 
@@ -400,8 +464,15 @@ por columnas de auditoría faltantes), `R-2`, `R-3` y `R-4`.
    arreglo destapó R-5 (el motivo del fallo se descartaba), R-6 (la rama WhatsApp busca la cuenta en
    la tabla equivocada), R-7 (nadie escribe la ventana de 24 h) y R-8 (el motivo no llega a la
    pantalla).
-3. **CSRF (A-3)** — un test de seguridad que no puede fallar es peor que no tenerlo.
-4. **Descuentos negativos (D-4)** — se factura mal y el vendedor ve otro número.
+3. ✅ **CSRF (A-3)** — **ARREGLADO** (2026-09-12). Un test de seguridad que no puede fallar es peor
+   que no tenerlo: ahora pinea la configuración que decide si la protección existe, y se verificó
+   mutando la configuración cuatro veces (quitar el middleware del grupo `web`, `allowSameSite`,
+   `except: ['login']`, `withoutMiddleware('web')` en una ruta) y observando que el test cae en cada
+   una.
+4. ✅ **Descuentos negativos (D-4)** — **ARREGLADO** (2026-09-12). Se rechaza el descuento mayor al
+   subtotal (borde inclusivo: igual se acepta) en **una** regla compartida por las dos rutas de
+   escritura y el servicio, con el preview del formulario capeando el descuento y marcando la línea
+   en vez de mostrar un IGV/total que el servidor nunca escribiría.
 5. **El resto**: D-2, D-3, D-5 a D-8, A-4 a A-8, E-5 a E-8.
 6. **Aparte**: decidir qué se hace con los rojos que quedan. Medido el 2026-09-12 después de arreglar
    campañas: **11 rojos** (11 fallos, 0 errores) sobre 1.316 tests, y son exactamente los 11 fallos
@@ -409,7 +480,9 @@ por columnas de auditoría faltantes), `R-2`, `R-3` y `R-4`.
    `GoogleCalendarWebhook`). Re-medido el 2026-09-12 al cerrar E-3/E-4: **11 rojos** (11 fallos, 0
    errores) sobre **1.330 tests / 1.319 en verde** — los mismos 11 por nombre, más 14 tests nuevos.
    Mientras sigan ahí, "la suite pasa" no significa nada, y cada verde nuevo es más difícil de
-   interpretar.
+   interpretar. Y re-medido al cerrar A-3/D-4: **11 rojos** (11 fallos, 0 errores) sobre
+   **1.338 tests / 1.327 en verde** — los mismos 11 por nombre, más 8 tests nuevos (3 en
+   `QuotationMathTest`, 5 en `QuotationHttpTest`).
 
 ## La conclusión que importa
 

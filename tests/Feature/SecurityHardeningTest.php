@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
@@ -16,7 +18,8 @@ use Tests\TestCase;
  *   1. Sensitive fields (password, remember_token) never leak through
  *      log channels when an Eloquent user model is dumped.
  *   2. APP_DEBUG=false hides stack traces from error responses.
- *   3. POST endpoints enforce CSRF tokens.
+ *   3. The `web` middleware group still carries CSRF protection and the
+ *      state-changing routes are not excluded from it.
  *   4. Input validation rejects XSS payloads.
  *   5. Permission gates respect role boundaries (vendedor cannot reach
  *      admin resources or another vendor's records).
@@ -91,36 +94,115 @@ class SecurityHardeningTest extends TestCase
         $this->assertStringNotContainsString('/laragon/', $body);
     }
 
-public function test_csrf_token_is_required_on_post_forms(): void
+    /**
+     * A-3. The previous version of this test posted VALID credentials to
+     * /login and accepted `[419, 302]`: with CSRF enforced the answer is 419,
+     * and with the middleware gone the login succeeds and the answer is 302.
+     * Both outcomes were accepted, so the assertion held whether or not the
+     * protection existed. On top of that the harness never even reaches the
+     * rejection, because PreventRequestForgery::handle() short-circuits on
+     * runningUnitTests() — the 419 branch is dead code in tests.
+     *
+     * The honest target is the CONFIGURATION that decides whether the
+     * protection exists, so this test pins it directly. Concretely, it fails
+     * when any of these changes lands:
+     *   - `$middleware->web(remove: [PreventRequestForgery::class])` (or a
+     *     `web(replace: [...])`) drops the middleware from the web group;
+     *   - `$middleware->allowSameSite()` is enabled, which lets a same-site
+     *     request skip the token check entirely;
+     *   - `$middleware->validateCsrfTokens(except: [...])` starts covering a
+     *     URI that matters (e.g. `except: ['login']` or `['*']`);
+     *   - a state-changing route stops running the middleware: it is moved out
+     *     of the `web` group, or it gets `->withoutMiddleware('web')` /
+     *     `->withoutMiddleware(PreventRequestForgery::class)`.
+     */
+    public function test_csrf_protection_is_configured_on_the_web_group_and_not_excluded_for_state_changing_routes(): void
     {
-        $user = User::factory()->create([
-            'email' => 'csrfcheck@maia.test',
-            'password' => 'secreto-csrf',
-            'is_active' => true,
-        ]);
-        $user->assignRole('admin');
+        $forgery = new class($this->app, $this->app->make('encrypter')) extends PreventRequestForgery
+        {
+            /**
+             * The middleware's own exclusion predicate: the exact code path
+             * handle() consults, minus the unit-test short circuit.
+             */
+            public function isExcluded(\Illuminate\Http\Request $request): bool
+            {
+                return $this->inExceptArray($request);
+            }
 
-        // Login route is guest-only and POSTs to /login. With CSRF
-        // middleware active, a request that omits _token must short-circuit
-        // with 419 (Laravel's "Page Expired" status) BEFORE the
-        // authentication attempt. We do NOT call withoutMiddleware().
-        $response = $this->from('/login')->post('/login', [
-            'email' => $user->email,
-            'password' => 'secreto-csrf',
-        ]);
+            public function sameSiteBypassEnabled(): bool
+            {
+                return static::$allowSameSite;
+            }
+        };
 
-        // The framework's test harness may or may not short-circuit CSRF
-        // depending on the environment; we accept both the protected
-        // outcome (419) and the bypassed outcome (302 redirect) and
-        // assert at least the redirect target is the login page so the
-        // failure mode is documented.
-        $status = $response->getStatusCode();
+        $router = $this->app->make(Router::class);
+        $webGroup = $router->getMiddlewareGroups()['web'] ?? [];
 
-        $this->assertContains(
-            $status,
-            [419, 302],
-            "Missing CSRF must produce 419 or 302; got {$status}."
+        $csrfMiddleware = array_values(array_filter(
+            $webGroup,
+            fn ($middleware): bool => is_string($middleware)
+                && ($middleware === PreventRequestForgery::class
+                    || is_subclass_of($middleware, PreventRequestForgery::class)),
+        ));
+
+        $this->assertNotEmpty(
+            $csrfMiddleware,
+            'The `web` middleware group must include '.PreventRequestForgery::class
+            .'; without it every POST/PUT/DELETE in the application is unprotected.',
         );
+
+        $this->assertFalse(
+            $forgery->sameSiteBypassEnabled(),
+            'PreventRequestForgery::allowSameSite() weakens CSRF verification: a same-site request '
+            .'would skip the token check. It must not be enabled in bootstrap/app.php.',
+        );
+
+        $stateChangingRoutes = [
+            'login.store',
+            'logout',
+            'leads.store',
+            'customers.store',
+            'products.store',
+            'quotations.store',
+            'quotations.update',
+            'admin.users.store',
+            'admin.settings.update',
+        ];
+
+        foreach ($stateChangingRoutes as $name) {
+            $route = $router->getRoutes()->getByName($name);
+
+            $this->assertNotNull(
+                $route,
+                "Route [{$name}] must exist so its CSRF coverage can be verified.",
+            );
+
+            // Router::gatherRouteMiddleware() is the chain the router actually
+            // runs: it resolves aliases and groups AND subtracts the route's
+            // excluded middleware, so this fails when the route leaves the web
+            // group or an exclusion is added to the route itself.
+            $chain = $router->gatherRouteMiddleware($route);
+            $routeCsrf = array_filter(
+                $chain,
+                fn ($middleware): bool => is_string($middleware)
+                    && ($middleware === PreventRequestForgery::class
+                        || is_subclass_of($middleware, PreventRequestForgery::class)),
+            );
+
+            $this->assertNotEmpty(
+                $routeCsrf,
+                "Route [{$name}] must run ".PreventRequestForgery::class
+                .' (via the `web` group); without it the request is not verified: '.json_encode($chain),
+            );
+
+            $uri = preg_replace('/\{[^}]+\}/', '1', $route->uri());
+            $request = \Illuminate\Http\Request::create('/'.$uri, 'POST');
+
+            $this->assertFalse(
+                $forgery->isExcluded($request),
+                "POST /{$uri} (route [{$name}]) must not be excluded from CSRF verification.",
+            );
+        }
     }
 
     public function test_input_validation_rejects_xss_payload(): void

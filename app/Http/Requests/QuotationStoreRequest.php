@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\Quotations\LineDiscountRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -16,6 +17,8 @@ use Illuminate\Validation\Rule;
  * - At least one item.
  * - Items have valid quantity/unit_price and (when present) a tax that
  *   exists in the catalog. product_id is optional (free lines allowed).
+ * - A line discount never exceeds its own line subtotal (D-4); the rule is
+ *   shared with QuotationUpdateRequest through LineDiscountRule.
  */
 class QuotationStoreRequest extends FormRequest
 {
@@ -91,6 +94,9 @@ class QuotationStoreRequest extends FormRequest
                     'La cotización debe tener exactamente un lead o un cliente, no ambos.'
                 );
             }
+
+            // D-4: a discount larger than the line subtotal is not a discount.
+            LineDiscountRule::addTo($validator, (array) $this->input('items'));
         });
     }
 }
