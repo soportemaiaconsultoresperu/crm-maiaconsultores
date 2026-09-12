@@ -4145,3 +4145,205 @@ query scopes …`, `- [ ] Run full verification with php artisan test …`, `- [
 - `actionContext` warnings: none. All edits stayed inside the allowed surfaces (`database/seeders/DatabaseSeeder.php`, `tests/Feature/Courses/CourseRolloutTest.php`, `tests/Feature/SeedersTest.php`,
   the two bookkeeping files). No domain behaviour, route, policy, permission name, enum, model, migration, delivery/generation service or Blade view was touched.
 - Handed off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit, pre-push, pre-PR or release gate was run.
+
+
+---
+
+# Corrective unit — foundation review (destructive document deletion, schema rollback, orphan permissions)
+
+**Status**: COMPLETE (implementation) — pending parent-owned review. No aggregate row was marked `[x]`; the new
+corrective rows in `tasks.md` are implementation-owned and all but the review row are `[x]`.
+
+**Skill resolution**: `paths-injected` — read `database-change-safety/SKILL.md` and
+`acceptance-checklist/SKILL.md` from the injected paths before writing code.
+
+## Defect A — the destructive document deletion
+
+### Chosen fix: (a) + (b) — refuse first, then remove the row BEFORE the file
+
+`app/Services/DocumentService::delete()` now does, in this order:
+
+1. the existing `canDelete()` authorization (unchanged);
+2. **a reference guard** — a `withTrashed()` existence check against `CourseAcademicDocument` and
+   `CourseCommercialDocument` on `document_id`; a hit throws
+   `Symfony\Component\HttpKernel\Exception\ConflictHttpException` (HTTP 409) with the Spanish message
+   "Este documento no se puede eliminar porque un documento de curso (certificado o comprobante) todavía lo
+   referencia. Primero anule o reemplace el documento del curso, y vuelva a intentarlo.";
+3. `DB::transaction(fn () => $document->forceDelete())` — the row goes first;
+4. the physical file, only now that nothing can reference it;
+5. the `document-deleted` audit entry (unchanged).
+
+**Why (a)**: refusing is the only deterministic way to guarantee "no partial destruction". The course tables
+declare `document_id` with an implicit RESTRICT, so the row is undeletable while referenced: reordering alone
+would still end in an uncaught FK `QueryException` 500, merely with a file that survived by luck. The guard turns
+that into a deliberate, named outcome.
+
+**Why also (b)**: once the guard covers the reference we KNOW about, the order is the defence against the
+references we do not know about (any table that later gains a RESTRICT FK to `documents`). With the row first, a
+database refusal leaves row and file untouched; with the file first, the same refusal leaves the row alive and the
+file destroyed. The invariant enforced is exactly the governing rule: **a file is destroyed only once nothing
+references it.**
+
+**Why `ConflictHttpException` and not a domain exception**: the service already throws an HTTP-aware
+`Illuminate\Auth\Access\AuthorizationException` and returns a `StreamedResponse`, i.e. it IS the HTTP boundary of
+this module. A 409 renders with the Spanish message with **no change to `DocumentController`**, which is outside
+this unit's allowed surfaces; an `InvalidArgumentException` would have left the operator on a generic 500.
+
+**Why `withTrashed()`**: soft-deleting a certificate does not remove the foreign key, so a trashed course
+document still blocks the delete and must still protect the file. Triangulated and mutation-proven.
+
+**No foreign key was weakened, no permission model changed, no enum was created.**
+
+### Proof that a rejected deletion leaves row and file untouched
+
+`tests/Feature/DocumentServiceTest.php::test_a_document_referenced_by_a_course_certificate_loses_nothing`
+asserts, after the refusal: the file still exists on the `docs` disk, the `documents` row still exists with its
+original `path`, `course_academic_documents.document_id` still points at it, and **zero** `document-deleted`
+activity rows exist (a rejected deletion is not audited as a deletion). The commercial twin asserts the same.
+`tests/Feature/DocumentHttpTest.php::test_deleting_a_document_referenced_by_a_course_certificate_is_refused_and_loses_nothing`
+proves the same through the real route (409, file present, row present, reference intact).
+
+## Defect B — the undocumented schema rollback
+
+`known-limitations.md` gained item **8**: `migrate:rollback` drops all 12 domain tables while the private PDFs
+stay in `storage/app/private/docs` with no surviving row to locate them (an uninventoriable PII leak) and the
+surviving `documents` rows can end up pointing at a **different** certificate once `AUTO_INCREMENT` is reused.
+The `DatabaseSeeder` docblock was **not** touched — it documents the SERVICE rollback and is correct there; what
+was missing is the SCHEMA story.
+
+## Finding 1 — the two orphan permissions
+
+| Permission | Decision | Why | Authorization consequence |
+|---|---|---|---|
+| `course-talks.sessions.manage` | **WIRED** to both session routes | the design asks for a dedicated permission for managing classes; `CourseEditionPolicy::manageSessions` was consumed by nothing | the policy keeps it **additive** (`sessions.manage` OR `editions.manage`), so nothing was revoked: a `sessions.manage`-only holder now opens the form and saves sessions, and every `editions.manage` holder (the seeded admin, the navigation fixtures) keeps access. Strict-only wiring was rejected because it revokes session access from `editions.manage`-only actors and requires three files outside this unit's surfaces (`CourseEditionSessionsHttpTest:45`, `CourseTalksNavigationTest:39`, `resources/views/course-talks/editions/show.blade.php:22`) |
+| `course-talks.audit.view` | **KEPT, documented as an open decision** (`known-limitations.md` item 9) | the module has no audit surface at all and the generic viewer uses the unrelated `audit.view`; inventing a screen would be scope the design does not have | none — the permission and `CourseActivityPolicy::viewAudit` stay exactly as they were |
+
+Seeder grant audit: `CoursePermissionsSeeder` grants all 13 to `admin`, `course-talks.view` only to `supervisor`,
+and nothing to `vendedor` — so the additive wiring changes no shipped role's access.
+
+## Finding 5 — the reserved commercial status
+
+`grep` evidence (writers vs readers): `CourseCommercialDocumentService` writes only `pending_file` (register) and
+`registered` (upload); `'sent'` is read by `PublicCertificateQrController:63`,
+`CourseAlertService::SERVABLE_COMMERCIAL_STATUSES` and `CourseDocumentDeliveryService:566` (every other `'sent'`
+hit in `app/` belongs to the quotation domain). The read is **kept on purpose** and the reservation is documented
+(`known-limitations.md` item 10): `sent` is a persisted status the design declares, and dropping the reads would
+couple the delivery predicate to today's writers instead of to the schema contract. No writer was invented.
+
+## Raw status columns (constraint, not a finding)
+
+`course_attendances.status` and the commercial `status` remain plain strings compared against raw literals; no
+enum was created (that touches models, migrations and views). Documented as `known-limitations.md` item 11.
+
+## Strict TDD cycle evidence
+
+| Phase | Command | Real result |
+|---|---|---|
+| **RED** defect A (service) | `--filter=DocumentServiceTest` | `{"tests":9,"passed":5,"failed":2,"errors":2,"assertions":32}` — the two failures are the damage itself: `El archivo privado del certificado NO debe destruirse mientras un documento de curso lo referencia. Failed asserting that false is true.` plus the commercial twin; the two errors are the uncaught FK `QueryException` (`FOREIGN KEY constraint failed ... delete from "documents"`) |
+| **RED** defect A (HTTP) | `--filter=DocumentHttpTest` | `{"tests":49,"passed":48,"failed":1,"assertions":488}` — `Expected response status code [409] but received 500`, with the FK `PDOException` in the response: the reachable-path 500 the review described |
+| **RED** finding 1 | `--filter=CoursePermissionPolicyTest` | `{"tests":4,"passed":3,"failed":1,"assertions":63}` — `Expected response status code [200] but received 403`: the seeded `sessions.manage` enabled nothing |
+| **RED** defect B + finding 5 | `--filter=CourseDomainFoundationTest` | `{"tests":6,"passed":4,"failed":2,"assertions":27}` — two real assertion failures on the documentation tokens, no fatal |
+| **GREEN** | the four focused filters | `9/43`, `49/491`, `4/66`, `6/30` — all passing |
+| **TRIANGULATE** | `--filter=DocumentServiceTest` | `9/43` with both triangulations green: a soft-deleted certificate still protects the file, and a superseded comprobante attachment is still deletable with its file while the current one is refused |
+| **MUTATION** (finding 2) | delete the ownership clause from `CourseEditionPolicy::view`, run `--filter=CoursePermissionPolicyTest` | `failed:1` — `Failed asserting that false is true` on the responsible-user `view` assertion (the clause IS exercised). Measured the same way with the OLD fixture (responsible user holding `course-talks.view`): `passed:4` — the mutation survived, i.e. the old test was blind. Both files restored; `CourseEditionPolicy.php` sha256 `389f724f...c60036` identical before and after |
+| **MUTATION** (defect A) | drop `withTrashed()` from the guard, run `--filter=DocumentServiceTest` | `errors:1` — only the soft-deleted triangulation dies. File restored, `9/43` green again |
+| **REFACTOR** | nothing left to compact | not needed: the additions are the tests and the ordered guard; no duplicated logic was introduced |
+
+Findings 3 and 4 have no RED by construction: finding 3 is a fixture refactor (the literal list was correct at
+HEAD, just duplicated) and finding 4 is a test-coverage gap, not a production defect — its new assertions pass
+against the unchanged schema, which is precisely why the old assertions could not catch a regression.
+
+## Commands and results (exact, sequential, in the brief's order)
+
+1. `.../php.exe artisan test --filter=DocumentServiceTest` -> `{"tests":9,"passed":9,"assertions":43}` (RED: `5 passed 2 failed 2 errors`)
+2. `--filter=CoursePermissionPolicyTest` -> `{"tests":4,"passed":4,"assertions":66}` (RED: `3 passed 1 failed`)
+3. `--filter=CourseDomainFoundationTest` -> `{"tests":6,"passed":6,"assertions":30}` (RED: `4 passed 2 failed`)
+4. `--filter=CourseRolloutTest` -> `{"tests":9,"passed":9,"assertions":92}` (unchanged)
+5. `--filter=Course` -> `{"tests":463,"passed":463,"assertions":3527}` against the 456 / 3,488 baseline = **+7 tests / +39 assertions**, exactly this unit's matched tests (3 `DocumentServiceTest` + 1 `DocumentHttpTest` + 1 `CoursePermissionPolicyTest` + 2 `CourseDomainFoundationTest`; the filter matches by test name, so the two document tests count only where their names contain `Course`)
+6. `--filter=CourseCertificateQrSecurityTest` -> `{"tests":15,"passed":15,"assertions":182}` (unchanged)
+7. Extra: `--filter=DocumentHttpTest` -> `{"tests":49,"passed":49,"assertions":491}` (this filter also matches the course document HTTP suites)
+8. Extra: full suite `php.exe artisan test` -> `{"tests":1267,"passed":1244,"failed":11,"errors":12,"assertions":6613}` — the 11 failures are exactly the ones in `suite-baseline.md` and the 12 errors are the pre-existing campaign/Livewire ones; **no new failures** (1259 + 8 = 1267)
+9. Extra: `pint --test` on the 9 changed PHP files, compared fixer-by-fixer against the same files at HEAD -> **identical fixer sets** (the repo is not pint-clean; this unit added no new violation)
+
+## Existing assertions touched
+
+| File | Assertion | What changed |
+|---|---|---|
+| `CoursePermissionPolicyTest::test_course_permissions_are_seeded_and_assignable` | the loop over the local 13-item `PERMISSIONS` const | now iterates `CoursePermissionsSeeder::PERMISSIONS`; same two assertions per permission, none removed |
+| `CoursePermissionPolicyTest::test_course_policies_allow_only_matching_granular_permissions_and_responsible_view` | `$responsible->givePermissionTo('course-talks.view')` | **removed** — that grant is what made the test blind to the ownership clause; the existing `assertTrue(allows('view', $edition))` is kept but now depends on the clause |
+| same | `$manager->givePermissionTo([13 literals])` | replaced by `CoursePermissionsSeeder::PERMISSIONS`; added `assertTrue` for the permission half of `view` and three negatives (non-responsible user denied `view`/`viewAny`; responsible user denied `manageSessions`) |
+| `CourseDomainFoundationTest::test_course_foundation_tables_and_defaults_exist` | the 11-table list, the 3 config assertions | list extended to the 12 tables the migration creates (`course_edition_teachers`); `config('courses.email_document_link_minutes')` = 10080 added; the three existing assertions unchanged |
+| `DocumentServiceTest::test_delete_removes_physical_file_and_db_row`, `DocumentHttpTest::test_delete_succeeds_for_uploader_and_returns_redirect` | untouched | the happy-path locks proving the reorder did not break the ordinary delete |
+
+## Files changed
+
+| File | Kind | Lines |
+|---|---|---|
+| `app/Services/DocumentService.php` | guard + row-before-file order + docblock | +54 / -5 |
+| `app/Policies/Courses/CourseEditionPolicy.php` | `manageSessions` wired, additive rule + docblock | +14 / -1 |
+| `app/Http/Controllers/CourseTalks/CourseEditionController.php` | both session actions authorize `manageSessions` | +6 / -2 |
+| `app/Http/Requests/CourseTalks/SyncEditionSessionsRequest.php` | `authorize()` mirrors the policy | +8 / -1 |
+| `routes/web.php` | comment on the session routes only | +5 / -1 |
+| `tests/Feature/DocumentServiceTest.php` | 4 tests + 3 helpers + imports (RED/triangulation) | +218 / -0 |
+| `tests/Feature/DocumentHttpTest.php` | 1 HTTP test + helper + imports | +63 / -0 |
+| `tests/Feature/Courses/CoursePermissionPolicyTest.php` | isolation fix, negatives, constant, sessions test | +58 / -34 |
+| `tests/Feature/Courses/CourseDomainFoundationTest.php` | 12 tables, 4 config keys, 2 documentation tests | +45 / -1 |
+| `openspec/changes/course-talks-management/known-limitations.md` | items 8-12 (schema rollback, audit.view, reserved `sent`, raw status columns, fail-closed documents) | +97 / -3 |
+| `openspec/changes/course-talks-management/tasks.md` | bookkeeping (this corrective unit's rows) | append-only |
+
+### Changed-line count / review workload
+
+`git diff --numstat` at the end of the unit:
+
+| added | deleted | file |
+|---|---|---|
+| 6 | 2 | `app/Http/Controllers/CourseTalks/CourseEditionController.php` |
+| 8 | 1 | `app/Http/Requests/CourseTalks/SyncEditionSessionsRequest.php` |
+| 14 | 1 | `app/Policies/Courses/CourseEditionPolicy.php` |
+| 54 | 5 | `app/Services/DocumentService.php` |
+| 97 | 3 | `openspec/changes/course-talks-management/known-limitations.md` |
+| 5 | 1 | `routes/web.php` |
+| 45 | 1 | `tests/Feature/Courses/CourseDomainFoundationTest.php` |
+| 58 | 34 | `tests/Feature/Courses/CoursePermissionPolicyTest.php` |
+| 63 | 0 | `tests/Feature/DocumentHttpTest.php` |
+| 218 | 0 | `tests/Feature/DocumentServiceTest.php` |
+
+- **Total: 568 added / 48 deleted = 616 changed lines — above the 400-line budget of the tasks forecast**, which is the honest number. Composition: **384 lines of tests** (the two defects demanded damage-level RED plus triangulation), **97 lines of documentation** (the findings that must not become code), **87 lines of production code** across 4 files, **5 comment lines** in `routes/web.php`. No file was reformatted; the only deletions are the replaced block in `DocumentService::delete()`, the removed duplicated permission list and the old fixture line.
+- **Bookkeeping delta, for completeness**: `tasks.md` +14 / -0 and this file +201 / -0 are the SDD records of the unit, not code. Counting every file `git diff --numstat` reports: **783 added / 48 deleted = 831 changed lines**.
+- No commit, push, branch or worktree. Nothing staged (`git diff --cached` empty).
+
+## Human acceptance (advisory — NOT run)
+
+Per the `acceptance-checklist` skill, every scenario below is **`not run`**; the automated evidence is listed
+separately and must not be mistaken for it.
+
+| # | Action | Expected visible result | Failure evidence to capture | Status |
+|---|---|---|---|---|
+| 1 | as the uploader, open Documentos and try to delete the PDF of a certificate the module still shows as current | no deletion: a 409 page naming the reason (a course document still references it). The file still downloads afterwards | screenshot; the 409 body; the downloaded PDF | **not run** |
+| 2 | same, for the private attachment of a comprobante | same refusal | screenshot | **not run** |
+| 3 | annul or replace the course document, then retry the deletion | the document disappears and its file is gone from `storage/app/private/docs` | before/after listing | **not run** |
+| 4 | as a user holding only `course-talks.view` + `course-talks.sessions.manage`, open an edition's Sesiones URL | the screen opens and saves sessions. NOTE: the link is still hidden for them (the Blade navigation asks the coarser `update` ability, a file outside this unit's surfaces) | direct-URL screenshot; 200 vs 403 | **not run** |
+| 5 | as a `course-talks.editions.manage` holder with no `sessions.manage`, open Sesiones | unchanged: link visible, screen opens (additive rule) | screenshot | **not run** |
+
+Automated evidence: `CoursePermissionPolicyTest` 4/66, `CourseDomainFoundationTest` 6/30, `DocumentServiceTest`
+9/43, `DocumentHttpTest` filter 49/491, `CourseRolloutTest` 9/92, `CourseCertificateQrSecurityTest` 15/182,
+`--filter=Course` 463/3,527, full suite 1267 with the 11 documented failures and the 12 pre-existing errors.
+
+## Database-change safety (advisory)
+
+- **Target**: local/test (in-memory SQLite via `phpunit.xml`). No production execution performed or advised.
+- **Schema change**: none. No migration was added, altered or run. `openspec/config.yaml` untouched (still points at `b12-ui`).
+- **Data change**: none on any real database. The only data-behaviour change is that a `documents` row referenced by a course document can no longer be hard-deleted (fail closed) and that its file is destroyed only after the row is gone.
+- **Rollback reality**: unchanged — the course migration's `down()` is still destructive, now DOCUMENTED (`known-limitations.md` item 8) instead of silent. `php artisan migrate` remains a pending owner action.
+
+## Remaining tasks
+
+Every aggregate Slice 7 row and every earlier slice row is still `[ ]` by design. The only unchecked row this unit adds is parent-owned:
+`- [ ] Review this corrective unit: the fail-closed reference guard and the row-before-file order, the 409 surfacing without a controller change, the additive manageSessions decision and its authorization consequence, the two documented open decisions (audit.view, reserved sent), the corrected policy-test fixture, the completed foundation coverage, and the untouched aggregate rows and out-of-scope findings. <!-- sdd-owner: parent -->`
+
+## Structured status / actionContext
+
+- Artifact store consumed: `openspec` (files under `openspec/changes/course-talks-management/`). No native dispatcher was invoked; the parent supplied the change and the unit scope.
+- Every edited file is inside the allowed surfaces. The strict `sessions.manage` variant was NOT taken because it would have required `tests/Feature/Courses/CourseEditionSessionsHttpTest.php`, `tests/Feature/Courses/CourseTalksNavigationTest.php` and `resources/views/course-talks/editions/show.blade.php`, all outside them; the additive rule closes the finding without touching those surfaces.
+- Two files are reported, not edited: `app/Http/Controllers/DocumentController.php` (does not map the new 409 to a flash message — the 409 error page is the in-scope outcome) and the Blade navigation block above (a `sessions.manage`-only holder reaches the route but sees no link).
+- Handed off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt created or approved, no pre-commit/pre-push/pre-PR/release gate run.

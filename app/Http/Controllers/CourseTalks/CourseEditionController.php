@@ -90,10 +90,14 @@ class CourseEditionController extends Controller
     /**
      * Session management view: the current sessions (with their dates and times)
      * plus the form that upserts them by array position.
+     *
+     * Authorized by `manageSessions` (`course-talks.sessions.manage`, the
+     * design's own permission for this surface) instead of the coarser `update`,
+     * so the seeded permission really gates a route.
      */
     public function sessions(CourseEdition $edition): View
     {
-        Gate::authorize('update', CourseEdition::class);
+        Gate::authorize('manageSessions', $edition);
 
         return view('course-talks.editions.show', [
             'edition' => $edition->load('activity'),
@@ -105,7 +109,7 @@ class CourseEditionController extends Controller
 
     public function syncSessions(SyncEditionSessionsRequest $request, CourseEdition $edition): RedirectResponse
     {
-        Gate::authorize('update', CourseEdition::class);
+        Gate::authorize('manageSessions', $edition);
 
         try {
             $this->editions->syncSessions($edition, $request->sessionsForSync());

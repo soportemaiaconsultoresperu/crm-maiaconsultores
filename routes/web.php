@@ -71,7 +71,11 @@ Route::middleware(['auth', 'active'])
 
             // Same pattern for the session list: the static `sessions` segment
             // is registered before the read-only group's `editions/{edition}`
-            // binding so it is never shadowed by it.
+            // binding so it is never shadowed by it. Both session routes are
+            // authorized by `CourseEditionPolicy::manageSessions`, so the seeded
+            // `course-talks.sessions.manage` permission really gates a surface
+            // (the policy also accepts the coarser `editions.manage`, so no
+            // existing actor lost access).
             Route::get('editions/{edition}/sessions', 'sessions')->name('editions.sessions');
             Route::post('editions/{edition}/sessions', 'syncSessions')->name('editions.sessions.sync');
         });

@@ -2,6 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Enums\Courses\AcademicDocumentStatus;
+use App\Enums\Courses\AcademicDocumentType;
+use App\Enums\Courses\DeliveryStatus;
+use App\Models\Courses\CourseAcademicDocument;
+use App\Models\Courses\CourseEnrollment;
 use App\Models\Customer;
 use App\Models\Document;
 use App\Models\Lead;
@@ -136,6 +141,25 @@ class DocumentHttpTest extends TestCase
         $this->assertFalse(Storage::disk('docs')->exists($document->path));
     }
 
+    public function test_deleting_a_document_referenced_by_a_course_certificate_is_refused_and_loses_nothing(): void
+    {
+        Storage::fake('docs');
+
+        [$academic, $document] = $this->courseCertificate();
+        $path = (string) $document->path;
+
+        $response = $this->actingAs($this->salespersonOne)
+            ->delete(route('documents.destroy', $document));
+
+        // Fail closed with a clear status instead of a half-finished delete:
+        // the old order destroyed the file and THEN hit the course foreign key.
+        $response->assertStatus(409);
+
+        $this->assertTrue(Storage::disk('docs')->exists($path));
+        $this->assertDatabaseHas('documents', ['id' => $document->id, 'path' => $path]);
+        $this->assertSame($document->id, (int) $academic->fresh()->document_id);
+    }
+
     public function test_non_existent_subject_returns_404_on_upload(): void
     {
         Storage::fake('docs');
@@ -155,5 +179,44 @@ class DocumentHttpTest extends TestCase
             ->get('/documents/999999/download');
 
         $response->assertNotFound();
+    }
+
+    /**
+     * A current certificate plus the private `documents` row it references:
+     * exactly what the Documents catalogue lists and what the course module
+     * still shows as the current PDF.
+     *
+     * @return array{0: CourseAcademicDocument, 1: Document}
+     */
+    private function courseCertificate(): array
+    {
+        $academic = CourseAcademicDocument::query()->create([
+            'course_enrollment_id' => CourseEnrollment::factory()->create()->id,
+            'type' => AcademicDocumentType::ApprovalCertificate,
+            'status' => AcademicDocumentStatus::Current,
+            'code' => 'CERT-HTTP-'.str()->upper(str()->random(8)),
+            'issue_date' => now()->toDateString(),
+            'delivery_status' => DeliveryStatus::Pending,
+        ]);
+
+        $path = "course-academic-documents/{$academic->course_enrollment_id}/{$academic->code}.pdf";
+        Storage::disk('docs')->put($path, '%PDF certificado de prueba HTTP');
+
+        $document = Document::query()->create([
+            'docable_type' => $academic->getMorphClass(),
+            'docable_id' => $academic->id,
+            'name' => basename($path),
+            'disk' => 'docs',
+            'path' => $path,
+            'mime_type' => 'application/pdf',
+            'extension' => 'pdf',
+            'size_bytes' => 32,
+            'uploaded_by' => $this->salespersonOne->id,
+            'uploaded_at' => now(),
+        ]);
+
+        $academic->forceFill(['document_id' => $document->id])->save();
+
+        return [$academic->fresh(), $document];
     }
 }

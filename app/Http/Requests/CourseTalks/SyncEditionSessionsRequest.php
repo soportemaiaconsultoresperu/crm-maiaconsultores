@@ -32,9 +32,16 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class SyncEditionSessionsRequest extends FormRequest
 {
+    /**
+     * `CourseEditionPolicy::manageSessions` is the authority for this surface;
+     * the request mirrors its rule (`course-talks.sessions.manage` OR the
+     * coarser `course-talks.editions.manage`) so the form is never refused for a
+     * user the route would have let in.
+     */
     public function authorize(): bool
     {
-        return $this->user()?->can('course-talks.editions.manage') ?? false;
+        return ($this->user()?->can('course-talks.sessions.manage') ?? false)
+            || ($this->user()?->can('course-talks.editions.manage') ?? false);
     }
 
     protected function prepareForValidation(): void
