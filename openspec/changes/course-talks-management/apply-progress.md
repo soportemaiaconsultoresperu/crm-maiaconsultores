@@ -3510,3 +3510,157 @@ Preconditions: an active user with `course-talks.view` + `course-talks.templates
 - The persisted tasks artifact was re-read after the unit: line 129 is `- [x] 6.t2 …` and line 130 is `- [ ] Review unit 6.t2: …`.
 - No commit, push, branch or worktree. `git status --short` shows the modified files (the model, the activity list, `routes/web.php`, `tasks.md`, this file) and the new untracked files, with **nothing staged**.
 - Hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started; no receipt was created or approved; no pre-commit, pre-push, pre-PR or release gate was validated.
+
+## Slice 7 unit 7.a — the delivery alert domain (`CourseAlertService`)
+
+Slice 7 is split into 7.a (this unit: the alert domain), 7.b (dashboards), 7.c (audit regression) and 7.d (rollout controls). This unit builds ONLY the domain the dashboards will read: no route, controller, view, Livewire component, dashboard wiring, job, seeder or permission was added or touched, and neither `CourseDocumentDeliveryService`'s terminal-state logic nor the generation service nor any Blade view was modified.
+
+### Structured status consumed (native, authoritative)
+
+`gentle-ai sdd-status course-talks-management --cwd . --json` (artifact store `openspec` → authoritative, so NOT the `resolve-via-engram` carve-out):
+
+```
+"artifactStore": "openspec",
+"applyState": "ready",
+"dependencies": { "proposal": "all_done", "specs": "all_done", "design": "all_done", "tasks": "all_done", "apply": "ready", "verify": "blocked", "archive": "blocked" },
+"nextRecommended": "apply",
+"blockedReasons": [],
+"actionContext": { "mode": "repo-local", "workspaceRoot": "C:\laragon\www\crm-maia-consultores", "allowedEditRoots": ["C:\laragon\www\crm-maia-consultores"] }
+```
+
+All four edit surfaces plus `tasks.md` / this file sit inside the single allowed edit root; the change is unambiguous, `applyState` is `ready`, there are no `blockedReasons`, and `actionContext.mode` is `repo-local` (not `workspace-planning`), so the pre-edit gate passed with no warning to report.
+
+### Review workload gate (resolved, not assumed)
+
+`tasks.md` carries `Decision needed before apply: No — chained delivery approved`, `Chained PRs recommended: Yes`, `Chain strategy: stacked-to-main (approved)`, `400-line budget risk: High`. The parent prompt resolved the delivery path by assigning this bounded work unit (7.a) with an explicit allowed-edit surface list, so exactly this slice was implemented and the PR boundary is the slice itself: the alert domain only, with no later-slice surface (no dashboard controller/view, no `CourseAuditTest`, no `CourseRolloutTest`, no sidebar/menu entry).
+
+### A. Closing the field asymmetry (one additive migration)
+
+`course_commercial_documents` had no `delivery_discard_reason`, so a discarded commercial follow-up could not say WHY while the academic document could. Closed by:
+
+- **Migration:** `2026_08_26_000006_add_delivery_discard_reason_to_course_commercial_documents.php` — `$table->text('delivery_discard_reason')->nullable()->after('delivery_status')`. It mirrors the academic column exactly (the academic table declares `$t->text('delivery_discard_reason')->nullable()`), follows this change's migration conventions (named/timestamped, one additive change, `after()` placement like `000004`, docblock recording the decision, non-destructive `down()`), and does NOT edit any existing migration.
+- **Model:** `app/Models/Courses/CourseCommercialDocument.php` `$fillable` gains `delivery_discard_reason` — that single attribute, nothing else in the model changed.
+- **Forward effect:** existing rows keep `NULL` (no backfill, no default) — exactly the previous behaviour, i.e. "no reason on record" — and the column is nullable `text` with no new constraint or index, so nothing that already exists is invalidated.
+- **Rollback effect:** `down()` drops only this column. Every commercial document, its amounts, payer, attachment pointer and delivery status survive; the only loss is the reason text of a discard recorded after this migration. Document validity is orthogonal either way: discarding a follow-up never annuls a certificate or a comprobante.
+
+Verified against a real sqlite database (temp file, deleted afterwards), not just the in-memory test connection:
+
+```
+DB_CONNECTION=sqlite DB_DATABASE=<temp>/migration-check.sqlite php.exe artisan migrate --force
+  -> 2026_08_26_000006_add_delivery_discard_reason_to_course_commercial_documents .. DONE
+insert a pre-existing commercial document row (B001-000999, total 118.00, registered, pending)
+  -> column after forward: type=TEXT notnull=0 dflt=NULL ; row reads reason=null
+php.exe artisan migrate:rollback --step=1 --force
+  -> column present after rollback: false ; rows survived: 1 total_amount=118 status=registered
+php.exe artisan migrate --force            (re-forward on the POPULATED table)
+  -> after re-forward: id=1 total=118 status=registered delivery_status=pending reason=NULL
+```
+
+Advisory-only assessment per `database-change-safety`: target was a disposable local sqlite file (classification `local`), no production or unknown target was touched, the change is neither destructive nor lossy, and post-change verification was the schema introspection plus the row read above.
+
+### B. `CourseAlertService` — the domain (all rules in one place)
+
+`app/Services/Courses/CourseAlertService.php` (new, 202 lines) owns every alert rule. No dashboard/controller/view exists yet and none is allowed to recompute these rules; the read side is side-effect free (writes nothing, queues nothing, resolves no URL) so a dashboard may call it on every page load — proven by `test_the_alert_queries_write_nothing_so_a_dashboard_can_read_them_on_every_load`, which calls both counts and all four queries three times and asserts the documents' `updated_at`, the `activity_log` row count and the `outbound_deliveries` row count are unchanged.
+
+**Outstanding predicate — the delivery half (both channels):** `delivery_status in (pending, failed)`.
+
+| `delivery_status` | Outstanding? | Why |
+|---|---|---|
+| `pending` | yes | never sent: the operator still has to send it |
+| `failed` | **yes** | the send FAILED — precisely the case needing the operator's action; a failure does not close the alert |
+| `sent` | no | closed by sending it (spec: alerts are closable by sending the document) |
+| `discarded` | no | closed explicitly by discard with a reason |
+
+This is the design's own rule (`delivery_status in (pending, failed)` and not discarded) and `DeliveryStatus` has exactly these four members — no value is left unclassified.
+
+**Outstanding predicate — the eligibility half per channel:** a follow-up is only demanded for a document that can still be served, because a document that is no longer valid must not demand a delivery follow-up.
+
+- **Academic:** `status = current` AND `qr_token_revoked_at IS NULL`.
+  - `current` is the only `AcademicDocumentStatus` member meaning "a usable certificate"; `pending_generation` and `failed` never produced a document at all, and `annulled` / `replaced` mean the certificate was withdrawn (their QR was revoked — design: "Annul/regenerate … sets `qr_token_revoked_at`").
+  - The QR-not-revoked half exists because a revoked QR cannot be verified or served, and the delivery channel's own single predicate `CourseDocumentDeliveryService::hasDeliverableAcademicDocument()` already refuses to build a link for it — alerting the operator to "send" it would ask for something the domain refuses. A `current` document with a revoked QR is an inconsistent state the alert set also keeps out; the test covers it explicitly.
+- **Commercial:** `status in (registered, sent)`.
+  - This is exactly the pair the delivery channel accepts as streamable (`hasStreamableCommercialDocument()`), so the alert set and the deliverable set cannot disagree. `pending_file` (metadata present, private attachment never uploaded) has nothing to send yet, and `discarded` was closed at document level. No enum exists for the commercial status (plain string column per design), so the pair is held as a named constant in the service.
+  - NOTE for review: nothing in `app/` currently WRITES `sent` or `discarded` to a commercial document status; they are reserved values. `registered` is therefore the effective eligible status, and `sent` is kept for exact parity with the delivery service's predicate rather than dropped.
+
+**Due rule (overdue) — exact comparison and boundary:** overdue ⟺ the anchor day is **strictly before** `today − config('courses.delivery_due_days')`.
+
+- Implemented as `whereRaw('COALESCE(issue_date, DATE(created_at)) < ?', [cutoff])`, where `cutoff = now()->startOfDay()->subDays(max(0, (int) config('courses.delivery_due_days', 1)))->toDateString()`.
+- `issue_date` is the anchor the design names as `generated_or_registered_at` for both channels; the `COALESCE` fallback to `created_at` (the registration day) covers the nullable `issue_date` column instead of letting such a row stay pending forever with an unreachable overdue day.
+- The value is read from `config('courses.delivery_due_days')` **inside the query builder on every call**, so a config change takes effect immediately on the same service instance — the test changes the config three times (5, 1, 10) on ONE instance and the overdue set moves each time. Configurability is real, not decorative; `courses.delivery_due_days` already existed with default `1` and was NOT modified.
+- The comparison is on calendar days, not elapsed hours: the cutoff is computed as a date in PHP and compared in SQL, so an hour-based implementation cannot pass (a document issued at 23:00 is not pushed over by the passage of hours, only by the passage of a calendar day) — the test pins ONE document at `2026-01-10 09:00` (pending, not overdue), then `2026-01-10 23:59:59` (still not overdue), then `2026-01-11 00:00:00` (overdue). Computing a date cutoff also keeps the query portable across drivers (no MySQL-only `DATE_ADD`).
+- **Boundary behaviour:** a document issued **exactly N calendar days ago is NOT overdue** — it is still pending and becomes overdue on the following calendar day (N+1). With the default N=1: issued Monday → pending during Tuesday (exactly one calendar day) → overdue from Wednesday. This is the strict reading of the design (`now() > anchor + configured days`) and of the spec ("overdue when it remains pending **beyond** one calendar day" / "WHEN **more than** one calendar day passes").
+- **Overdue is a subset of pending**, stated in the code: `pendingCount()` counts every outstanding follow-up (overdue ones included) and `overdueCount()` counts how many of those have waited too long. Both totals come from the same per-channel queries (`count(Builder ...$queries)`), so a dashboard total cannot drift from the lists it links to.
+
+**Discard — permission, guards, records, document preservation:**
+
+- **Permission: the existing `course-talks.documents.send`**, checked in the domain via `Gate::forUser($actor)->authorize('send', $document)`. Evidence and reasoning: `CoursePermissionsSeeder` defines exactly 13 `course-talks.*` permissions and none is a discard permission; both `CourseAcademicDocumentPolicy` and `CourseCommercialDocumentPolicy` define a `send` ability mapping to `course-talks.documents.send`, and that ability is the ONLY one covering both channels (`commercial-documents.manage` exists for the commercial channel alone; `documents.revoke` guards annulment/regeneration, which discard explicitly does NOT do because it must not touch document validity); the spec makes discard one of the only two ways to close an alert ("Alerts MUST be closable only by sending the document or discarding it with a reason"); and design groups the actions as "send email/open WhatsApp/confirm WhatsApp/**discard pending**" and commercial "register/upload/send/**discard**" inside the same delivery workflow. **No new permission was invented; no seeder or policy was touched.** Authorizing through the policy's `send` ability (rather than the permission string) also means a later policy change is honoured here for free.
+- **Guards:** a non-empty reason after `trim()` (blank/whitespace-only refused with `Descartar la alerta requiere un motivo.`) and a follow-up already closed by a successful send refused with `Una entrega enviada no se puede descartar.` — overwriting a `sent` snapshot with `discarded` would claim it was never sent. A refused discard writes nothing: no status change, no reason, no audit row.
+- **Recorded:** `delivery_status = discarded` plus the trimmed reason in the document's own `delivery_discard_reason` column (academic: pre-existing; commercial: the new column), and one `activity_log` entry with `event = course-delivery-alert-discarded`, `causer_id = the actor`, `subject = the document`, `properties = {reason, previous_delivery_status}`. The actor is recorded in the audit entry ONLY — the models have no `delivery_discarded_by` column and this unit is allowed exactly ONE additive migration (the reason column), so the spec's "preserve the reason and responsible user in audit or history" is satisfied through the audit entry, which is what the spec allows.
+- **Effect:** the follow-up stops counting as outstanding (closed by discard) on both the pending and the overdue sets.
+- **Document validity (the spec's explicit requirement), proven by test:** after discarding an ACADEMIC follow-up the tests assert `status` is still `AcademicDocumentStatus::Current`, `qr_token_revoked_at` is `null`, `qr_token_hash` is byte-identical, `annulled_at` / `annul_reason` / `replaced_by_id` are still `null`, `document_id` is unchanged, the private PDF still exists on the `docs` disk, and `CourseDocumentDeliveryService::hasDeliverableAcademicDocument()` STILL accepts the document (so the certificate remains usable, not merely unmodified). For the COMMERCIAL channel: `status` stays `registered`, `document_id` and `total_amount` unchanged, the private attachment still exists and `hasStreamableCommercialDocument()` still accepts it. Both tests FIRST assert the discard really happened (status `discarded`, reason recorded, the document left the pending count) before asserting preservation, so neither can pass on a no-op discard — the anti-false-green structure the brief asked for.
+- **Idempotence note:** discarding an already-discarded follow-up is allowed and updates the reason (it is not outstanding either way); only a `sent` follow-up is refused.
+
+### Strict TDD evidence (RED → GREEN → TRIANGULATE → REFACTOR)
+
+Safety net before touching the existing file: `--filter=CourseCommercialDocument` 80 tests / 718 assertions passing, plus the module regression baseline `--filter=Course` 386 tests / 2,959 assertions passing (the number stated in the brief, reproduced). No pre-existing failure was fixed, skipped or commented out.
+
+| Round | Scope | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|---|
+| A | pending/overdue counts + due rule | `tests/Feature/Courses/CourseDeliveryAlertsTest.php` | Feature (DB-backed) | ✅ 80/718 + 386/2,959 | ✅ RED-0 `Class "App\Services\Courses\CourseAlertService" not found` (3 tests), then, with the minimal RED scaffold, three real behavioural failures: `Failed asserting that 2 is identical to 0.` (a fresh follow-up must not be overdue), `Failed asserting that 1 is identical to 0.` (boundary: exactly one calendar day), `Failed asserting that 2 is identical to 1.` (config 5 days) | ✅ 3 tests / 21 assertions passing | ✅ 3 cases: fresh document, ONE document across the clock (09:00 → 23:59:59 → 00:00), three config values on one instance | ✅ `count(Builder ...$queries)` removes the duplicated two-channel sum; tests re-run green |
+| B | outstanding/eligibility predicate | same | Feature (DB-backed) | n/a (new file) | ✅ `Failed asserting that two arrays are identical. Expected [1] / Actual []` (a FAILED send was dropped from the outstanding set) and `Expected [1] / Actual [1,2,3,4,5,6]` (annulled, replaced, never-generated, generation-failed and QR-revoked academic documents were all counted) | ✅ 6 tests / 47 assertions passing | ✅ sent via the real delivery-service path, failed send, annulled, replaced, pending_generation, generation failed, QR revoked, pending_file, discarded — each named individually plus a valid companion so an empty set cannot pass | ✅ predicate constants named (`OUTSTANDING_DELIVERY_STATUSES`, `SERVABLE_COMMERCIAL_STATUSES`) |
+| C | discard + the additive migration | same | Feature (DB-backed) | n/a (new file) | ✅ 8 real behavioural failures: `Failed asserting that an array has the key 'delivery_discard_reason'.` (migration), `Failed asserting that null is identical to 'Motivo comercial persistido'.` (attribute/fillable), `Failed asserting that 0 is identical to 6.` (blank reasons accepted), `Failed asserting that null is an instance of class Illuminate\Auth\Access\AuthorizationException.` (no authorization), three × `Expected Discarded / Actual Pending` (the discard did nothing), `Failed asserting that null is an instance of class InvalidArgumentException.` (a sent follow-up was discardable) | ✅ 15 tests / 134 assertions passing | ✅ discard proven on BOTH channels, accented reasons, already-sent refusal, blank-reason matrix (3 reasons × 2 channels = 6 refusals), side-effect-free read loop, and every preservation assertion guarded by a preceding "the discard really happened" assertion | ✅ the audit assertion was moved from raw string matching to `json_decode` of `properties` (stronger); no production refactor was needed |
+
+TDD cycle summary: 15 tests written in this unit, 15 passing, 134 assertions, Feature layer only (DB-backed service domain — there is no pure-function seam here that would not merely re-assert the query). RED-0 for round A is the canonical strict-TDD missing-class failure; because "class not found" is NOT a failing test on its own, a minimal RED scaffold (no due rule, no eligibility predicate, no discard behavior) was added AFTER the tests existed so every rule failure could be observed as a real assertion, and the scaffold was then fully replaced by the real rules. No PHP fatal or parse error was ever counted as RED. The final state contains no scaffold code and no TODO.
+
+### Files changed (exact line counts)
+
+| File | Status | Lines |
+|---|---|---|
+| `app/Services/Courses/CourseAlertService.php` | new | 202 |
+| `database/migrations/2026_08_26_000006_add_delivery_discard_reason_to_course_commercial_documents.php` | new | 42 |
+| `tests/Feature/Courses/CourseDeliveryAlertsTest.php` | new | 542 |
+| `app/Models/Courses/CourseCommercialDocument.php` | modified | +1 / −1 (single-line file: the `$fillable` attribute added) |
+| `openspec/changes/course-talks-management/tasks.md` | bookkeeping | +6 / −0 |
+| `openspec/changes/course-talks-management/apply-progress.md` | bookkeeping | +154 / −0 (this section; the count includes the two self-corrections to the numbers in this very section) |
+
+### Changed-line count / review workload
+
+`git diff --numstat` for tracked files:
+
+```
+1   1    app/Models/Courses/CourseCommercialDocument.php
+154 0    openspec/changes/course-talks-management/apply-progress.md
+6   0    openspec/changes/course-talks-management/tasks.md
+```
+
+Untracked new files: 202 + 42 + 542 = 786 lines.
+
+- **Production/application lines: 202 + 42 + 2 = 246** (service + migration + the one-line model edit) — inside the 400-line budget.
+- **Total added lines including tests and bookkeeping: 786 + 6 + 154 = 946** — OVER 400, and the overage is 542 test lines plus 160 bookkeeping lines. Reported honestly rather than trimmed: the brief lists 13 required proofs (both channels × counts / overdue / boundary / configurability / exclusions / discard / permission / reason / audit / preservation / side-effect-freedom) and cutting them would trade real evidence for a smaller number. The slice is a chained PR (Slice 7, `stacked-to-main`) whose review boundary is this domain file plus its tests, so the reviewer reads 246 production lines and a test suite that is explicitly the evidence list.
+
+### Commands and real results (sequential, in the brief's order)
+
+1. `php.exe artisan test --filter=CourseDeliveryAlertsTest` → `{"tests":15,"passed":15,"assertions":134}` **passed**
+2. `php.exe artisan test --filter=Course` → `{"tests":401,"passed":401,"assertions":3093}` **passed** (baseline 386 / 2,959 → this unit adds exactly its own 15 tests / 134 assertions)
+3. `php.exe artisan test --filter=CourseCommercialDocument` → `{"tests":80,"passed":80,"assertions":718}` **passed** — byte-identical to the pre-change safety net, so the model + migration change regressed nothing
+4. `php.exe artisan test --filter=CourseCertificateQrSecurityTest` → `{"tests":15,"passed":15,"assertions":182}` **passed**
+5. Migration safety on a real sqlite file with a pre-existing row (forward / rollback / re-forward) — output quoted in section A.
+6. The full suite (`artisan test`) was deliberately NOT run: the documented 11 pre-existing failures belong to other in-flight changes (`suite-baseline.md`) and the brief's verification order stops at the module regression, which is green.
+
+### Deviations (every one)
+
+1. **One test assertion was rewritten after a real failure, not to make code pass.** `test_discarding_closes_the_alert_and_records_the_reason_the_actor_and_the_audit_entry` first used `assertStringContainsString` on the raw `activity_log.properties`; the value is JSON with the accent escaped (`"no se env\u00eda"`), so the assertion failed although the audit entry was correct. It now `json_decode`s the properties and asserts `reason` and `previous_delivery_status` as decoded values — a strictly stronger assertion. No production change was made for it.
+2. **A RED scaffold was introduced on purpose.** After RED-0 (missing class) a deliberately minimal `CourseAlertService` (no due rule, no eligibility predicate, no discard behavior) was written so the failures could be observed as real assertions rather than as an error; the final file contains no trace of it. This is scaffolding inside the RED→GREEN cycle, not production code written before its test.
+3. **The commercial `sent` / `discarded` document statuses are accepted but currently unwritten** by any `app/` code path (reserved values). They are kept in the eligibility predicate for exact parity with `hasStreamableCommercialDocument()`; documented in the service rather than silently dropped.
+4. **An academic `current` document with a revoked QR is excluded from the alert set.** A judgment call: the state should not exist (annulment sets both), but if it does the delivery channel already refuses to serve it, so demanding a follow-up would ask for something the domain refuses. Covered by an explicit test.
+5. **Re-discarding an already-discarded follow-up is allowed and updates the reason** (only `sent` is refused). The brief required closing by send/discard; this keeps a double submit harmless instead of erroring on a follow-up that is not outstanding either way.
+6. **The full-suite run was not executed** (see commands, item 6).
+7. **`config/courses.php` was NOT modified** — `delivery_due_days` already exists with default 1, which is exactly what the rule needs.
+8. **`openspec/config.yaml` was left stale on purpose** (it still points at `b12-ui`), as instructed; it was not used to decide TDD or delivery for this unit. Strict TDD was applied because the parent prompt declares it active, and the global `~/.pi/agent/gentle-ai/support/strict-tdd.md` contract was read and followed (there is no project-local override at `.pi/gentle-ai/support/strict-tdd.md`).
+
+### Task persistence (what was marked, exactly)
+
+- **Marked:** the new implementation-owned row `7.a Delivery alert domain (CourseAlertService) …` → **`[x]`**, carrying a terminal `<!-- sdd-owner: implementation -->` marker, placed under the new `### Slice 7 units` subsection of Slice 7 (mirroring the Slice 6 unit pattern) and BEFORE the Slice 7 aggregate rows.
+- **Not marked:** every aggregate Slice 7 row (the two RED rows, the five GREEN rows, TRIANGULATE, REFACTOR, the verification row, the parent review row) stays exactly as it was, and no aggregate row anywhere (including `6.e` / `6.f`) was touched. The persisted artifact was re-read after the edit: the `7.a` row reads `[x]`, the aggregate rows read `[ ]`, and a marker audit over the whole file shows 91 `sdd-owner: implementation` + 14 `sdd-owner: parent` terminal markers with no malformed form.
+- No commit, push, branch or worktree. `git status --short` shows one modified tracked file (`app/Models/Courses/CourseCommercialDocument.php`), three new untracked files, and the two bookkeeping files (`tasks.md`, this file) — **nothing staged**.
+- Hands off to `parent-lifecycle`: no bounded-review, refutation, correction or validation actor was started, no receipt was created or approved, and no pre-commit, pre-push, pre-PR or release gate was validated.
