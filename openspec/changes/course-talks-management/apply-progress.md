@@ -4387,19 +4387,19 @@ The remediation's original RED was LOST when the subagent timed out — the suba
 
 ```
 php.exe artisan test --filter=CourseEligibilityAutomationTest
--> {"result":"failed","tests":12,"passed":5,"assertions":32,"failed":6,
-    "failures":[{"test":"...test_completing_the_final_condition_generates_the_certificate_automatically_and_the_qr_route_streams_it",
-                 "message":"Completing the last missing condition must generate the corresponding document automatically.\nFailed asserting that 0 is identical to 1."}, ...]}
+-> {"result":"failed","tests":12,"passed":5,"failed":6,"errors":1,"assertions":32}
 ```
 
-Six of the twelve fail against the pre-fix job, each on a BEHAVIOURAL assertion — a document that was not generated, an author that was not recorded, a stop switch that did not exist — never on a fatal. The same twelve pass afterwards (`12 / 68`). **Why this is recorded instead of hidden**: a fix whose RED is missing is a fix whose future regression cannot be told apart from a rewrite, so the RED was re-run on purpose.
+Six of the twelve fail on behavioural assertions — a document that was not generated, an author that was not recorded, a stop switch that did not exist — and a SEVENTH errors: the system-author test looks up a `CourseAcademicDocument` that the pre-fix job never created. The same twelve pass afterwards (`12 / 68`). **Why this is recorded instead of hidden**: a fix whose RED is missing is a fix whose future regression cannot be told apart from a rewrite, so the RED was re-run on purpose.
+
+**Correction, recorded rather than edited away**: this block first reported `failed: 6` and claimed none of the reds was a fatal. The independent verification re-measured it and found `errors: 1`, and the parent reproduced that exactly before correcting the text — the first envelope did not even add up (5 passed + 6 failed = 11 of 12). The ordering guarantee strict TDD exists to provide (a RED observed BEFORE the code existed) is still permanently unprovable for this unit, because the original RED died with the subagent's timeout; the evidence here is a reproduction, and the owner accepted that deviation explicitly (see `known-limitations.md`, item 14).
 
 ---
 
 # Bounded unit — activity-type filter on the unified activities list (closes verification FAIL-1)
 
 **Cycle**: sdd-apply, strict TDD active (`openspec/config.yaml` → `delivery.strict_tdd: true`, `tdd_cycle: RED, GREEN, TRIANGULATE, REFACTOR`).
-**Branch**: `feat/course-talks-slice-6-ui`, HEAD `ce53b54` plus this unit's uncommitted edits. Nothing staged, nothing committed.
+**Branch**: `feat/course-talks-slice-6-ui`. This unit is COMMITTED as `03ae9b9` and its bookkeeping as `35c95fa`. — the record below was written before the commit and originally said "nothing staged, nothing committed"; the independent verification flagged that stale wording and the parent corrected it here rather than leaving a false statement in the record.
 **Allowed surfaces used** (all four, nothing outside): `app/Http/Controllers/CourseTalks/CourseActivityReadController.php`, `resources/views/course-talks/activities/index.blade.php`, `tests/Feature/Courses/CourseTalksReadOnlyHttpTest.php`, and this file plus `tasks.md` (bookkeeping).
 **Inputs read before writing code**: `verify-report.md` (the report that elevated this to FAIL-1 and quotes the requirement), the delta spec's "Unified activities module" requirement and its `Filter activities by type` scenario, `tasks.md`, `known-limitations.md`, the controller, the view, the read-only HTTP test, `x-table`/`x-alert`, `CourseActivityType`, the alerts controller's `filters()` (the module's established unknown-value rule) and its view.
 
@@ -4507,3 +4507,66 @@ No project accessibility policy document was found to cite, so these are advisor
 - *Advisory (P2)*: the reject message is not programmatically associated with the select (`aria-describedby` would tie them). A visual and screen-reader user both read it because `role="alert"` announces it, so this is polish, not a blocker.
 - *Advisory (P2)*: the submit button is labelled `Filtrar` although the select already submits; this is the module's no-JS pattern (the alerts screen is identical), so nothing was invented here.
 - *Unperformed*: colour contrast of `badge text-bg-info` and `alert-warning` against the AdminLTE theme; keyboard tab order in a real browser; focus return after submit; behaviour at 200% zoom.
+
+---
+
+# Corrective unit — engine-independent unknown-value behaviour (closes verification WARNING-5)
+
+**Cycle**: sdd-apply, strict TDD active (`openspec/config.yaml` → `delivery.strict_tdd: true`, `tdd_cycle: RED, GREEN, TRIANGULATE, REFACTOR`).
+**Branch**: `feat/course-talks-slice-6-ui`, HEAD `35c95fa` plus this unit's uncommitted edits. Nothing staged, nothing committed.
+**Allowed surfaces used** (three code files + this one): `app/Http/Controllers/CourseTalks/CourseActivityReadController.php`, `resources/views/course-talks/activities/index.blade.php`, `tests/Feature/Courses/CourseTalksReadOnlyHttpTest.php`, and this file. `tasks.md`, `known-limitations.md` and `verify-report.md` arrived already modified in the working tree from the parent's closure bookkeeping and were NOT touched by this unit.
+
+**What and why.** WARNING-5: `typeFilter()` decided validity with an exact-case `CourseActivityType::tryFrom($value)` while the RAW trimmed entry went into `where('type', $value)`, so `?activity_type=Course` rendered the warning AND put `'Course'` into the WHERE clause. The app's MySQL connection is `utf8mb4_unicode_ci`, where `'course' = 'Course'` is TRUE, so the list SHOWED the courses while the screen said *"no encontró ninguna actividad"*; the SQLite test connection is case-sensitive and matched nothing. The two engines disagreed and the message was false on one of them.
+
+**Behaviour chosen for an unknown value.** Every entry is resolved through the enum BEFORE the query (`CourseActivityType::tryFrom(strtolower(trim($entry)))`):
+
+- the entry names a case → the query filters by the enum's OWN `->value` (`course` / `talk`), never by the raw entry. `Course`, `COURSE`, `TALK` and `  Course  ` therefore filter by the canonical value and show NO warning, because the filter really did apply.
+- the entry names nothing → `value` stays `null` and the list is narrowed to nothing with an explicit `whereRaw('1 = 0')`. The raw entry is never handed to the query builder at all.
+- absent/blank and the non-scalar path are unchanged (no filter; an array is dropped as `discarded`, HTTP 200, never a 500).
+
+**Why it is engine-independent.** The engines differ only in the COMPARISON COLLATION, and after this change nothing user-supplied is ever compared: a valid entry is replaced by the enum's ASCII backing value (identical on both engines) and an invalid entry is not compared at all (`1 = 0` is false on both). This also closes the case a purely case-folding fix would have missed — `utf8mb4_unicode_ci` is accent-insensitive too, so `'cóurse'` would have matched `'course'` on MySQL had it been passed raw; it is now rejected identically on both engines. The lower-casing is ASCII-only and locale-independent on PHP 8.3.
+
+**New warning text (unknown branch only).** Was `…no es un valor válido y no encontró ninguna actividad.` → now `El tipo de actividad <code>{entry}</code> no es un valor válido y no coincide con ninguna actividad registrada.` It is true on both engines because the invalid entry is never compared in SQL: the list is empty by construction, so *"no coincide con ninguna actividad registrada"* is accurate on MySQL and on SQLite alike, and the entry is echoed back so the operator sees what was rejected. The `discarded` message, both Spanish labels and every other Blade pattern are unchanged; no `{!! !!}` was introduced and the `viewAny` authorization is untouched (the 403 assertion still passes).
+
+**What the test pins, and what it cannot.** The suite runs on SQLite, so it CANNOT observe the MySQL half of the divergence — nothing here does, and no assertion claims to. What it pins is the fix that makes the engines agree: for `Course` / `TALK` / `  Course  ` the list is narrowed by the canonical value, the control shows the resolved type (`Filtro activo: Curso`, `value="course" selected`) and no warning is rendered — the deterministic OUTCOME and the truthful MESSAGE. For `webinar` it pins the empty list plus the corrected message. The genuinely-unknown path's SQL SHAPE (that the raw entry is never compared) is NOT observable on SQLite — both the old and the new code return an empty list there — so it is covered by construction and by the code, not by an assertion; WARNING-5's MySQL measurement remains the only direct evidence of the engine divergence.
+
+**TDD Cycle Evidence**
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| WARNING-5 filter normalization | `tests/Feature/Courses/CourseTalksReadOnlyHttpTest.php` | Integration (HTTP) | ✅ 19/19 before (`--filter=CourseTalksReadOnlyHttpTest`) | ✅ Written — `3 failed / 18 passed / 128 assertions` | ✅ Passed — `21/21 / 147 assertions` | ✅ 3 cases (`Course`, `TALK`, `  Course  `) plus the corrected-message case | ✅ Two-branch `index()` + enum-resolution comment; `pint --test` clean |
+
+**RED evidence (executed BEFORE the controller change)**
+
+```
+/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test --filter=CourseTalksReadOnlyHttpTest
+→ {"tool":"phpunit","result":"failed","tests":21,"passed":18,"assertions":128,"failed":3}
+```
+
+The three failures were behavioural, never a fatal: `test_an_unknown_activity_type_filter_narrows_to_nothing_and_is_reported` (the page still said *"no encontró ninguna actividad"*), `test_a_wrong_case_activity_type_filter_resolves_to_the_enum_value_instead_of_contradicting_the_list` (the `?activity_type=Course` page rendered the amber warning over an EMPTY list — the SQLite half of the contradiction), and `test_the_activity_type_resolution_covers_the_other_type_any_case_and_surrounding_whitespace` (`TALK` likewise).
+
+**Verification (sequential, in the brief's order)**
+
+1. `…php.exe artisan test --filter=CourseTalksReadOnlyHttpTest` → `{"tool":"phpunit","result":"passed","tests":21,"passed":21,"assertions":147,"duration_ms":3511}`
+2. `…php.exe artisan test --filter=Course` → `{"tool":"phpunit","result":"passed","tests":484,"passed":484,"assertions":3689,"duration_ms":47914}`
+   **Baseline 482 / 3,668 → 484 / 3,689, i.e. +2 tests / +21 assertions, exactly this unit's two new cases and nothing else. No regression.**
+3. `…php.exe vendor/bin/pint --test <controller> <test file>` → `{"tool":"pint","result":"passed"}`
+
+**Changed lines**: 139 (120 added / 19 deleted) across 3 code files — controller 68, view 2, test 69 — INSIDE the 400-line review budget, so no `size:exception` is owed.
+
+**Deviations**
+
+1. **Case-folding is NORMALIZATION, not a vocabulary change.** `CourseActivityType` is untouched and still has exactly `course` / `talk`; the change only decides which enum case an entry names before the query is built. This is what makes the wrong-case test a real RED on SQLite instead of an assertion that passes before and after.
+2. **The view changed by one sentence** (the unknown warning). The `discarded` text, the labels, the select, the badge and every other Blade pattern are unchanged.
+3. **No query-log/binding assertion was added.** It would have pinned "the raw entry never reaches SQL" even on SQLite, but it couples the test to internals that the strict-TDD guidance discourages asserting, and the brief asked the test to pin the deterministic outcome and the truthful message. That guarantee is documented here instead.
+4. **No other surface was touched**: no route, policy, permission, enum, model, migration, service, config, alerts screen or academic/commercial surface. The alerts screen's `activity_type` filter has the identical latent shape (`isKnownFilterValue()` compares `['course', 'talk']` exactly while the raw value is passed to the query relation) but it is outside this unit's allowed surfaces and is NOT claimed as fixed here.
+
+**Remaining tasks (exact unchecked lines)**
+
+This unit adds no unchecked implementation row and marks no owned checkbox (it is a remediation of an existing delivered row, not a new ledger row). The one deferred, parent-owned action already recorded above stands unchanged:
+
+```
+- [x] Review the activity-type filter unit (the last archive blocker): … <!-- sdd-owner: parent -->
+```
+
+**Structured status / actionContext**: artifact store `openspec`; no `blockedReasons`, no `actionContext` blocker; every edited file is inside the allowed edit surfaces. Only `implementation`-owned rows were read; the parent-owned review row was left byte-for-byte as found. No bounded-review, refutation, correction or validation actor was started; no receipt created or approved; no delivery gate run. Handed off to `parent-lifecycle`.

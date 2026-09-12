@@ -200,12 +200,43 @@ edition-validation completion. `CourseEligibilityTriggerService` has exactly `pa
 `gradeChanged`, `participationChanged` and `editionValidationChanged`, and nothing calls a
 trigger from any participant-data path.
 
-Consequence: when the spec's "final missing condition" is a piece of PARTICIPANT data — the case
-the eligibility service explicitly reports as missing — the automatic generation never fires, and
-the certificate waits for an operator. Closing it means wiring a trigger from the
-enrollment/participant services, which was outside the remediation unit's authorized surfaces and
-is therefore declared rather than silently omitted.
+Consequence: when the spec's "final missing condition" is a piece of PARTICIPANT data — the case the eligibility service explicitly reports as missing — the automatic generation never fires.
+
+**Corrected after the independent verification, which found this item imprecise**: the earlier
+version said the certificate "waits for an operator", but the operator is refused by the SAME
+eligibility check, and the module has NO participant-edit surface at all. So the real consequence
+is stronger: a contact without an email or a phone yields a PERMANENTLY ineligible enrollment,
+which no human can unblock from the UI either. It is a workflow gap rather than a spec violation
+(the spec's GIVEN already assumes complete participant data, which is why the verification still
+scores automatic generation as PASS), but it is a dead end a real operator can walk into.
+
+Closing it means wiring a trigger from the enrollment/participant services and giving the module a
+way to correct participant data, both of which were outside the remediation's authorized surfaces.
+Declared rather than silently omitted.
 
 The generation itself is safe either way: the operator's path still produces the document, and
 the job remains idempotent, so a manual generation followed by a later trigger cannot mint a
 second certificate.
+
+## 14. The remediation's TDD ordering is unprovable and owner-accepted
+
+The automatic-generation remediation lost its original RED when the subagent timed out at 30
+minutes: the RED WAS observed before the fix existed, but the evidence died with the run. The RED
+was therefore REPRODUCED by restoring the job file from the pre-fix revision, running the twelve
+tests against it, and restoring the file byte-for-byte.
+
+**What that does and does not buy.** It demonstrates, first-hand and repeatably, that the tests
+fail against the pre-fix code (12 tests: 5 passed, 6 failed, 1 error) and pass against the fixed
+code (12 / 68). It does NOT demonstrate the ORDERING that strict TDD exists to guarantee — that
+the tests were written before the implementation — because that ordering can no longer be observed
+in this repository's history; the only way to re-earn it would be to revert the fix and redo it.
+
+**The owner explicitly accepted this deviation** rather than having the work reverted, on the
+basis that the reproduction is verifiable on demand and the behaviour is covered either way. It
+is recorded here so a future reader is not told that this unit followed strict TDD when what it
+followed is strict TDD EXCEPT for the ordering of one remediation.
+
+The independent verification also found the first version of this record inexact (`"failed": 6`
+with a claim that none of the reds was a fatal, when the full envelope is `failed: 6, errors: 1`
+— the first envelope did not even add up, 5 + 6 = 11 of 12). The parent re-measured it before
+correcting the text in `apply-progress.md`.

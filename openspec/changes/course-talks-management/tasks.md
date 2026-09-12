@@ -40,16 +40,26 @@ Recorded at the close of Slice 7, when this ledger was reconciled against the de
 
 | Unit | Changed lines | vs the 400 budget | How it was handled |
 |---|---|---|---|
-| 6.c attendance matrix | 780 | ≈2.0x | reported as a risk |
+| 6.b enrollments and participants UI | 1,371 | ≈3.4x | reported as a risk |
+| 6.c attendance matrix | 780 | ≈2.0x | reported |
+| 6.d grade matrix | 827 | ≈2.1x | reported |
 | 6.e-1 academic document lifecycle | 944 | ≈2.4x | reported |
 | 6.e-2 academic delivery actions UI | 1,026 | ≈2.6x | reported |
+| 6.f-1 commercial registration UI | 1,083 | ≈2.7x | reported |
 | 6.f-2b commercial delivery actions UI | 1,200 | 3.0x | a tests-only split was PROPOSED and REJECTED — tests must ship with the behaviour they prove, so a tests-only commit would not be a reviewable unit |
+| 6.t1 certificate template domain | 1,032 | ≈2.6x | reported |
+| 6.t2 certificate template admin UI | 1,312 | ≈3.3x | reported |
 | 7.b alerts dashboards and filter list | 1,962 | ≈4.9x | accepted as a size exception; one test class covers both surfaces and separating it would break cohesion |
 | 7.c audit regression suite | 1,043 | ≈2.6x | reported |
 | foundation corrective (document deletion, schema rollback, orphan permissions) | 616 (831 with bookkeeping) | ≈1.5–2x | reported |
-| automatic generation remediation | 1,001 | ≈2.5x | recorded here |
+| automatic generation remediation | 1,001 | ≈2.5x | reported |
+| activity-type filter (the last archive blocker) | 367 | INSIDE the budget | no exception needed |
 
-Every unit above shipped its tests WITH the behaviour, which is why these are recorded as per-unit exceptions instead of being converted into artificial splits. Note also that the approved `stacked-to-main` chain was never instantiated as separate PRs: the whole change lives as ONE branch over `main`, so the review budget is effectively being applied to per-unit commits rather than to pull requests.
+THIRTEEN units exceeded the budget, not the eight an earlier version of this table listed — the independent verification checked the table against `apply-progress.md` and found the five missing rows now added (6.b, 6.d, 6.f-1, 6.t1, 6.t2). Every unit above shipped its tests WITH the behaviour, which is why these are recorded as per-unit exceptions instead of being converted into artificial splits. Note also that the approved `stacked-to-main` chain was never instantiated as separate PRs: the whole change lives as ONE branch over `main` (205 files, +32,958/−188), so the review budget is effectively being applied to per-unit commits rather than to pull requests.
+
+The literal `size:exception` token is NOT used anywhere: the cached delivery strategy was chained (`stacked-to-main`), never `single-pr`, so the exception path that token belongs to was never the active one. These rows are the recorded exceptions themselves.
+
+- [x] Review the activity-type filter unit (the last archive blocker): the vocabulary derived from `CourseActivityType` rather than a parallel literal list, the query-side narrowing proven by a mutation that kills four tests while the control assertions survive, the unknown-value behaviour, the malformed-value path that cannot 500, and the unchanged `viewAny` authorization. <!-- sdd-owner: parent -->
 
 ## Slice 0 — Apply planning gate and branch boundary
 

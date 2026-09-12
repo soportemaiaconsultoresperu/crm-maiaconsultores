@@ -301,10 +301,79 @@ class CourseTalksReadOnlyHttpTest extends TestCase
             ->assertOk()
             ->assertSee('data-testid="course-talks-activities-type-filter-invalid"', false)
             ->assertSee('webinar')
+            ->assertSee('no es un valor válido')
+            ->assertSee('no coincide con ninguna actividad registrada')
             ->assertDontSee('CUR-FILT-001')
             ->assertDontSee('CHA-FILT-001')
             ->assertDontSee('Curso avanzado de saneamiento')
             ->assertDontSee('Charla de cumplimiento normativo');
+    }
+
+    /**
+     * The measured defect (verification WARNING-5). The filter used to decide
+     * "unknown" with an exact-case `CourseActivityType::tryFrom()` while the RAW
+     * entry went into the WHERE clause, so `?activity_type=Course` produced a
+     * WARNING naming 'Course' AND a WHERE comparing 'Course'. The app's MySQL
+     * connection (`utf8mb4_unicode_ci`) treats `'Course' = 'course'` as TRUE, so on
+     * MySQL the list showed the courses the warning said it had not found; the
+     * SQLite test connection compares case-sensitively and matches nothing. The two
+     * engines disagreed and the message was false on one of them.
+     *
+     * WHAT THIS TEST PINS, AND WHAT IT CANNOT. This suite runs on SQLite, so it
+     * CANNOT observe the MySQL half of that divergence — nothing here does, and no
+     * assertion below claims to. What it pins is the FIX that makes the engines
+     * agree: the entry is resolved through the enum BEFORE the query, so the list is
+     * filtered by the enum's own backing value (`course`) on every engine, and no
+     * warning is shown because the filter really did apply and nothing false is
+     * displayed. The deterministic OUTCOME and the truthful MESSAGE, not the engine
+     * comparison itself.
+     */
+    public function test_a_wrong_case_activity_type_filter_resolves_to_the_enum_value_instead_of_contradicting_the_list(): void
+    {
+        $user = $this->activityListViewer();
+        [$course, $talk] = $this->activityTypeScenario();
+
+        $this->actingAs($user)
+            ->get(route('course-talks.activities.index', ['activity_type' => 'Course']))
+            ->assertOk()
+            ->assertSee('data-testid="course-talks-activity-'.$course->id.'"', false)
+            ->assertSee('CUR-FILT-001')
+            ->assertSee('Curso avanzado de saneamiento')
+            ->assertDontSee('data-testid="course-talks-activity-'.$talk->id.'"', false)
+            ->assertDontSee('CHA-FILT-001')
+            ->assertDontSee('Charla de cumplimiento normativo')
+            // The control shows the resolved type, not the hand-edited entry, so the
+            // screen agrees with the list it is filtering.
+            ->assertSee('Filtro activo: Curso')
+            ->assertSee('value="course" selected', false)
+            ->assertDontSee('data-testid="course-talks-activities-type-filter-invalid"', false);
+    }
+
+    /**
+     * Triangulation of the same resolution: the other type, every capitalisation and
+     * the surrounding whitespace a hand-edited URL can carry. Each case must resolve
+     * to the SAME enum backing value, which is what makes the outcome independent of
+     * the connection's comparison collation.
+     */
+    public function test_the_activity_type_resolution_covers_the_other_type_any_case_and_surrounding_whitespace(): void
+    {
+        $user = $this->activityListViewer();
+        $this->activityTypeScenario();
+
+        $this->actingAs($user)
+            ->get(route('course-talks.activities.index', ['activity_type' => 'TALK']))
+            ->assertOk()
+            ->assertSee('CHA-FILT-001')
+            ->assertSee('Filtro activo: Charla')
+            ->assertDontSee('CUR-FILT-001')
+            ->assertDontSee('data-testid="course-talks-activities-type-filter-invalid"', false);
+
+        $this->actingAs($user)
+            ->get(route('course-talks.activities.index', ['activity_type' => '  Course  ']))
+            ->assertOk()
+            ->assertSee('CUR-FILT-001')
+            ->assertDontSee('CHA-FILT-001')
+            ->assertDontSee('data-testid="course-talks-activities-type-filter-invalid"', false);
     }
 
     public function test_a_non_scalar_activity_type_filter_is_discarded_and_reported_instead_of_failing(): void

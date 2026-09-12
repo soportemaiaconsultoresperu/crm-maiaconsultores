@@ -2,11 +2,14 @@
 
 - **Phase**: sdd-verify, re-verification after remediation (independent judgement; read-only on the product).
 - **Artifact store**: OpenSpec (`openspec/changes/course-talks-management/`). Read: `spec.md`, `tasks.md`, `apply-progress.md`, `known-limitations.md`, `suite-baseline.md`, the code and the tests.
-- **Repo**: `C:/laragon/www/crm-maia-consultores`, branch `feat/course-talks-slice-6-ui`, HEAD `ce53b54`, working tree clean, nothing staged.
+- **Repo**: `C:/laragon/www/crm-maia-consultores`, branch `feat/course-talks-slice-6-ui`, HEAD `35c95fa`, working tree clean, nothing staged. The report was first written at `ce53b54`; the bounded blocker-closure round (§9, §10) was measured at `35c95fa`, two commits later (`03ae9b9` the activity-type filter, `35c95fa` the docs).
 - **Runner**: `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe artisan test` (bare `php` is not on PATH). Every run sequential, one command per shell block.
 - **Skills loaded**: `acceptance-checklist`, `project-discovery` (injected paths).
 - **Strict TDD**: active (`openspec/config.yaml` `delivery.strict_tdd: true`). The note that `config.yaml` nominally documents the unrelated `b12-ui` change stands; the strict-TDD requirement was supplied for this phase and is honoured.
 - **Structured status / actionContext**: no native `sdd-status` JSON was supplied for this re-verification. Readiness was resolved from the artifacts directly: the change is `openspec`-backed, all three required artifacts exist and are non-empty (`spec.md` 22 requirements / 34 scenarios, `tasks.md` **117 checked, 0 unchecked**, `apply-progress.md` with a remediation section at the end). No `blockedReasons` and no `actionContext` blocker. The previous report is REPLACED by this one and this report stands on its own.
+- **Closure round (`35c95fa`)**: no native status JSON was supplied for this bounded re-check either. Readiness was again resolved from the artifacts, which are all present and non-empty (`spec.md` 22 requirements / 34 scenarios; `tasks.md` **118 checked, 0 unchecked** — my `grep`, not the artifact's claim; `apply-progress.md` with the remediation RED block and the filter unit). No `blockedReasons`, no `actionContext` blocker, every artifact inside the workspace. Two checks needed a modified tree, so they ran against a copy outside the repository (`C:/tmp/cta-verify`) and the product tree was never written to — `git status --porcelain` empty, `git diff --cached --name-only` empty, HEAD `35c95fa` (§9, method note).
+
+**What changed since this report was written:** two commits landed after it — `03ae9b9` (`feat(courses): filter the unified activity list by type`, 3 code files, +361/−6) and `35c95fa` (docs: the retro-recorded RED, the review-budget table in `tasks.md`, and a rewrite of this report). **§9 below is the bounded confirmation of the three blockers this report raised, measured by me at `35c95fa`; §10 replaces the archive-gate verdict accordingly.** Nothing else was re-verified.
 
 **What changed since the previous report:** the previous verification returned 19 PASS / 2 PARTIAL / 1 FAIL. Its FAIL (automatic certificate generation) was remediated in `ce53b54`; that requirement is now **PASS**. Its WARNING-2 (migration gap understated) is now **resolved** — `known-limitations.md` item 3 states all six pending migrations. Its WARNING-1 (activity-type filter) is **re-classified from WARNING to FAIL**, because the scenario carries a normative MUST. One new CRITICAL (strict-TDD evidence for the remediation unit) and two new WARNINGs are recorded below. Everything else in the previous report still holds and was re-confirmed by my own runs.
 
@@ -16,7 +19,7 @@
 
 | # | Requirement (delta spec) | Verdict |
 |---|---|---|
-| 1 | Unified activities module | **PARTIAL** — unified list and visible `Tipo` pass; the MUST-level filter by `Curso`/`Charla`/all is not implemented (**FAIL**, see FAIL-1) |
+| 1 | Unified activities module | **PASS** (was PARTIAL with the MUST-level FAIL-1; implemented in `03ae9b9` and re-verified by me in §9.1) |
 | 2 | Activity, edition, and class model | PASS |
 | 3 | Edition states and modality | PASS |
 | 4 | Participants and enrollment | PASS |
@@ -39,10 +42,11 @@
 | 21 | Auditability | PASS |
 | 22 | v1 non-goals | PASS (structural absence; no dedicated test for the tax-generation non-goal — SUGGESTION-4) |
 
-**Counts: 22 requirements — 20 PASS, 2 PARTIAL, 0 FAIL at requirement level; but the “Unified activities module” PARTIAL contains a MUST-level scenario gap (FAIL-1) that blocks a clean archive on its own.**
-**Scenarios: 34 measured (`grep -c '^#### Scenario:' spec.md`). 33 satisfied, 1 unmet (`Filter activities by type`). The previously unmet scenario `Conditions complete trigger generation` is now satisfied.**
+**Counts as first written: 22 requirements — 20 PASS, 2 PARTIAL, 0 FAIL at requirement level; the “Unified activities module” PARTIAL contained a MUST-level scenario gap (FAIL-1) that blocked a clean archive on its own.**
+**Scenarios: 34 measured (`grep -c '^#### Scenario:' spec.md`). 33 satisfied, 1 unmet (`Filter activities by type`, `Conditions complete trigger generation` satisfied).**
+**Counts after the closure round (§9, measured at `35c95fa`): 22 requirements — 21 PASS, 1 PARTIAL (requirement 20, the `audit.view` clause, WARNING-1), 0 FAIL; 34 of 34 scenarios satisfied; 0 unmet.**
 
-Findings: **1 CRITICAL, 4 WARNING, 4 SUGGESTION.** One previous WARNING is resolved, one is elevated to FAIL.
+Findings: **1 CRITICAL, 4 WARNING, 4 SUGGESTION.** One previous WARNING is resolved, one is elevated to FAIL. After the closure round: CRITICAL-1 is closed as a bookkeeping gap with a permanently unprovable ordering component, FAIL-1 is closed, WARNING-2 is closed for everything I flagged, and three new findings are added (WARNING-5, WARNING-6, WARNING-7) plus one new suggestion (SUGGESTION-5) — see §9.
 
 ---
 
@@ -153,9 +157,9 @@ The residual is real but lies outside the scenario: a participant datum can neve
 
 ## 4. Task completion
 
-- `openspec/changes/course-talks-management/tasks.md`: **117 checked, 0 unchecked.** `grep -n '^\s*- \[ \]'` → no output; `grep -c '^\s*- \[x\]'` → `117`. **No unchecked implementation task remains.** The exact set of unchecked lines is empty.
+- `openspec/changes/course-talks-management/tasks.md`: **117 checked, 0 unchecked** when first written; at `35c95fa` my own `grep` measures **118 checked, 0 unchecked** (`grep -c '^\s*- \[x\]'` → `118`; `grep -n '^\s*- \[ \]'` → no output). The 118th row is the bounded filter unit's implementation-owned row. **No unchecked implementation task remains.** The exact set of unchecked lines is empty.
 - The ledger's own reconciliation section was read before judging and its claims were spot-checked rather than trusted: the per-unit `--filter=Course` counts and focused-suite counts it cites exist in `apply-progress.md`, and the ones I re-ran match (the module run is now 472/3,599). The two REFORMULATED rows (view split, dashboard-scope refactor) state their residual and are recorded in `known-limitations.md`. `CourseRolloutTest` does run the real full seed (`$this->seed(DatabaseSeeder::class)`).
-- **Caveat (unchanged):** every row can be `[x]` while a delta-spec MUST is unmet; the ledger tracks the planned slices, not spec conformance. Today the ledger is complete but FAIL-1 remains an unmet MUST.
+- **Caveat:** every row can be `[x]` while a delta-spec MUST is unmet; the ledger tracks the planned slices, not spec conformance. When this section was written the ledger was complete but FAIL-1 remained an unmet MUST; FAIL-1 is now closed and verified (§9.1), and the one remaining MUST-adjacent gap is the `audit.view` clause (WARNING-1), which the ledger never tracked as a task. One new ledger observation is recorded in §9.4 (WARNING-7): the parent-owned review row for the new unit exists only in `apply-progress.md`, not in `tasks.md`.
 
 ---
 
@@ -168,6 +172,8 @@ The residual is real but lies outside the scenario: a participant datum can neve
 - **Assertion-quality audit (remediation tests):** no tautologies, no ghost loops, no type-only assertions, no smoke-only tests, no `markTestSkipped`/`expectNotToPerformAssertions`/`assertTrue(true)`. The assertions are behavioural and value-bearing: exact document counts, `status === Current`, non-null `document_id`/`qr_token_hash`, the template title **inside the stored bytes**, `content-type: application/pdf` off the real public route, the exact causer id and property bag of the audit row, exactly one role / exactly one permission name, `Hash::check` against the admin password and against `password`. The one carried-over implementation-detail assertion (`page-break-after: always`) is SUGGESTION-2.
 - **Note on a test that the remediation modified to keep the suite green (`SeedersTest`).** Its `User::count() === 1` pin was replaced because the SYSTEM author is a real new seeded row. I verified the replacement is not a weakening: it asserts exactly one admin (by role), exactly one SYSTEM author (by the seeder constant, not `env()`), and zero users that are neither — which is a stronger claim than the original integer.
 
+- **Status of CRITICAL-1 after the closure round (§9.2, measured by me at `35c95fa`):** closed as a bookkeeping gap. A RED for the pre-fix revision now exists and I reproduced it first-hand — `--filter=CourseEligibilityAutomationTest` against `ce53b54^` returns `{"tests":12,"passed":5,"failed":6,"errors":1,"assertions":32}` with the same six assertion failures the record quotes, plus **one error the record omits**. The ordering guarantee strict TDD actually asks for (RED *before* the fix) is permanently unprovable and needs an explicit owner-accepted deviation; see §9.2.
+
 ---
 
 ## 6. Review-workload / PR-boundary verification
@@ -175,6 +181,8 @@ The residual is real but lies outside the scenario: a participant datum can neve
 - `tasks.md` `Review Workload Forecast`: `Chained PRs recommended: Yes`, `400-line budget risk: High`, `Chain strategy: stacked-to-main (approved)`, `Decision needed before apply: No`.
 - Overruns are recorded honestly in `apply-progress.md` and, for two units, an accepted `size:exception` is stated in prose (lines 1248, 1323). But there is **no `size:exception` token in `tasks.md`**, the largest units (7.c ~1,043 lines ≈ 2.6×; foundation corrective 616 / 831 with bookkeeping) carry recommendations only, and the remediation unit itself (1,001 insertions / 59 deletions) declares no changed-line count and no exception. → WARNING-2.
 - **PR boundary:** relative to `main` the change is still a single branch (`feat/course-talks-slice-6-ui`, 31 commits, **207 files, +34,240 / −190**), so the approved stacked chain of separate branches/PRs was never materialised at branch level. I can verify the branch/commit structure only; whether separate PRs exist outside git is not observable here. The remediation is one commit, `ce53b54`.
+
+- **After the closure round (§9.3):** the review-budget table now exists in `tasks.md` and every number I checked is traceable to a recorded per-unit measurement in `apply-progress.md`, including all three units this section flagged. The residual is that the table is not the full set. The branch is now 33 commits; the filter unit is the single commit `03ae9b9` (3 code files, +361/−6, inside the 400-line budget).
 
 ---
 
@@ -186,6 +194,7 @@ The residual is real but lies outside the scenario: a participant datum can neve
 - **Evidence:** last `TDD Cycle Evidence` heading at `apply-progress.md:3399`; remediation section begins at `:4351` with no such table; `awk` over lines 4351-4382 finds no RED/GREEN/failure record.
 - **Attribution:** the remediation unit (parent-run after subagent timeout). Under the strict-TDD contract the phase is instructed to flag missing or incomplete TDD evidence as CRITICAL.
 - **Impact:** process evidence only. The implementation and its tests are correct and green; this does not change any requirement verdict.
+- **Status after the closure round (§9.2, my measurement):** closed as a bookkeeping gap. I reproduced the pre-fix RED first-hand — `--filter=CourseEligibilityAutomationTest` against `ce53b54^` → `{"tests":12,"passed":5,"failed":6,"errors":1,"assertions":32}`, the same six assertion failures the record quotes plus **one error the record does not mention** (`test_the_automatic_generation_names_the_system_author_and_states_that_it_was_automatic` → `No query results for model [App\Models\Courses\CourseAcademicDocument]`). So seven of twelve tests are red without the fix, not six, and the recorded envelope's own arithmetic (`5 + 6 = 11` of 12) betrays the dropped `"errors":1`. Two record corrections are owed. The part that cannot be closed is the ordering: a RED obtained after the fix proves the tests are regression-protective, never that they came first — that needs an explicit owner-accepted deviation.
 
 ### FAIL-1 — The activity-type filter required by the spec is missing (MUST unmet)
 
@@ -194,6 +203,7 @@ The residual is real but lies outside the scenario: a participant datum can neve
 - **Evidence:** `app/Http/Controllers/CourseTalks/CourseActivityReadController.php:14-24` loads every activity (`orderBy('type')->orderBy('name')`) with no query-parameter handling; `resources/views/course-talks/activities/index.blade.php` renders no filter form or control (the `filters` slot contains only the create, templates and alerts links); `grep` over `app/Http/Controllers/CourseTalks/` and `resources/views/course-talks/activities/` finds no `type` filter. `CourseTalksReadOnlyHttpTest::test_authorized_user_can_view_all_activity_types_and_activity_detail` asserts the unified list only and never exercises a filter. The alerts screen’s eight filters (unit 7.b) filter delivery follow-ups, not the activities list.
 - **Attribution:** this change. Untouched by the remediation.
 - **Requirement verdict:** PARTIAL.
+- **Status after the closure round (§9.1, my measurement): CLOSED — requirement verdict PASS.** The filter exists (`03ae9b9`), `--filter=CourseTalksReadOnlyHttpTest` is 19/19 (126 assertions) and `--filter=Course` is 482/482 (3,668 assertions) in my own runs, the vocabulary comes from `CourseActivityType::cases()` with no literal list anywhere, an unknown scalar narrows to nothing and says so, an array is dropped before the query (200, never 500), and the `viewAny` gate is untouched (403 asserted). My mutation run — commenting out the single `where('type', …)` clause in a copy — kills exactly the four list-narrowing tests and leaves every control/vocabulary test green.
 
 ### WARNING-1 — `course-talks.audit.view` is seeded but enforces nothing
 
@@ -202,6 +212,7 @@ The residual is real but lies outside the scenario: a participant datum can neve
 ### WARNING-2 — Review budget repeatedly exceeded and no `size:exception` was recorded
 
 - See §6. Two units state in prose that a `size:exception` was accepted; no exception token exists in `tasks.md`; the largest two units and the remediation unit itself record no exception and the remediation records no changed-line count. Attribution: this change.
+- **Status after the closure round (§9.3, my measurement): CLOSED for everything this finding asked for.** The table exists, and all three units flagged here (7.c 1,043; foundation corrective 616 / 831; remediation 1,001) are in it with line counts that trace to recorded per-unit measurements in `apply-progress.md` and are plausible against the commits. Residual (reported as WARNING-6 in §9.4): the table is presented as the recorded exceptions but omits five further units that `apply-progress.md` itself records over the 400-line budget, and the literal `size:exception` token is still absent (accepted here, because the approved strategy was chained delivery and never `single-pr`).
 
 ### WARNING-3 — The fail-closed path for a missing SYSTEM author has no test
 
@@ -256,7 +267,97 @@ The residual is real but lies outside the scenario: a participant datum can neve
 
 ---
 
-## 9. Archive-gate recommendation
+## 9. Blocker-closure confirmation (bounded re-check, read-only on the product)
+
+This round answers one question only: are the three archive blockers this report raised genuinely closed, and did closing them introduce anything? Nothing else was re-verified. Every number below is my own measurement at HEAD `35c95fa`. I did **not** take the parent's, the apply unit's or any subagent's summary as evidence; where a claim was checkable I measured it, and where I could not measure it I say so.
+
+**Method note — how I measured without touching the product.** Two of the checks need a modified tree (an independent RED and a mutation proof). Rather than editing the product I copied `app/ tests/ database/ resources/ routes/ config/ bootstrap/ public/ vendor/ storage/ lang/ artisan composer.json composer.lock phpunit.xml .env` into `C:/tmp/cta-verify` (outside the repository), cleared `bootstrap/cache` there, and performed every mutation in that copy. The copy was proven equivalent to the product before each mutation (its `--filter=CourseTalksReadOnlyHttpTest` run returns the same `19 / 19 / 126` as the product's) and its `app/` was diffed `diff -r --brief` back to identical afterwards. The product tree was never written to: `git status --porcelain` empty, `git diff --cached --name-only` empty, `git rev-parse --short HEAD` → `35c95fa`.
+
+### 9.1 FAIL-1 — the activity-type filter MUST → **CLOSED** (requirement verdict PASS)
+
+Commands, all with `/c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.exe`, sequential, one per shell block:
+
+| # | Command | Result I measured |
+|---|---|---|
+| 1 | `artisan test --filter=CourseTalksReadOnlyHttpTest` (product) | `{"tool":"phpunit","result":"passed","tests":19,"passed":19,"assertions":126,"duration_ms":2634}` |
+| 2 | `artisan test --filter=Course` (product) | `{"tool":"phpunit","result":"passed","tests":482,"passed":482,"assertions":3668,"duration_ms":47341}` |
+| 3 | copy: the single clause `$activities->where('type', $typeFilter['value']);` commented out | `{"result":"failed","tests":19,"passed":15,"failed":4,"assertions":112}` |
+| 4 | copy: controller **and** view reverted to `03ae9b9^` (pre-filter revision) | `{"result":"failed","tests":19,"passed":12,"failed":7,"assertions":96,"errors":none}` |
+
+Measurement 3 kills exactly four tests — `test_filtering_the_activity_list_by_course_hides_talks`, `test_filtering_the_activity_list_by_talk_hides_courses`, `test_an_unknown_activity_type_filter_narrows_to_nothing_and_is_reported`, `test_the_type_filter_narrows_each_type_independently_when_both_types_repeat` — and leaves every control/vocabulary assertion green. Its failure output shows the "course"-filtered response containing **both** `CUR-FILT-001` and `CHA-FILT-001`, and the `webinar`-filtered response rendering the amber "no es un valor válido y no encontró ninguna actividad" message over the **full** list. Measurement 4 is the mirror image: without the implementation the new suite is red (7 failures, no errors), and measurement 1 says it is green with it.
+
+What the task asked me to confirm, each answered by measurement rather than by a test name:
+
+- **It really narrows by type.** `CourseActivityReadController::index()` applies `where('type', $typeFilter['value'])` only when a value survives normalization; measurement 3 proves the tests pin the QUERY and not the markup.
+- **The vocabulary is the enum's, not a parallel literal list.** `typeOptions()` iterates `CourseActivityType::cases()` and takes labels from `$type->label()`; the view only iterates the array the controller hands it; the validity check is `CourseActivityType::tryFrom($value)`. A `grep` over both files finds no literal `'course'` / `'talk'` / `Curso` / `Charla` value list — only route and view names.
+- **An unknown value cannot silently show the full list.** It is passed to the query as it arrived, matches no row, and the screen names the rejected value in a rendered `x-alert`; the test asserts the message present **and** every activity absent. Measurement 3 shows why that assertion is the load-bearing one: without the `where` the message still renders while the full list returns.
+- **Malformed input cannot 500.** An array — which is how PHP parses `?activity_type[]=…`, a repeated parameter or a nested one — is dropped before any query sees it, and the screen says it was discarded while the complete list stays; the test asserts `200` + full list + discard message. Scalars are bound parameters, so no scalar reaches SQL unbound.
+- **Authorization is unchanged.** `Gate::authorize('viewAny', CourseActivity::class)` is still the first statement of `index()`; `git show --stat 03ae9b9` is exactly three files (controller +91/−6, view +39, test +237) with no route, policy, permission, enum, model, migration, service or config touched; the 403 assertion with the parameter present passes.
+
+**Scope creep: none.** 367 changed lines (361 added / 6 deleted) across three code files plus six bookkeeping lines — inside the 400-line budget, so no `size:exception` is owed for it. The unit declares the other findings as out of scope and the diff confirms it.
+
+### 9.2 CRITICAL-1 — strict-TDD evidence for the remediation → **CLOSED as a bookkeeping gap; the ordering component is permanently unprovable**
+
+I reproduced the recorded RED rather than reading it. In the copy, with `app/Jobs/Courses/EvaluateCourseDocumentEligibility.php` restored to `ce53b54^` (55 lines — the eligibility-only version whose body still ended with `// Future slice: dispatch document generation here.`) and nothing else changed:
+
+`artisan test --filter=CourseEligibilityAutomationTest` → `{"result":"failed","tests":12,"passed":5,"failed":6,"errors":1,"assertions":32}`
+
+- **Six behavioural failures** with the messages the record quotes: `test_completing_the_final_condition_generates_the_certificate_automatically_and_the_qr_route_streams_it` (*"Completing the last missing condition must generate the corresponding document automatically. Failed asserting that 0 is identical to 1."*), `test_job_generates_the_current_document_without_mutating_enrollment_data`, `test_a_re_trigger_cannot_mint_a_second_certificate`, `test_a_talk_trigger_generates_the_talk_certificate_through_the_eligibility_service`, `test_a_failed_automatic_generation_escapes_the_job_and_leaves_nothing_behind`, `test_a_failed_generation_does_not_leave_a_failed_document_row_blocking_the_next_trigger`.
+- **One error the record does not mention:** `test_the_automatic_generation_names_the_system_author_and_states_that_it_was_automatic` → `No query results for model [App\Models\Courses\CourseAcademicDocument]` (a `firstOrFail()` on a document that was never generated). So **seven** of the twelve tests are red against the pre-fix revision, not six, and the recorded envelope's own arithmetic betrays the omission — `5 passed + 6 failed = 11` of the `12` it reports, because the `"errors":1` field is missing. Its prose ("each on a BEHAVIOURAL assertion… never on a fatal") is likewise inexact for that seventh test: it is an error, not a failure.
+- Restoring the current job in the copy returns `{"result":"passed","tests":12,"passed":12,"assertions":68}` for the same filter, and `diff -r --brief` of the copy's `app/` against the product's `app/` reports no differences — the one swapped file was the only variable.
+
+**Verdict.** The substance of CRITICAL-1 is closed: an executable RED for the pre-fix revision now exists, is reproducible, and is real — I reproduced it first-hand and found *more* red than the record claims. What cannot be repaired is the ordering: a RED obtained after the fix is a reconstruction, so it proves the tests are regression-protective; it does not prove they were written before the code, which is the one thing strict TDD exists to guarantee. Two corrections would make the record accurate (add `"errors":1` and the seventh affected test to the retro-RED block; drop "never on a fatal"), and the deviation itself should be recorded as explicitly accepted by the owner in `known-limitations.md` or the archive report. If the owner wants the letter of the cycle instead, the only honest remedy is reverting `ce53b54` and re-running RED→GREEN — which I do not recommend, because it re-derives paperwork from a fix that is already correct, green and now RED-proven in the other direction.
+
+### 9.3 WARNING-2 — review budget → **CLOSED for everything this finding asked for** (table not exhaustive — see WARNING-6)
+
+The table added to `tasks.md` accounts for all three units I flagged, and every number in it traces to a recorded per-unit measurement:
+
+| Table row | Table | What I measured | Plausible against the commit? |
+|---|---|---|---|
+| 6.c attendance matrix | 780 | `apply-progress.md:1775` records "780 added / 0 deleted"; commit `aceca73` totals +873/−1 | yes (same unit, wider commit total) |
+| 6.e-1 academic document lifecycle | 944 | `apply-progress.md:2071` records exactly 944; commit `cc74cb0` +1,057 | yes |
+| 6.e-2 academic delivery actions UI | 1,026 | `apply-progress.md:2278` records exactly 1,026; commit `c0059d3` +1,150 | yes |
+| 6.f-2b commercial delivery actions UI | 1,200 | `apply-progress.md:2865` records exactly "1,196 added / 4 deleted = 1,200"; commit `c8a1739` +1,298/−4 | yes |
+| 7.b alerts dashboards and filter list | 1,962 | the 7.b section totals "1,960 added lines … roughly 4.9× the 400-line budget"; commit `be1b793` +2,099/−4 | yes |
+| 7.c audit regression suite | 1,043 | `apply-progress.md:3944` = 122 tracked + 921 untracked = 1,043; commit `a0165df` +1,192/−32 | yes |
+| foundation corrective | 616 (831 with bookkeeping) | `apply-progress.md:4311–4312` records exactly "568 + 48 = 616" and "783 + 48 = 831"; commit `1eb1260` +784/−48 | yes |
+| automatic generation remediation | 1,001 | commit `ce53b54` = +1,001/−59 | yes — the line count this finding said was missing is now recorded |
+
+**Any missing?** Yes, five units that `apply-progress.md` itself records above the 400-line budget are absent from the table, and the accompanying commit message's "eight units that landed above the 400-line budget" is therefore an undercount: 6.b enrollments and participants UI (1,371, `:1683`), 6.d grade matrix (827, `:1977`), 6.f-1 commercial documents UI (1,083, `:2532`), 6.t1 certificate templates made real (1,032, `:3309`), 6.t2 certificate template management UI (1,312, `:3457`) — see WARNING-6. Also, the literal `size:exception` token is still absent everywhere: the table records a prose disposition per unit instead. I accept that as sufficient here, because the approved strategy was chained delivery and never `single-pr` (the token exists for the single-PR case) and the table's own note records that the chain was never materialised as PRs at all.
+
+### 9.4 New findings from this round (reported, not silently traded for a verdict)
+
+**WARNING-5 (new) — the "unknown value" message can contradict the list it stands next to, on MySQL only.** Measured: the product's connection compares case-insensitively (`artisan tinker --execute="dump(DB::selectOne('select (? = ?) …', ['course','Course']));"` → `matches: 1`, `@@collation_connection: utf8mb4_unicode_ci`), while the test connection does not (the same statement under SQLite `:memory:`, the phpunit connection → `0`). The controller decides validity in PHP with an exact-case `CourseActivityType::tryFrom()` but narrows in SQL with `where('type', $value)`. Consequence (inferred, not directly measured — the dev database has no course tables, so `course_activities.type`'s collation cannot be read; it is a plain `string(20)` in the migration and inherits the connection default): on MySQL, a hand-edited `?activity_type=Course` would list the course rows **while** the screen renders "El tipo de actividad Course no es un valor válido y no encontró ninguna actividad" — the exact false statement this unit exists to prevent, invisible to every test because SQLite is case-sensitive. The control never emits such a value, so it is reachable only by editing the URL: a WARNING, not a spec break, and not a gate-closer. One-place fix that keeps the vocabulary single-sourced: resolve with `CourseActivityType::tryFrom(strtolower(trim($value)))` and, when it resolves, put the enum's own `->value` into the query and report nothing; only a value that resolves to nothing reaches the "unknown" branch.
+
+**WARNING-6 (new) — the review-budget table is not the full set of exceptions** (the five units listed in §9.3, all of them already recorded in `apply-progress.md` with line counts). Bookkeeping completeness only: no requirement, test or product line is affected. Cheapest fix: add the five rows, or retitle the table so it reads as the units the verification flagged rather than as the change's complete exception list.
+
+**WARNING-7 (new) — the review row for the new unit is not in the ledger.** `apply-progress.md:4474` lists `- [ ] Review the bounded activity-type-filter unit: … <!-- sdd-owner: parent -->` under "Remaining tasks (exact unchecked lines)", but `grep` for that row in `tasks.md` finds nothing: the ledger carries only the unit's implementation-owned `[x]` row. So `tasks.md` reports 118 checked / 0 unchecked while a review action recorded in the progress artifact is untracked in the ledger — a reviewer reading only `tasks.md` would not know the new unit still awaits review. It does not make any implementation task incomplete (the row is parent-owned), and it does not block archive on its own.
+
+**SUGGESTION-5 (new) — stale text in the new unit's record.** `apply-progress.md`'s bounded-unit section still describes its state as "HEAD `ce53b54` plus this unit's uncommitted edits. Nothing staged, nothing committed", although the unit is committed as `03ae9b9` and the ledger row is committed too.
+
+**What this round did not verify:** anything outside the three blockers. The 21 previously verified requirements, the migration state, the human-acceptance gaps and everything listed in §8 stand exactly as written. I also did not re-run the `pint --test` check the unit reports, so its formatting-clean claim is unverified by me (it is not part of any requirement or gate).
+
+---
+
+## 10. Archive-gate recommendation (updated after the blocker-closure round)
+
+### 10.1 Verdict: **ARCHIVE**
+
+All three blockers this report raised are answered on measured evidence, and closing them changed no requirement verdict:
+
+1. **FAIL-1 → closed.** The spec scenario `Filter activities by type` is now met: the list is narrowed by the enum's own vocabulary, an unknown value narrows to nothing *and says so*, malformed input answers 200, authorization is unchanged, and the tests that prove it die when the query clause is removed (§9.1, measurements 1–4). 34 of 34 scenarios satisfied; requirement 1 flips to PASS.
+2. **CRITICAL-1 → closed as a bookkeeping gap.** A RED for the pre-fix revision now exists and I reproduced it first-hand, finding seven of twelve tests red where the record claims six (§9.2). Two corrections are owed to the record, and the ordering guarantee needs an explicit, owner-accepted deviation — a documentation act, not a code risk.
+3. **WARNING-2 → closed for the flagged units.** The table exists, covers all three, and every number is traceable and plausible (§9.3).
+
+Nothing else moved: module suite 482 / 3,668 green; full suite `{"tests":1286,"passed":1263,"failed":11,"errors":12,"assertions":6758}` — the identical 11 baseline failures by name and the identical 12 pre-existing campaign/Livewire errors documented in `suite-baseline.md`, with **+10 tests / +69 assertions** over my previous measurement, exactly the new unit's cases and nothing else; `tasks.md` 118 checked / 0 unchecked; the closure touched 3 code files, 367 lines, inside budget.
+
+**Record these in the archive report (none of them blocks archiving):** (a) the retro-RED corrections — the omitted `"errors":1` and the seventh affected test, and the "never on a fatal" wording (§9.2); (b) the owner's explicit acceptance of the strict-TDD ordering deviation, in `known-limitations.md` or the archive report (§9.2); (c) WARNING-5, WARNING-6, WARNING-7 and SUGGESTION-5 as carried residuals (§9.4).
+
+**Still open and still not blocking** (unchanged from the previous revision of this section): WARNING-1 (`course-talks.audit.view` — decide the surface or drop the permission), WARNING-3 (no test for the missing-SYSTEM-author fail-closed path), WARNING-4 (`known-limitations.md` item 13 and the participant-data dead-end), SUGGESTIONs 1–4, the six unapplied migrations and every unperformed human-acceptance scenario. None of these is a MUST-level gap, and the two open product decisions recorded above are unaffected.
+
+### 10.2 Superseded verdict, retained for the record
+
+The previous revision of this section, written at `ce53b54`, is preserved verbatim below; its three blockers are answered in §9.1–§9.3 and the verdict above replaces it.
 
 **Do not archive yet.** The remediation did what the previous report required: the delta spec’s automatic-generation requirement is now genuinely implemented — a stored, registered, current document reachable through the public QR route — and the change adds **no new failure** (full suite 1276 tests, the same 11 baseline failures and 12 pre-existing errors; module 472/3,599 green). Tasks are 117/117. The system-author design is sound and adversarially verified, and the stop switch both defaults correctly and is proven by a rewritten rollback test that asserts the new truth.
 

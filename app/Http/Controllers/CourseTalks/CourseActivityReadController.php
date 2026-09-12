@@ -32,18 +32,30 @@ class CourseActivityReadController extends Controller
             ->orderBy('name');
 
         if ($typeFilter['value'] !== null) {
-            // Filtering by activity type is a QUERY concern: the requested value is
-            // compared against the column the enum casts. A value outside the
-            // vocabulary therefore matches nothing, which is the documented outcome
-            // — the list is narrowed to nothing rather than silently showing every
-            // activity as if the filter had been applied. The view reports it.
+            // Filtering by activity type is a QUERY concern, and the value that
+            // reaches the query is the enum's OWN backing value (`course` / `talk`)
+            // — never the entry the user typed. That is what keeps the outcome the
+            // same on every engine: the MySQL connection's `utf8mb4_unicode_ci`
+            // collation matches case and accent variants (it treats `'Course'` and
+            // `'cóurse'` as `'course'`) while SQLite compares exactly, so an entry
+            // compared RAW would filter one list on MySQL and a different one on
+            // SQLite.
             $activities->where('type', $typeFilter['value']);
+        } elseif ($typeFilter['warning'] === 'unknown') {
+            // An entry outside the vocabulary is not compared in SQL at all: the
+            // list is narrowed to nothing with an explicit, engine-independent
+            // predicate, so no collation can reinterpret `'Course'` or `'cóurse'`
+            // into a match. A value outside the vocabulary therefore matches
+            // nothing rather than silently showing every activity as if the filter
+            // had been applied, and it does so identically on MySQL and on SQLite.
+            // The view reports the entry it rejected.
+            $activities->whereRaw('1 = 0');
         }
 
         return view('course-talks.activities.index', [
             'activities' => $activities->get(),
             'typeOptions' => $this->typeOptions(),
-            'activeType' => $typeFilter['value'],
+            'activeType' => $typeFilter['activeType'],
             'typeFilterWarning' => $typeFilter['warning'],
         ]);
     }
@@ -88,35 +100,55 @@ class CourseActivityReadController extends Controller
      *
      *  - absent or blank: no filter and nothing to report — the list is exactly the
      *    one this screen showed before the filter existed;
-     *  - a scalar: applied as it came in, and flagged `unknown` when it is outside
-     *    the vocabulary, so an unknown value narrows the list to nothing AND says so;
+     *  - a scalar that resolves to a `CourseActivityType`: applied through the
+     *    enum's OWN backing value, whatever case or surrounding whitespace the entry
+     *    carried, and nothing to report — the filter really did apply;
+     *  - a scalar that resolves to nothing: `unknown`. It is echoed back to the
+     *    screen and narrows the list to nothing, and it is NEVER handed to the query
+     *    (see `index()`), because the engines disagree on that comparison and the
+     *    outcome must not depend on the connection's collation;
      *  - a non-scalar: not a filter at all, so it is dropped before it can reach a
      *    query (an array in a `where` is the 500 this locks out) and flagged
      *    `discarded`, with the list left complete and the value reported.
      *
-     * @return array{value: string|null, warning: string|null}
+     * `activeType` is what the screen shows as the active/rejected entry; `value` is
+     * what the query is allowed to compare, and it is non-null only when the entry
+     * resolved to an enum case.
+     *
+     * @return array{activeType: string|null, value: string|null, warning: string|null}
      */
     private function typeFilter(Request $request): array
     {
         $raw = $request->query(self::TYPE_FILTER);
 
         if (is_array($raw)) {
-            return ['value' => null, 'warning' => 'discarded'];
+            return ['activeType' => null, 'value' => null, 'warning' => 'discarded'];
         }
 
         if (! is_scalar($raw)) {
-            return ['value' => null, 'warning' => null];
+            return ['activeType' => null, 'value' => null, 'warning' => null];
         }
 
-        $value = trim((string) $raw);
+        $entry = trim((string) $raw);
 
-        if ($value === '') {
-            return ['value' => null, 'warning' => null];
+        if ($entry === '') {
+            return ['activeType' => null, 'value' => null, 'warning' => null];
         }
 
-        return [
-            'value' => $value,
-            'warning' => CourseActivityType::tryFrom($value) === null ? 'unknown' : null,
-        ];
+        // The vocabulary is the enum's and only the enum's. The lower-casing is a
+        // normalization, not a second vocabulary: `course` and `Course` are the same
+        // type in a different case, and the MySQL connection's `utf8mb4_unicode_ci`
+        // collation already treats them as equal. Resolving the case HERE, before
+        // the query, is what makes SQLite agree with MySQL instead of contradicting
+        // it — the raw entry never reaches the `where`.
+        $type = CourseActivityType::tryFrom(strtolower($entry));
+
+        if ($type === null) {
+            // The rejected entry is reported verbatim, but `value` stays null so the
+            // query can never compare it under a collation of its own choosing.
+            return ['activeType' => $entry, 'value' => null, 'warning' => 'unknown'];
+        }
+
+        return ['activeType' => $type->value, 'value' => $type->value, 'warning' => null];
     }
 }

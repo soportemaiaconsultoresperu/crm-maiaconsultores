@@ -35,7 +35,7 @@
     @if ($typeFilterWarning !== null)
         <x-alert type="warning" data-testid="course-talks-activities-type-filter-invalid">
             @if ($typeFilterWarning === 'unknown')
-                <p class="mb-1">El tipo de actividad <code>{{ $activeType }}</code> no es un valor válido y no encontró ninguna actividad.</p>
+                <p class="mb-1">El tipo de actividad <code>{{ $activeType }}</code> no es un valor válido y no coincide con ninguna actividad registrada.</p>
                 <p class="mb-0">Elija <strong>Todas las actividades</strong> o uno de los tipos disponibles para volver a ver la lista.</p>
             @else
                 <p class="mb-0">El filtro de tipo de actividad llegó con un valor que no es válido y se descartó: se muestra la lista completa. Use el selector para filtrar por tipo.</p>
