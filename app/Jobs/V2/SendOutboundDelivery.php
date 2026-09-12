@@ -73,11 +73,16 @@ class SendOutboundDelivery implements ShouldQueue
             };
             $service->markSent($this->deliveryId, 200);
         } catch (\Throwable $e) {
+            // A library exception with a zero/absent code means "no HTTP
+            // response was received" — record that as null instead of 0, so a
+            // rejected send is never mistaken for a response-coded delivery.
+            $responseCode = method_exists($e, 'getCode') ? (int) $e->getCode() : 0;
+
             $service->markFailed(
                 $this->deliveryId,
                 $e::class,
                 $e->getMessage(),
-                method_exists($e, 'getCode') ? (int) $e->getCode() : null,
+                $responseCode > 0 ? $responseCode : null,
             );
             throw $e;
         }
@@ -149,7 +154,20 @@ class SendOutboundDelivery implements ShouldQueue
         $msg->body = (string) ($this->payload($delivery)['body'] ?? '');
         $msg->provider_message_id = 'local-'.bin2hex(random_bytes(8));
 
-        $instance->sendFreeFormMessage($msg, $delivery->recipient_ref);
+        $result = $instance->sendFreeFormMessage($msg, $delivery->recipient_ref);
+
+        // E-4: the provider envelope used to be discarded and handle() then
+        // marked the row delivered unconditionally — a rejected send landed in
+        // the ledger as a delivery. The rejection must surface so markFailed()
+        // records the real outcome.
+        if (($result['ok'] ?? false) !== true) {
+            throw new \RuntimeException(sprintf(
+                'WhatsApp provider rejected delivery #%d: %s — %s',
+                $delivery->id,
+                (string) ($result['error_class'] ?? 'UnknownError'),
+                (string) ($result['error_message'] ?? 'Unknown'),
+            ));
+        }
     }
 
     private function sendWebhook(\App\Models\Notification\OutboundDelivery $delivery, NotificationService $service): void
@@ -161,13 +179,35 @@ class SendOutboundDelivery implements ShouldQueue
     }
 
     /**
+     * The content that actually goes out.
+     *
+     * E-4: this used to fabricate `Delivery #N (channel, status=...)`, so the
+     * mail/WhatsApp recipient never saw what the listener built. The content is
+     * now persisted with the row by {@see NotificationService::dispatch()} and
+     * survives the by-id re-dispatch performed by retries and by the admin
+     * "Reintentar" button.
+     *
+     * Legacy rows (created before the `payload` column) keep no content, so
+     * they say so explicitly instead of shipping a body that looks real.
+     *
      * @return array<string, mixed>
      */
     private function payload(\App\Models\Notification\OutboundDelivery $delivery): array
     {
+        $stored = $delivery->payload;
+        $stored = is_array($stored) ? $stored : [];
+
+        $subject = isset($stored['subject']) && is_string($stored['subject'])
+            ? $stored['subject']
+            : 'CRM notification';
+
+        $body = isset($stored['body']) && is_string($stored['body'])
+            ? $stored['body']
+            : 'Delivery #'.$delivery->id.' has no stored content (legacy ledger row).';
+
         return [
-            'subject' => 'CRM notification',
-            'body' => 'Delivery #'.$delivery->id.' ('.$delivery->channel.', status='.$delivery->status.')',
+            'subject' => $subject,
+            'body' => $body,
             'related_entity_type' => $delivery->related_entity_type,
             'related_entity_id' => $delivery->related_entity_id,
         ];

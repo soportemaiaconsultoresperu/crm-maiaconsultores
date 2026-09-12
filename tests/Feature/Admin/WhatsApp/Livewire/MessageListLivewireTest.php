@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\WhatsApp\Livewire;
 
+use App\Contracts\WhatsApp\WhatsAppProviderFactory;
+use App\Jobs\V2\SendWhatsAppMessage;
 use App\Livewire\Admin\WhatsApp\MessageList;
 use App\Models\User;
 use App\Models\WhatsApp\WhatsAppAccount;
@@ -12,6 +14,7 @@ use App\Models\WhatsApp\WhatsAppMessage;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -59,14 +62,19 @@ class MessageListLivewireTest extends TestCase
             ->assertSee('Hola, necesito información');
     }
 
-    public function test_send_delegates_to_controller_and_clears_textarea(): void
+    public function test_send_delegates_to_controller_and_actually_delivers_the_message(): void
     {
         Bus::fake();
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'messages' => [['id' => 'wamid.LIVEWIRE-OK']],
+            ], 200),
+        ]);
 
         $admin = User::factory()->create(['is_active' => true]);
         $admin->assignRole('admin');
 
-        $account = $this->makeAccount();
+        $account = $this->makeSendableAccount();
         $conversation = $this->makeConversation($account);
 
         Livewire::actingAs($admin)
@@ -80,10 +88,25 @@ class MessageListLivewireTest extends TestCase
             'direction' => WhatsAppMessage::DIRECTION_OUTBOUND,
             'type' => 'freeform',
             'body' => 'Gracias por contactarnos',
-            'status' => WhatsAppMessage::STATUS_QUEUED,
         ]);
 
-        Bus::assertDispatched(\App\Jobs\V2\SendWhatsAppMessage::class);
+        Bus::assertDispatched(SendWhatsAppMessage::class);
+
+        /** @var WhatsAppMessage $message */
+        $message = WhatsAppMessage::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('direction', WhatsAppMessage::DIRECTION_OUTBOUND)
+            ->firstOrFail();
+
+        // E-3: executing the job is what exposes the defect. Asserting `queued`
+        // plus the dispatch was the defect's hiding place — the job marked
+        // every free-form message failed (NoTemplate) without sending it.
+        (new SendWhatsAppMessage($message->id))->handle(app(WhatsAppProviderFactory::class));
+
+        $message->refresh();
+        $this->assertSame(WhatsAppMessage::STATUS_SENT, $message->status);
+        $this->assertSame('wamid.LIVEWIRE-OK', $message->wamid);
+        $this->assertNotNull($message->sent_at);
     }
 
     public function test_send_is_blocked_without_whatsapp_send_permission(): void
@@ -114,6 +137,24 @@ class MessageListLivewireTest extends TestCase
         $account = new WhatsAppAccount([
             'phone_number' => '+15551234567',
             'phone_number_id' => '1234567890',
+            'display_name' => 'Test Account',
+            'status' => WhatsAppAccount::STATUS_VERIFIED,
+        ]);
+        $account->save();
+
+        return $account;
+    }
+
+    /**
+     * Real-mode account (credentials configured) so the outbound job actually
+     * performs the Graph API POST instead of returning the stub envelope.
+     */
+    private function makeSendableAccount(): WhatsAppAccount
+    {
+        $account = new WhatsAppAccount([
+            'phone_number' => '+15551234567',
+            'phone_number_id' => '1234567890',
+            'business_id' => 'access-token',
             'display_name' => 'Test Account',
             'status' => WhatsAppAccount::STATUS_VERIFIED,
         ]);

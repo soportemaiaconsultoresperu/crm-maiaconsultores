@@ -308,7 +308,17 @@ if ($message->template === null) { $this->markFailed($message, 'NoTemplate', ...
 Los tests asertan `queued` + `Bus::assertDispatched` — o sea, **asertan justo donde arranca el
 defecto** (patrón #1). El job **no se ejecuta en ningún test del repo**.
 
-**Estado**: ⏳ pendiente.
+**Estado**: ✅ **ARREGLADO** (2026-09-12). Un mensaje sin template pasa por
+`WhatsAppProvider::sendFreeFormMessage` y el sobre del proveedor decide el estado terminal: `sent`
++ `wamid` si Meta acepta, `failed` con `error_class`/`error_message` reales si rechaza. Antes de
+llamar se verifican dos precondiciones que el job no miraba: opt-out de la conversación y ventana de
+24 h (el bloqueo por ventana es **inerte** hasta que algo popule
+`whatsapp_conversations.window_closes_at`, cosa que hoy no hace nadie — ver R-7 —, así que la
+autoridad sigue siendo Meta y su rechazo literal queda persistido). Los dos tests que asertaban
+`queued` + `assertDispatched` ahora **ejecutan el job** y asertan el estado final, y
+`SendWhatsAppMessageJobTest` (8 tests, archivo nuevo) cubre entrega, rechazo del proveedor, stub sin
+credenciales, ventana cerrada, opt-out, plantilla, short-circuit de idempotencia y cuenta
+ deshabilitada.
 
 ### E-4 · CRITICAL · Las notificaciones se envían con un body placeholder
 
@@ -324,7 +334,49 @@ fabrica:
 y **eso** es lo que se envía por mail y por WhatsApp, descartando el contenido real que el listener
 sí construye. Los tests asertan ledger, no contenido.
 
-**Estado**: ⏳ pendiente.
+**Estado**: ✅ **ARREGLADO** (2026-09-12). `NotificationService::dispatch()` persiste el contenido
+(`subject`/`body` whitelisteados) en una columna `payload` JSON nueva y **aditiva**
+(`2026_09_12_000100_add_payload_to_outbound_deliveries`), y `SendOutboundDelivery::payload()` lo lee:
+el contenido sobrevive el re-despacho **por id** de los reintentos y del botón "Reintentar". El
+placeholder sólo sobrevive como aviso explícito para filas legacy sin contenido, en vez de fabricar
+un cuerpo que parece real. La rama WhatsApp del job ya no descarta el sobre del proveedor: un envío
+rechazado lanza y el ledger queda `queued`/`failed` con el motivo, nunca `delivered`, y
+`last_response_code` deja de ser `0` cuando no hubo respuesta. `SendOutboundDeliveryJobTest` (6
+tests, archivo nuevo) ejecuta el job y aserta el contenido que sale y el estado que queda.
+
+### R-5 · WARNING · `last_error` guardaba la clase del error y tiraba el motivo
+
+`NotificationService::markFailed()` recibía `$errorClass` y `$errorMessage` y persistía **sólo la
+clase**: el operador veía que una entrega falló, nunca por qué. Es el mismo patrón que E-4 (el dato
+existe y se descarta). Ahora persiste `Clase: mensaje`, el mismo formato que ya usaba
+`SendOutboundDelivery::failed()`. Se actualizó la única aserción que fijaba el valor viejo
+(`NotificationServiceTest:145`), **reforzándola**: antes asertaba la clase exacta, ahora aserta clase
+y motivo.
+
+### R-6 · WARNING · `sendWhatsApp()` busca la cuenta en la tabla equivocada
+
+`outbound_deliveries.account_id` es FK a `integration_accounts`, pero
+`SendOutboundDelivery::sendWhatsApp()` hace `WhatsAppAccount::find($delivery->account_id)`. Sólo
+funciona si ambos ids coinciden por casualidad; si no, la rama WhatsApp falla siempre con "No active
+WhatsApp account for delivery". **No se tocó**: cambiarlo redefine el significado de la columna y
+de la FK para todos los canales, fuera del alcance de E-3/E-4. Los tests de la rama WhatsApp crean
+ambas filas con el mismo id y lo dejan documentado en el helper.
+
+### R-7 · WARNING · Nadie escribe la ventana de 24 h
+
+`whatsapp_conversations.window_opens_at` / `window_closes_at` existen desde B14 y **ningún** código
+las escribe: ni el webhook de entrada ni el envío. Por eso el bloqueo por ventana agregado en E-3 es
+inerte y la autoridad real es la respuesta de Meta. El lugar correcto para poblarlas es el webhook de
+entrada, fuera de las superficies de este arreglo. Se decidió **no** derivar la ventana de las fechas
+de los mensajes: una ventana de Meta también puede abrirse por interacciones que el CRM no persiste
+(click-to-WhatsApp) y bloquear un envío que Meta aceptaría sería otro defecto.
+
+### R-8 · SUGGESTION · El motivo del fallo no llega a la pantalla
+
+`WhatsAppMessage.error_class` / `error_message` quedan persistidos, pero
+`resources/views/livewire/admin/whatsapp/message-list.blade.php` sólo imprime `$message->status`: un
+rechazo real se lee "failed" y nada más. La vista está fuera de las superficies autorizadas de este
+arreglo; mostrar el motivo queda pendiente.
 
 ### E-5 a E-8 · WARNING
 
@@ -343,16 +395,21 @@ sí construye. Los tests asertan ledger, no contenido.
 y sus permisos sin dueño. Misma firma que el defecto de cursos: bypass del admin + fixture que se
 siembra a sí mismo. El arreglo destapó además `R-1` (las dos rutas de reprogramación devolvían 500
 por columnas de auditoría faltantes), `R-2`, `R-3` y `R-4`.
-2. **WhatsApp free-form (E-3) y notificaciones sin contenido (E-4)** — funcionalidad que no funciona,
-   con tests que asertan el estado equivocado.
+2. ✅ **WhatsApp free-form (E-3) y notificaciones sin contenido (E-4)** — **ARREGLADO**
+   (2026-09-12): funcionalidad que no funcionaba con tests que asertaban el estado equivocado. El
+   arreglo destapó R-5 (el motivo del fallo se descartaba), R-6 (la rama WhatsApp busca la cuenta en
+   la tabla equivocada), R-7 (nadie escribe la ventana de 24 h) y R-8 (el motivo no llega a la
+   pantalla).
 3. **CSRF (A-3)** — un test de seguridad que no puede fallar es peor que no tenerlo.
 4. **Descuentos negativos (D-4)** — se factura mal y el vendedor ve otro número.
 5. **El resto**: D-2, D-3, D-5 a D-8, A-4 a A-8, E-5 a E-8.
 6. **Aparte**: decidir qué se hace con los rojos que quedan. Medido el 2026-09-12 después de arreglar
    campañas: **11 rojos** (11 fallos, 0 errores) sobre 1.316 tests, y son exactamente los 11 fallos
    externos ya documentados (`b12-ui` / `HistoryAndAudit` / `SettingsService` / `GmailProvider` /
-   `GoogleCalendarWebhook`). Mientras sigan ahí, "la suite pasa" no significa nada, y cada verde
-   nuevo es más difícil de interpretar.
+   `GoogleCalendarWebhook`). Re-medido el 2026-09-12 al cerrar E-3/E-4: **11 rojos** (11 fallos, 0
+   errores) sobre **1.330 tests / 1.319 en verde** — los mismos 11 por nombre, más 14 tests nuevos.
+   Mientras sigan ahí, "la suite pasa" no significa nada, y cada verde nuevo es más difícil de
+   interpretar.
 
 ## La conclusión que importa
 

@@ -61,6 +61,7 @@ class NotificationService
                 'account_id' => $attributes['account_id'] ?? null,
                 'status' => $isDemo ? OutboundDelivery::STATUS_SKIPPED : OutboundDelivery::STATUS_QUEUED,
                 'attempts' => 0,
+                'payload' => $this->deliveryContent($attributes['payload'] ?? null),
                 'next_attempt_at' => null,
                 'last_error' => $isDemo ? 'skipped: demo data guard blocked outbound dispatch' : null,
                 'last_response_code' => null,
@@ -168,7 +169,7 @@ class NotificationService
 
         $delivery->forceFill([
             'attempts' => $newAttempts,
-            'last_error' => $errorClass,
+            'last_error' => $this->formatLastError($errorClass, $errorMessage),
             'last_response_code' => $responseCode,
             'status' => $isFinal ? OutboundDelivery::STATUS_FAILED : OutboundDelivery::STATUS_QUEUED,
             'next_attempt_at' => $isFinal ? null : ($nextAttemptAt ?? now()->addSeconds(60 * (2 ** ($newAttempts - 1)))),
@@ -186,6 +187,49 @@ class NotificationService
             'status' => OutboundDelivery::STATUS_SKIPPED,
             'last_error' => 'skipped: '.$reason,
         ])->save();
+    }
+
+    /**
+     * Persists the failure class AND the reason.
+     *
+     * `$errorMessage` used to be accepted and silently dropped, which is the
+     * same "data exists but is discarded" shape as E-4: the operator could see
+     * that a delivery failed but never why. The `Class: message` shape matches
+     * what {@see \App\Jobs\V2\SendOutboundDelivery::failed()} already stores.
+     */
+    private function formatLastError(string $errorClass, string $errorMessage): string
+    {
+        return trim($errorMessage) === ''
+            ? $errorClass
+            : $errorClass.': '.$errorMessage;
+    }
+
+    /**
+     * Whitelist the delivery content persisted in the ledger.
+     *
+     * Only the rendered content the listener built is stored — never the whole
+     * caller payload — so access tokens, credentials and any other unexpected
+     * key can never land in `outbound_deliveries`. The full payload is still
+     * used (in memory only) to compute the idempotency key.
+     *
+     * @param  mixed  $payload
+     * @return array<string, string>|null
+     */
+    private function deliveryContent(mixed $payload): ?array
+    {
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        $content = [];
+        foreach (['subject', 'body'] as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_scalar($value) || $value instanceof \Stringable) {
+                $content[$key] = (string) $value;
+            }
+        }
+
+        return $content === [] ? null : $content;
     }
 
     /**
