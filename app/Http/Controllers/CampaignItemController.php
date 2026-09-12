@@ -62,13 +62,20 @@ class CampaignItemController extends Controller
         return back()->with('status', 'Item reabierto. Ahora puedes reprogramarlo.');
     }
 
-    public function reschedule(CampaignActionItem $item, Request $request): RedirectResponse
+    /**
+     * Individual reschedule. Validated through `CampaignItemActionRequest` (the
+     * request shared by the other item actions) so a past date is rejected as a
+     * 422 with an `new_scheduled_at` error instead of escaping as an unhandled
+     * `InvalidArgumentException` from the service.
+     */
+    public function reschedule(CampaignActionItem $item, CampaignItemActionRequest $request): RedirectResponse
     {
         Gate::authorize('reschedule', [$item]);
+        $data = $request->validated();
         $this->reschedules->rescheduleIndividual(
             $item,
-            (string) $request->input('new_scheduled_at'),
-            (string) $request->input('reason'),
+            (string) $data['new_scheduled_at'],
+            (string) ($data['reason'] ?? ''),
             $request->user(),
         );
         return back()->with('status', 'Item reprogramado.');

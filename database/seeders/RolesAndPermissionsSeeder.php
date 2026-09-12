@@ -18,6 +18,55 @@ use Spatie\Permission\PermissionRegistrar;
 class RolesAndPermissionsSeeder extends Seeder
 {
     /**
+     * Campaign permissions (RF-CAMP-001..015).
+     *
+     * The campaign migration creates these rows, but this seeder is the only
+     * thing that decides which role HOLDS what, and it uses `syncPermissions`,
+     * which detaches everything missing from its own lists. Leaving the campaign
+     * rows out of the canonical list is what orphaned all 20 of them: the rows
+     * existed and no role held any (audit A-2). They are listed here so the
+     * seeder is the single source of truth for role -> permission. Adding them
+     * creates no new rows on a database that already ran the campaign migration
+     * (they are the same names).
+     *
+     * @var list<string>
+     */
+    private const CAMPAIGN_PERMISSIONS = [
+        'campaigns.view',
+        'campaigns.create',
+        'campaigns.update',
+        'campaigns.schedule',
+        'campaigns.start',
+        'campaigns.pause',
+        'campaigns.complete',
+        'campaigns.cancel',
+        'campaigns.duplicate',
+        'campaigns.add_contacts',
+        'campaigns.remove_contacts',
+        'campaigns.register_actions',
+        'campaigns.reschedule',
+        'campaigns.mark_realized',
+        'campaigns.view_reports',
+        'campaigns.override_completion',
+        'campaign_templates.view',
+        'campaign_templates.create',
+        'campaign_templates.update',
+        'campaign_templates.duplicate',
+    ];
+
+    /**
+     * The campaign permissions the campaign migration granted to `vendedor`.
+     *
+     * @var list<string>
+     */
+    private const CAMPAIGN_VENDEDOR_PERMISSIONS = [
+        'campaigns.view',
+        'campaigns.reschedule',
+        'campaigns.mark_realized',
+        'campaigns.view_reports',
+    ];
+
+    /**
      * Modules that follow the owner-based data scope (any/team/own).
      */
     private array $scopedModules = [
@@ -66,6 +115,12 @@ $supervisorPermissions[] = 'documents.view.team';
         $supervisorPermissions[] = 'documents.upload';
         $supervisorPermissions[] = 'reports.view';
         $supervisorPermissions[] = 'audit.view';
+
+        // Campaigns: the migration grants the full flat campaign vocabulary to
+        // the supervisor, so the seeder keeps that intent. Omitting them here is
+        // exactly what detached them from every role before (audit A-2).
+        $supervisorPermissions = array_merge($supervisorPermissions, self::CAMPAIGN_PERMISSIONS);
+
         $supervisor = Role::firstOrCreate(['name' => 'supervisor', 'guard_name' => 'web']);
         $supervisor->syncPermissions(array_intersect($supervisorPermissions, $all));
 
@@ -94,6 +149,13 @@ $vendedorPermissions = array_merge($vendedorPermissions, [
             // actually restricts visibility (ADR-006).
             'reports.view',
         ]);
+
+        // Campaigns: the salesperson's field-facing slice, mirroring the role
+        // grants the campaign migration intended. Still absent: the run
+        // lifecycle permissions (schedule/pause/start/cancel/complete/duplicate)
+        // and every template permission beyond view.
+        $vendedorPermissions = array_merge($vendedorPermissions, self::CAMPAIGN_VENDEDOR_PERMISSIONS);
+
         $vendedor = Role::firstOrCreate(['name' => 'vendedor', 'guard_name' => 'web']);
         $vendedor->syncPermissions(array_intersect($vendedorPermissions, $all));
 
@@ -122,6 +184,8 @@ $vendedorPermissions = array_merge($vendedorPermissions, [
                 $names[] = $extra;
             }
         }
+
+$names = array_merge($names, self::CAMPAIGN_PERMISSIONS);
 
 $names = array_merge($names, [
             // Products: global catalog, no team/own scope.

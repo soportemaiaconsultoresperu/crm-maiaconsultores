@@ -24,7 +24,11 @@ class CampaignTemplateHttpTest extends TestCase
         parent::setUp();
         $this->seed(RolesAndPermissionsSeeder::class);
         $this->seed(CatalogSeeder::class);
-        $this->admin = User::query()->where('email', env('ADMIN_EMAIL'))->first();
+        // Resolve the admin the way the working suites do: create the user and
+        // assign the role explicitly. `env('ADMIN_EMAIL')` is null under a cached
+        // config, which made this class ERROR in setUp.
+        $this->admin = User::factory()->create(['is_active' => true]);
+        $this->admin->assignRole('admin');
         $this->actingAs($this->admin);
     }
 

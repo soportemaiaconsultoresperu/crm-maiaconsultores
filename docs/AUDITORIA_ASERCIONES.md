@@ -9,6 +9,12 @@
 > responsable releyendo el código; los demás provienen del auditor con su evidencia citada.
 > **Estado de la suite al auditar**: 1.288 tests, **25 rojos** (13 fallos + 12 errores). "Verde" no
 > es hoy un invariante de este repositorio.
+>
+> **Corrección medida (2026-09-12)**: re-medido dejando el árbol en su estado original, la suite
+> son **1.299 tests / 23 rojos** (11 fallos + 12 errores). El conteo de 1.288/25 quedó viejo; los
+> 12 errores son, en los dos números, los mismos `setUp()` de campaña. Los 11 fallos restantes son
+> los de `b12-ui` / `HistoryAndAudit` / `SettingsService` / `GmailProvider` / `GoogleCalendarWebhook`
+> y no pertenecen a este arreglo.
 
 ## El patrón que se buscaba
 
@@ -124,7 +130,28 @@ el bypass devuelve `true` para cualquier ability. Encima, los 3 archivos **error
 `env('ADMIN_EMAIL')` que devuelve null — y ese error tapa el 403 real: arreglar el fixture pone los
 tests en rojo, que es el defecto saliendo a la luz.
 
-**Estado**: ⏳ pendiente.
+**Estado**: ✅ **ARREGLADO** (2026-09-12). `CampaignItemPolicy` pasó a llamarse
+`CampaignActionItemPolicy` (clase y archivo) para que el auto-discovery de Laravel lo
+encuentre por convención — el mismo mecanismo que ya usaban sus pares
+`CampaignRunPolicy` y `CampaignTemplatePolicy`, que tampoco figuran en el array
+`$policies` de `AuthServiceProvider`. Se implementaron las siete abilities que faltaban
+(`schedule`, `pause`, `start`, `cancel`, `complete`, `duplicate`, `reschedule` en
+`CampaignRunPolicy`; `duplicate` en `CampaignTemplatePolicy`), cada una mapeada 1:1 a
+una fila de permiso que la migración de campañas ya creaba — sin inventar nombres y sin
+migración nueva. Las tres abilities de item (`markRealized`, `cancel`, `reschedule`) ya
+existían y ahora sí se resuelven. `ModulePolicy` **no** se tocó: los tres policies de
+campaña sobrescriben `viewAny()` porque el vocabulario de permisos del módulo es plano
+(`campaigns.view`), no la forma de tres partes de ADR-006. Evidencia: 17 tests nuevos en
+`tests/Feature/CampaignAuthorizationTest.php` que arrancaron en 0/17 (16 fallos + 1 error)
+y hoy pasan 17/17, con un ALLOW por endpoint actuado por un actor NO admin que posee el
+permiso mapeado (aserción sobre el efecto, no sobre el redirect) y su DENY 403.
+
+**Hallazgo adicional que este arreglo destapó**: corregir el fixture no destapó solo el 403,
+destapó también un **500**. `campaign_item_reschedules` no tenía `created_by`/`updated_by`
+mientras `CampaignItemReschedule` usa `HasAuditColumns`, así que **ambas** rutas de
+reprogramación (`rescheduleIndividual` y `rescheduleAll`) devolvían 500 — y el admin las
+alcanzaba por el bypass de rol, o sea que el módulo no era "solo admin": era admin con un
+crash. Ver `R-1` más abajo.
 
 ### A-2 · CRITICAL · Los 20 permisos de campañas no los tiene ningún rol
 
@@ -144,7 +171,18 @@ mientras la migración crea `campaigns.view` — nombres que no existen como fil
 **Por qué la suite no lo ve**: los tests de seeders cuentan **filas** (`assertSame(143, Permission::count())`),
 nunca **qué rol tiene qué**. Que 20 permisos existan sin dueño es literalmente invisible.
 
-**Estado**: ⏳ pendiente.
+**Estado**: ✅ **ARREGLADO** (2026-09-12). Los 20 permisos de campaña se agregaron a la
+lista canónica de `RolesAndPermissionsSeeder` (`CAMPAIGN_PERMISSIONS`), que es la única
+declaración de qué rol tiene qué, y que además usa `syncPermissions` y por eso desasociaba
+todo lo que no figurara en ella. `admin` y `supervisor` reciben los 20, replicando lo que
+la migración ya intentaba; `vendedor` recibe los cuatro de campo
+(`campaigns.view`, `campaigns.reschedule`, `campaigns.mark_realized`, `campaigns.view_reports`),
+exactamente el subconjunto que la migración le otorgaba. **No** se cambiaron las
+semánticas de `syncPermissions` (el arreglo global que se decidió no hacer): el total de
+filas de permisos NO se mueve, porque las 20 filas ya existían por migración — lo único
+que se mueve es cuántos permisos TIENE el admin (70 → 90), que es precisamente lo que el
+defecto consistía. La segunda divergencia se resolvió del lado de las policies, que ahora
+piden el nombre plano que sí existe.
 
 ### A-3 · CRITICAL · El test de CSRF no puede fallar nunca
 
@@ -175,6 +213,69 @@ verde y un test que dice "CSRF verificado".
 | A-8 | La baja de documentos corre por un camino distinto al de la policy registrada: `DocumentService` da borrado a quien tenga `documents.view.any`, **sin** `documents.delete` ni scope | `DocumentService:322-329` vs `DocumentPolicy:36` |
 
 ---
+
+## Área: CAMPAÑAS — hallazgos destapados al arreglar A-1 y A-2
+
+> Los tres siguientes estaban **detrás del mismo fixture roto**. Los tres archivos de campaña
+erroraban en `setUp()` por `env('ADMIN_EMAIL')` devolviendo null, así que ninguna de estas
+rutas se ejecutó jamás en un test. Arreglar el fixture no destapó **un** defecto (el 403):
+destapó **cuatro**. Es el argumento más fuerte de este documento a favor de la tesis final:
+un fixture roto no protege, esconde.
+
+### R-1 · BLOCKER · [verificado] Las dos rutas de reprogramación de campañas devuelven 500
+
+`App\Models\CampaignItemReschedule` usa `HasAuditColumns`, que escribe `created_by` en cada
+INSERT, pero su tabla **no tenía esa columna**: `2026_08_20_000008_add_missing_audit_columns`
+lista `campaign_participants`, `campaign_action_items`, `documents` e `integration_accounts`,
+y omitió `campaign_item_reschedules`.
+
+```
+SQLSTATE[HY000]: General error: 1 table campaign_item_reschedules has no column named created_by
+  app/Services/CampaignRescheduleService.php:41   (rescheduleIndividual)
+  app/Services/CampaignRescheduleService.php:126  (rescheduleAll)
+```
+
+**Por qué la suite no lo ve**: A-1 hacía que las rutas devolvieran 403 a todo no-admin. Y como
+el `Gate::before` da bypass por rol, **el admin sí llegaba… y crasheaba**. El módulo no era
+"admin-only": era "admin con 500". Ni un test tocaba `CampaignRescheduleService`.
+
+**Estado**: ✅ **ARREGLADO** en `2026_09_12_000001_add_audit_columns_to_campaign_item_reschedules`
+(migración aditiva nueva: dos columnas NULLABLE con FK a `users`; las filas existentes quedan
+válidas con NULL). No se editó la migración ya aplicada, porque eso dejaría rota toda base
+existente. `down()` fue verificado en SQLite: revierte y vuelve a aplicar limpio. El `down()`
+hermano de `add_missing_audit_columns` sigue sin poder ejecutarse en SQLite (ver R-3).
+
+### R-2 · CRITICAL · Dos tests de campaña asertaban validación que no existía
+
+`CampaignItemActionHttpTest::test_mark_realized_requires_result` asertaba un error de
+validación de `result`, pero `CampaignItemActionRequest` lo declaraba `nullable`: un resultado
+vacío **completaba el item igual**. Y `test_reschedule_requires_future_date` asertaba un error
+de `new_scheduled_at`, pero `CampaignItemController::reschedule` recibía un `Request` pelado,
+así que el rechazo del servicio (`InvalidArgumentException: La nueva fecha debe ser futura.`)
+escapaba como **500**, no como 422.
+
+**Estado**: ✅ **ARREGLADO**. La regla correcta resultó ser: el discriminador `action` que las
+reglas condicionales ya esperaban se deriva de la ruta en `prepareForValidation()` (nunca del
+cliente, para que no se pueda degradar un campo requerido omitiéndolo), `result` es requerido
+solo en `mark_realized`, y la reprogramación individual pasó a validarse en el borde
+(`new_scheduled_at` `date|after:now` requerido, `reason` requerido).
+
+### R-3 · WARNING · `down()` de `add_missing_audit_columns` no puede ejecutarse en SQLite
+
+`dropForeign(['created_by', 'updated_by'])` **no coincide con ninguna constraint**: Laravel
+compara `columns` por igualdad exacta y cada FK tiene una sola columna, así que SQLite queda
+con la definición de FK intacta y rechaza el `DROP COLUMN`
+(`unknown column "created_by" in foreign key definition`). Se comprobó ejecutando
+`migrate:rollback` sobre una base SQLite descartable. La solución es llamar `dropForeign`
+**por columna**; la migración nueva de R-1 lo hace así. El `down()` preexistente de
+`add_missing_audit_columns` no está en el alcance de este arreglo y queda pendiente.
+
+### R-4 · WARNING · `CampaignReschedulePolicy` es código muerto
+
+Declara reglas para un modelo `CampaignReschedule` que **no existe** (el modelo real es
+`CampaignRun`), así que no resuelve nada y su regla documentada de `campaigns.reschedule`
+nunca corre. La reprogramación global se autoriza por `CampaignRunPolicy::reschedule`, que sí
+se implementó, así que el comportamiento es correcto; la clase queda como limpieza pendiente.
 
 ## Área: ENVÍOS
 
@@ -238,15 +339,20 @@ sí construye. Los tests asertan ledger, no contenido.
 
 ## Prioridad sugerida
 
-1. **Campañas (A-1 + A-2)** — módulo inutilizable para todo no-admin, y sus permisos sin dueño. Misma
-   firma que el defecto de cursos: bypass del admin + fixture que se siembra a sí mismo.
+1. ✅ **Campañas (A-1 + A-2)** — **ARREGLADO** (2026-09-12). Módulo inutilizable para todo no-admin,
+y sus permisos sin dueño. Misma firma que el defecto de cursos: bypass del admin + fixture que se
+siembra a sí mismo. El arreglo destapó además `R-1` (las dos rutas de reprogramación devolvían 500
+por columnas de auditoría faltantes), `R-2`, `R-3` y `R-4`.
 2. **WhatsApp free-form (E-3) y notificaciones sin contenido (E-4)** — funcionalidad que no funciona,
    con tests que asertan el estado equivocado.
 3. **CSRF (A-3)** — un test de seguridad que no puede fallar es peor que no tenerlo.
 4. **Descuentos negativos (D-4)** — se factura mal y el vendedor ve otro número.
 5. **El resto**: D-2, D-3, D-5 a D-8, A-4 a A-8, E-5 a E-8.
-6. **Aparte**: decidir qué se hace con los 25 rojos. Mientras sigan ahí, "la suite pasa" no significa
-   nada, y cada verde nuevo es más difícil de interpretar.
+6. **Aparte**: decidir qué se hace con los rojos que quedan. Medido el 2026-09-12 después de arreglar
+   campañas: **11 rojos** (11 fallos, 0 errores) sobre 1.316 tests, y son exactamente los 11 fallos
+   externos ya documentados (`b12-ui` / `HistoryAndAudit` / `SettingsService` / `GmailProvider` /
+   `GoogleCalendarWebhook`). Mientras sigan ahí, "la suite pasa" no significa nada, y cada verde
+   nuevo es más difícil de interpretar.
 
 ## La conclusión que importa
 

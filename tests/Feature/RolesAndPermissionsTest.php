@@ -26,6 +26,10 @@ public function test_exactly_90_permissions_are_seeded(): void
         // campaign/automation-era permissions already present in this branch,
         // and the v1 customer financial permissions introduced by
         // customer-payments-invoices.
+        // Does NOT move: 70 baseline permissions + the 20 campaign permissions
+        // the campaign migration creates = 90. Adding the campaign names to this
+        // seeder's canonical list re-creates nothing (they already exist as rows),
+        // so only the role-ASSIGNMENT counts below change.
         $this->assertSame(90, Permission::count());
         $this->assertTrue(Permission::where('name', 'customer-payments.view')->exists());
         $this->assertTrue(Permission::where('name', 'customer-payments.manage')->exists());
@@ -47,7 +51,11 @@ public function test_admin_role_holds_every_baseline_permission(): void
     {
         $admin = Role::where('name', 'admin')->first();
 
-        $this->assertSame(70, $admin->permissions()->count());
+        // 90, not 70: the campaign permissions were always 20 DB rows, but this
+        // seeder's canonical list omitted them, and `syncPermissions` therefore
+        // DETACHED them from every role - including admin (audit A-2). Listing
+        // them is what makes the admin actually hold them.
+        $this->assertSame(90, $admin->permissions()->count());
         $this->assertTrue($admin->hasPermissionTo('leads.view.any'));
         $this->assertTrue($admin->hasPermissionTo('quotations.accept'));
         $this->assertTrue($admin->hasPermissionTo('products.export'));
@@ -127,7 +135,9 @@ public function test_b08_admin_permissions_are_added_by_additional_seeder(): voi
         $this->assertTrue($admin->hasPermissionTo('customer-payments.view'));
         $this->assertTrue($admin->hasPermissionTo('customer-payments.manage'));
 
-        $this->assertSame(82, $admin->permissions()->count());
+        // 102, not 82: 90 campaign-inclusive baseline + the 12 new permissions
+        // AdditionalPermissionsSeeder grants the admin on top of it.
+        $this->assertSame(102, $admin->permissions()->count());
     }
 
     public function test_supervisor_gets_read_only_admin_perms_plus_manage_for_teams_catalogs_settings(): void
