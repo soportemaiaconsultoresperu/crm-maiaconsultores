@@ -104,10 +104,27 @@ class CourseDomainFoundationTest extends TestCase
 
     private function knownLimitations(): string
     {
-        $path = base_path('openspec/changes/course-talks-management/known-limitations.md');
+        // The record must be found whether the change is still ACTIVE or already
+        // ARCHIVED: closing a change moves its artifacts under
+        // `openspec/changes/archive/<date>-<name>/`, so hardcoding the active path
+        // made these two tests fail the moment the change was archived. The
+        // assertion is about the record existing, not about where it lives.
+        $candidates = [
+            base_path('openspec/changes/course-talks-management/known-limitations.md'),
+        ];
 
-        $this->assertFileExists($path, 'El registro de limitaciones del cambio debe existir.');
+        foreach (glob(base_path('openspec/changes/archive/*-course-talks-management/known-limitations.md')) ?: [] as $archived) {
+            $candidates[] = $archived;
+        }
 
-        return (string) file_get_contents($path);
+        foreach ($candidates as $path) {
+            if (is_file($path)) {
+                return (string) file_get_contents($path);
+            }
+        }
+
+        throw new \RuntimeException(
+            'El registro de limitaciones del cambio debe existir, en el change activo o en el archivado.'
+        );
     }
 }
