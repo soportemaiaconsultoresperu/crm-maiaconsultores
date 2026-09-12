@@ -125,26 +125,54 @@ class MetaWhatsAppProviderTest extends TestCase
     }
 
     /**
+     * E-5 — the provider must resolve the secret through the shipped config
+     * file (the deployable path). A bare `env()` call is null once the config
+     * is cached, and the phantom `webhook_secret` attribute has no column, so
+     * only the configuration layer can verify a real deployment's webhook.
+     */
+    public function test_webhook_secret_resolves_through_the_deployment_config_path(): void
+    {
+        $secret = 'shhh-deploy-secret';
+
+        putenv('INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET='.$secret);
+        $integrations = require config_path('integrations.php');
+        putenv('INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET');
+        config(['integrations' => $integrations]);
+
+        $account = $this->makeAccount(businessId: null);
+        $provider = new MetaWhatsAppProvider($account);
+
+        $body = '{"entry":[{"id":"123"}]}';
+        $signature = 'sha256='.hash_hmac('sha256', $body, $secret);
+
+        $request = Request::create(
+            '/webhooks/whatsapp/meta',
+            'POST',
+            [], [], [],
+            ['HTTP_X_HUB_SIGNATURE_256' => $signature],
+            $body,
+        );
+
+        $this->assertTrue($provider->verifyWebhookSignature($request));
+    }
+
+    /**
      * Build an unsaved WhatsAppAccount (no DB persistence — provider is
-     * a pure adapter over the column data).
+     * a pure adapter over the column data). The webhook secret is injected
+     * through the configuration layer, the only path a deployment uses.
      */
     private function makeAccount(?string $businessId = null, ?string $webhookSecret = null): WhatsAppAccount
     {
-        $account = new WhatsAppAccount([
+        if ($webhookSecret !== null) {
+            config(['integrations.whatsapp.webhook_secret' => $webhookSecret]);
+        }
+
+        return new WhatsAppAccount([
             'phone_number' => '+15551234567',
             'phone_number_id' => '1234567890',
             'business_id' => $businessId,
             'display_name' => 'Test Account',
             'status' => WhatsAppAccount::STATUS_VERIFIED,
         ]);
-
-        // Allow tests to inject a webhook secret without touching the DB schema.
-        $reflection = new \ReflectionProperty(WhatsAppAccount::class, 'attributes');
-        $reflection->setAccessible(true);
-        $attrs = $reflection->getValue($account);
-        $attrs['webhook_secret'] = $webhookSecret;
-        $reflection->setValue($account, $attrs);
-
-        return $account;
     }
 }

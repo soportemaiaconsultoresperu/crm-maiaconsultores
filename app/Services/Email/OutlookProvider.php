@@ -66,7 +66,10 @@ class OutlookProvider implements EmailProvider
      */
     public function verifyWebhookSignature(Request $request): bool
     {
-        $secret = (string) (env('INTEGRATIONS_OUTLOOK_WEBHOOK_SECRET') ?? '');
+        // E-5 — read the shared secret from the configuration layer. A bare
+        // env() call returns null once the config is cached, which silently
+        // rejected every inbound webhook.
+        $secret = (string) (config('integrations.email.outlook.webhook_secret') ?? '');
 
         if ($secret === '') {
             return false;

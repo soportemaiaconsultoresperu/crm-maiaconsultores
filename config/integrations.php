@@ -65,6 +65,37 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Inbound webhook shared secrets (per channel)
+    |--------------------------------------------------------------------------
+    |
+    | The shared secret each provider signs its inbound webhook with. These
+    | live in the configuration layer — NOT read via a bare env() call at
+    | request time — because `config:cache` stops loading the `.env` file,
+    | which makes a runtime env() return null even when the variable is set.
+    | Reading them here resolves the value once, when the config is built,
+    | and bakes it into the cache so the deployed application can actually
+    | use it.
+    |
+    | There is deliberately NO default: an unset/empty secret makes the
+    | inbound endpoint fail closed (403), never open. Set the matching
+    | INTEGRATIONS_*_WEBHOOK_SECRET in the environment.
+    |
+    */
+    'whatsapp' => [
+        'webhook_secret' => env('INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET'),
+    ],
+
+    'email' => [
+        'gmail' => [
+            'webhook_secret' => env('INTEGRATIONS_GMAIL_WEBHOOK_SECRET'),
+        ],
+        'outlook' => [
+            'webhook_secret' => env('INTEGRATIONS_OUTLOOK_WEBHOOK_SECRET'),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Webhook verification policy (per provider)
     |--------------------------------------------------------------------------
     |

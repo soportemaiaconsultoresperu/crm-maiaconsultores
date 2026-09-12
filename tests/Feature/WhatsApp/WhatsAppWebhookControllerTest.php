@@ -323,19 +323,67 @@ class WhatsAppWebhookControllerTest extends TestCase
     }
 
     /**
+     * E-5 — the deployable path.
+     *
+     * A real deployment exports `INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET` and
+     * runs `config:cache`; the shipped `config/integrations.php` is what gets
+     * rendered and baked into the cache. With a cached config the `.env` file
+     * is no longer loaded, so a direct `env()` call returns null at runtime.
+     *
+     * This test renders the shipped config file with the variable exported
+     * (exactly what `config:cache` does), then clears the process variable to
+     * mirror the cached runtime, and finally drives a correctly-signed webhook
+     * through the endpoint. A correctly configured deployment MUST verify it.
+     */
+    public function test_webhook_secret_resolves_through_the_deployment_config_path(): void
+    {
+        $secret = 'deploy-whatsapp-secret';
+
+        putenv('INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET='.$secret);
+        $integrations = require config_path('integrations.php');
+        putenv('INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET');
+        config(['integrations' => $integrations]);
+
+        $account = $this->persistAccount();
+        $body = json_encode([
+            'object' => 'whatsapp_business_account',
+            'entry' => [],
+        ], JSON_THROW_ON_ERROR);
+        $signature = 'sha256='.hash_hmac('sha256', $body, $secret);
+
+        $this->call('POST', '/webhooks/whatsapp/'.$account->getKey(), [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_HUB_SIGNATURE_256' => $signature,
+        ], $body)
+            ->assertOk()
+            ->assertJson(['ok' => true]);
+
+        $this->assertArrayHasKey('whatsapp', $integrations, 'config/integrations.php must define the whatsapp section.');
+        $this->assertSame(
+            $secret,
+            $integrations['whatsapp']['webhook_secret'] ?? null,
+            'config/integrations.php must resolve integrations.whatsapp.webhook_secret from INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET.',
+        );
+    }
+
+    /**
      * Build and persist a WhatsAppAccount, and expose the webhook secret
-     * through `config('integrations.whatsapp.webhook_secret')` — the same
-     * fallback {@see MetaWhatsAppProvider::resolveWebhookSecret()} reads.
+     * through `config('integrations.whatsapp.webhook_secret')` — the
+     * configuration key the deployable path renders from the environment.
      *
      * The v1 `whatsapp_accounts` schema does NOT have a `webhook_secret`
-     * column, so the secret cannot live on the model row. The provider
-     * checks the in-memory attribute bag first and falls back to config
-     * (see {@see MetaWhatsAppProviderTest} for the same pattern).
+     * column, so the secret cannot live on the model row; the configuration
+     * layer is the single source of truth.
      */
     private function makeAccount(string $webhookSecret): WhatsAppAccount
     {
         config(['integrations.whatsapp.webhook_secret' => $webhookSecret]);
 
+        return $this->persistAccount();
+    }
+
+    private function persistAccount(): WhatsAppAccount
+    {
         $account = new WhatsAppAccount([
             'phone_number' => '+15551234567',
             'phone_number_id' => '1234567890',

@@ -64,7 +64,16 @@ mensaje, pero **ningún test decodifica el payload enviado**. El helper fabrica 
 **Riesgo**: un adjunto vacío, una ruta rota o un cambio que omita el `foreach` de adjuntos llega al
 cliente sin que nada falle. Es el mismo defecto que se encontró en cursos.
 
-**Estado**: ⏳ pendiente.
+**Estado**: ✅ **ARREGLADO** (2026-09-12) — el hueco era de test, no del código. Se midió la cadena
+completa de punta a punta con un test nuevo (`QuotationGmailSendTest::test_gmail_outgoing_payload_carries_the_real_generated_quotation_pdf`):
+el controlador genera el PDF real con dompdf, lo persiste en disco y crea la fila del adjunto con
+`size`/`sha256` reales; el job corre `GmailProvider::buildMime()`, codifica en base64url y lo publica
+como campo `raw` de la API. El test decodifica el `raw`, extrae la parte MIME del adjunto y aserta
+que sus bytes son **idénticos al PDF generado**, que el nombre real coincide, que `size` y `sha256`
+coinciden con el archivo generado y que empieza con `%PDF`. La cadena estaba **correcta**: el
+adjunto viaja con los bytes reales. La ceguera era del test viejo: se mutó `buildMime()` quitando el
+`foreach` de adjuntos y **la aserción vieja siguió en verde** (sólo mira la fila) mientras la nueva
+se puso roja — el hueco que este hallazgo describe, ahora cerrado.
 
 ### D-3 · CRITICAL · `prices_include_tax` es configuración muerta
 
@@ -446,7 +455,7 @@ arreglo; mostrar el motivo queda pendiente.
 
 | # | Hallazgo | Evidencia |
 |---|---|---|
-| E-5 | Los secretos de webhook de WhatsApp se leen de una clave de config **que no existe**, con fallback a `env()` (null con config cacheada): con el secreto vacío **todo webhook entrante da 403**, y los tests lo inyectan por vías que el deploy no puede usar | `MetaWhatsAppProvider:276`; `config/integrations.php` |
+| E-5 | ✅ **ARREGLADO** (2026-09-12). Los secretos de webhook de WhatsApp se leían de una clave de config **que no existía**, con fallback a `env()` (null con config cacheada): con el secreto vacío **todo webhook entrante daba 403**, y los tests lo inyectaban por vías que el deploy no puede usar. Ahora `config/integrations.php` define `integrations.whatsapp.webhook_secret` (y `integrations.email.gmail.webhook_secret` / `integrations.email.outlook.webhook_secret` para los proveedores Gmail/Outlook, que tenían el mismo `env()` directo); se eliminó el atributo fantasma `webhook_secret` (sin columna) y el fallback a `env()`; y el webhook rechazado ahora se loguea con motivo (`Log::error` si falta configurar el secreto, `Log::warning` si la firma no verifica). Documentado en `.env.example`. | `MetaWhatsAppProvider::resolveWebhookSecret()`; `WhatsAppWebhookController::verify()`; `GmailProvider`/`OutlookProvider::verifyWebhookSignature()`; `config/integrations.php` |
 | E-6 | `ConversationList::assignConversation` (Livewire) saltea el DataScope que su gemelo HTTP sí aplica; el test corre como admin (scope global) | `ConversationList:74-90` vs `WhatsAppController:213-231` |
 | E-7 | `SendEmailAction` llama `Mail::queue([], [], $closure)`, que en Laravel 13 **siempre** lanza ("Only mailables may be queued"); cero tests de ejecución | `SendEmailAction:38-43` |
 | E-8 | No hay CI, hooks ni política anti-`.only`: nada obliga a correr la suite, y un test rojo sobrevive indefinidamente | sin `.github/`, sin `.husky/` |
@@ -473,7 +482,7 @@ por columnas de auditoría faltantes), `R-2`, `R-3` y `R-4`.
    subtotal (borde inclusivo: igual se acepta) en **una** regla compartida por las dos rutas de
    escritura y el servicio, con el preview del formulario capeando el descuento y marcando la línea
    en vez de mostrar un IGV/total que el servidor nunca escribiría.
-5. **El resto**: D-2, D-3, D-5 a D-8, A-4 a A-8, E-5 a E-8.
+5. **El resto**: D-3, D-5 a D-8, A-4 a A-8, E-6 a E-8.
 6. **Aparte**: decidir qué se hace con los rojos que quedan. Medido el 2026-09-12 después de arreglar
    campañas: **11 rojos** (11 fallos, 0 errores) sobre 1.316 tests, y son exactamente los 11 fallos
    externos ya documentados (`b12-ui` / `HistoryAndAudit` / `SettingsService` / `GmailProvider` /
