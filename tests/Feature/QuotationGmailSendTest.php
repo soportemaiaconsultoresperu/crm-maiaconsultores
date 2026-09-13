@@ -161,6 +161,53 @@ class QuotationGmailSendTest extends TestCase
         $this->assertSame('sent', $quotation->fresh()->status);
     }
 
+    public function test_gmail_outgoing_payload_carries_the_real_generated_quotation_pdf(): void
+    {
+        Storage::fake('local');
+        $this->googleAccount();
+        $quotation = $this->draftQuotationForLead('cliente@example.com');
+
+        // Drive the REAL send path: the controller renders the PDF, stores the
+        // real bytes on disk and records the attachment row from those bytes.
+        $this->actingAs($this->actor)
+            ->post('/quotations/'.$quotation->id.'/gmail-send', $this->gmailPayload())
+            ->assertRedirect('/quotations/'.$quotation->id);
+
+        $message = EmailMessage::query()->where('related_quotation_id', $quotation->id)->firstOrFail();
+        $attachment = $message->attachments()->firstOrFail();
+
+        $stored = (string) Storage::disk('local')->get($attachment->storage_path);
+        $this->assertNotSame('', $stored, 'The generated PDF must be stored on disk.');
+        $this->assertStringStartsWith('%PDF', $stored);
+        $this->assertSame(strlen($stored), $attachment->size, 'The attachment row size must match the generated file.');
+        $this->assertSame(hash('sha256', $stored), $attachment->sha256, 'The attachment row hash must match the generated file.');
+
+        // Run the real job and capture the outgoing Gmail request body.
+        $raw = null;
+        Http::fake([
+            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'fresh', 'expires_in' => 3600, 'token_type' => 'Bearer']),
+            'https://gmail.googleapis.com/gmail/v1/users/me/messages/send' => function ($request) use (&$raw) {
+                $raw = (string) ($request->data()['raw'] ?? '');
+
+                return Http::response(['id' => 'gmail-1', 'threadId' => 'thread-1'], 200);
+            },
+        ]);
+
+        (new SendEmailMessage($message->id))->handle(app(EmailProviderFactory::class), $this->quotations);
+
+        $this->assertNotSame('', (string) $raw, 'The Gmail send request must carry a raw MIME payload.');
+
+        $mime = $this->decodeBase64Url((string) $raw);
+        $this->assertStringContainsString($attachment->filename, $mime, 'The outgoing MIME must name the attachment.');
+
+        $sent = $this->extractAttachmentPart($mime, $attachment->filename);
+        $this->assertNotSame('', $sent, 'The outgoing MIME must actually carry the attachment part.');
+        $this->assertSame($stored, $sent, 'The bytes Gmail sends must equal the generated PDF.');
+        $this->assertSame($attachment->size, strlen($sent));
+        $this->assertSame($attachment->sha256, hash('sha256', $sent));
+        $this->assertStringStartsWith('%PDF', $sent);
+    }
+
     public function test_gmail_job_explicit_failure_keeps_quotation_draft(): void
     {
         Storage::fake('local');
@@ -280,5 +327,44 @@ class QuotationGmailSendTest extends TestCase
         ]);
 
         return $message;
+    }
+
+    /** Decode the Gmail API's base64url `raw` field (padding is stripped). */
+    private function decodeBase64Url(string $value): string
+    {
+        $normalized = strtr($value, '-_', '+/');
+        $remainder = strlen($normalized) % 4;
+        if ($remainder > 0) {
+            $normalized .= str_repeat('=', 4 - $remainder);
+        }
+
+        return (string) base64_decode($normalized, true);
+    }
+
+    /**
+     * Extract and decode the MIME part whose Content-Disposition names
+     * $filename. Splits on the declared boundary instead of a lazy regex so
+     * the ~1 MB payload does not exhaust PCRE's backtrack limit.
+     */
+    private function extractAttachmentPart(string $mime, string $filename): string
+    {
+        if (preg_match('/boundary="([^"]+)"/', $mime, $matches) !== 1) {
+            return '';
+        }
+
+        $boundary = '--'.$matches[1];
+
+        foreach (explode($boundary, $mime) as $segment) {
+            if (! str_contains($segment, 'filename="'.$filename.'"')) {
+                continue;
+            }
+
+            $parts = explode("\r\n\r\n", $segment, 2);
+            $encoded = (string) preg_replace('/[^A-Za-z0-9+\/=]/', '', $parts[1] ?? '');
+
+            return (string) base64_decode($encoded, true);
+        }
+
+        return '';
     }
 }

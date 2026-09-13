@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\Quotations\LineDiscountRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -10,6 +11,10 @@ use Illuminate\Validation\Rule;
  * Quotation update validation (RF-COT-001). The number is never editable.
  * Status transitions are owned by the service, not the request; this
  * request validates only the editable payload.
+ *
+ * The line-discount rule is D-4's single source of truth (LineDiscountRule),
+ * shared with QuotationStoreRequest so the create and edit paths cannot
+ * diverge again.
  */
 class QuotationUpdateRequest extends FormRequest
 {
@@ -83,6 +88,9 @@ class QuotationUpdateRequest extends FormRequest
                     'La cotización debe tener exactamente un lead o un cliente, no ambos.'
                 );
             }
+
+            // D-4: a discount larger than the line subtotal is not a discount.
+            LineDiscountRule::addTo($validator, (array) $this->input('items'));
         });
     }
 }

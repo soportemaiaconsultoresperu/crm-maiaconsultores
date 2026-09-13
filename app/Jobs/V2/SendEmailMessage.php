@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace App\Jobs\V2;
 
+use App\Enums\Courses\DeliveryStatus;
+use App\Models\Courses\CourseAcademicDocument;
+use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Email\EmailMessage;
+use App\Models\Notification\OutboundDelivery;
 use App\Models\Quotation;
 use App\Services\QuotationService;
 use Illuminate\Bus\Queueable;
@@ -18,6 +22,8 @@ use RuntimeException;
 
 class SendEmailMessage implements ShouldQueue
 {
+    private const FAILURE_MESSAGE = 'No fue posible enviar el correo.';
+
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
@@ -39,7 +45,7 @@ class SendEmailMessage implements ShouldQueue
         }
 
         if (app(\App\Services\DemoData\DemoDataGuard::class)->isEmailMessageDemo($message)) {
-            $this->markFailed($message, 'DemoDataGuardBlocked', 'Demo data guard blocked outbound email job.');
+            $this->markFailed($message, 'DemoDataGuardBlocked');
             return;
         }
 
@@ -53,13 +59,13 @@ class SendEmailMessage implements ShouldQueue
 
         $account = $message->account;
         if ($account === null) {
-            $this->markFailed($message, 'NoBoundAccount', 'EmailMessage has no IntegrationAccount.');
+            $this->markFailed($message, 'NoBoundAccount');
 
             return;
         }
 
         if (! $account->is_active) {
-            $this->markFailed($message, 'AccountInactive', 'IntegrationAccount is inactive.');
+            $this->markFailed($message, 'AccountInactive');
 
             return;
         }
@@ -77,10 +83,11 @@ class SendEmailMessage implements ShouldQueue
             $message->forceFill([
                 'status' => EmailMessage::STATUS_PENDING,
                 'error_class' => (string) ($result['error_class'] ?? 'RetryableEmailProviderError'),
-                'error_message' => (string) ($result['error_message'] ?? 'Email provider returned a retryable error.'),
+                'error_message' => self::FAILURE_MESSAGE,
             ])->save();
+            $this->syncCourseDelivery($message->fresh());
 
-            throw new RuntimeException($message->error_message ?? 'Email provider returned a retryable error.');
+            throw new RuntimeException(self::FAILURE_MESSAGE);
         }
 
         DB::transaction(function () use ($message, $result, $quotations): void {
@@ -111,7 +118,7 @@ class SendEmailMessage implements ShouldQueue
                 $message->forceFill([
                     'status' => EmailMessage::STATUS_SEND_UNCONFIRMED,
                     'error_class' => (string) ($result['error_class'] ?? 'GmailSendUnconfirmed'),
-                    'error_message' => (string) ($result['error_message'] ?? 'No se pudo confirmar si Gmail aceptó el mensaje.'),
+                    'error_message' => 'No se pudo confirmar el envío del correo.',
                 ])->save();
 
                 return;
@@ -120,9 +127,11 @@ class SendEmailMessage implements ShouldQueue
             $message->forceFill([
                 'status' => EmailMessage::STATUS_FAILED,
                 'error_class' => (string) ($result['error_class'] ?? 'UnknownError'),
-                'error_message' => (string) ($result['error_message'] ?? 'Unknown'),
+                'error_message' => self::FAILURE_MESSAGE,
             ])->save();
         });
+
+        $this->syncCourseDelivery($message->fresh());
     }
 
     public function failed(\Throwable $exception): void
@@ -131,19 +140,97 @@ class SendEmailMessage implements ShouldQueue
         if ($message === null || $message->status === EmailMessage::STATUS_SEND_UNCONFIRMED) {
             return;
         }
-        $this->markFailed($message, $exception::class, $exception->getMessage());
+        $this->markFailed($message, $exception::class);
         Log::warning('SendEmailMessage: exhausted retries', [
             'message_id' => $message->id,
             'error_class' => $exception::class,
         ]);
     }
 
-    private function markFailed(EmailMessage $message, string $class, string $messageText): void
+    private function markFailed(EmailMessage $message, string $class): void
     {
         $message->forceFill([
             'status' => EmailMessage::STATUS_FAILED,
             'error_class' => $class,
-            'error_message' => $messageText,
+            'error_message' => self::FAILURE_MESSAGE,
         ])->save();
+        $this->syncCourseDelivery($message->fresh());
+    }
+
+    /**
+     * The only writer of the terminal ledger state and of the correlated course
+     * document's delivery snapshot. Both course document types share this job:
+     * the message's state maps to a ledger status — and, when terminal, to a
+     * snapshot status — through one decision table, so the academic and
+     * commercial channels cannot drift. Any other correlated entity (a quotation,
+     * a plain notification) keeps the historical no-op behavior.
+     */
+    private function syncCourseDelivery(EmailMessage $message): void
+    {
+        $deliveries = OutboundDelivery::query()->where('email_message_id', $message->id)->get();
+        if ($deliveries->count() !== 1) {
+            return;
+        }
+
+        $delivery = $deliveries->first();
+        $documentClass = $this->correlatedCourseDocumentClass($delivery->related_entity_type);
+        if ($documentClass === null) {
+            return;
+        }
+
+        [$status, $lastError, $snapshotStatus] = $this->courseDeliveryOutcome($message);
+
+        DB::transaction(function () use ($delivery, $message, $documentClass, $status, $lastError, $snapshotStatus): void {
+            $delivery->forceFill(['status' => $status, 'last_error' => $lastError])->save();
+
+            if ($snapshotStatus === null) {
+                // Unconfirmed: the ledger carries the unresolved attempt and the
+                // document snapshot deliberately stays pending for follow-up.
+                return;
+            }
+
+            $snapshot = ['delivery_status' => $snapshotStatus];
+            if ($snapshotStatus === DeliveryStatus::Sent) {
+                $snapshot['last_sent_at'] = $message->sent_at ?? now();
+            }
+
+            $documentClass::query()
+                ->find($delivery->related_entity_id)
+                ?->forceFill($snapshot)
+                ->save();
+        });
+    }
+
+    /**
+     * The course document types whose delivery snapshot this shared job owns.
+     * Every other correlated entity keeps the previous no-op behavior.
+     */
+    private function correlatedCourseDocumentClass(string $relatedEntityType): ?string
+    {
+        return match ($relatedEntityType) {
+            CourseAcademicDocument::class, CourseCommercialDocument::class => $relatedEntityType,
+            default => null,
+        };
+    }
+
+    /**
+     * One decision table for both course document types: the message's state
+     * decides the ledger status, its sanitized error text and — for the two
+     * terminal outcomes — the document snapshot status. A `null` snapshot status
+     * means the snapshot is intentionally left untouched.
+     *
+     * @return array{0: string, 1: string|null, 2: DeliveryStatus|null}
+     */
+    private function courseDeliveryOutcome(EmailMessage $message): array
+    {
+        if ($message->status === EmailMessage::STATUS_SENT) {
+            return [OutboundDelivery::STATUS_SENT, null, DeliveryStatus::Sent];
+        }
+
+        if ($message->status === EmailMessage::STATUS_FAILED) {
+            return [OutboundDelivery::STATUS_FAILED, self::FAILURE_MESSAGE, DeliveryStatus::Failed];
+        }
+
+        return [OutboundDelivery::STATUS_QUEUED, 'No fue posible confirmar el envío del correo.', null];
     }
 }

@@ -261,19 +261,22 @@ class MetaWhatsAppProvider implements WhatsAppProvider
         return self::GRAPH_BASE.'/'.$this->account->phone_number_id.'/messages';
     }
 
+    /**
+     * E-5 — resolve the shared secret from the configuration layer only.
+     *
+     * The secret used to be read from a phantom `webhook_secret` model
+     * attribute (no such column exists) with a bare `env()` fallback. Once
+     * the config is cached (the standard production posture) the `.env` file
+     * is no longer loaded, so `env()` returned null and every inbound webhook
+     * failed closed with a silent 403. `integrations.whatsapp.webhook_secret`
+     * is now rendered from `INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET` when the
+     * config is built, so the deployed application can actually resolve it.
+     */
     private function resolveWebhookSecret(): ?string
     {
-        // The webhook secret column (`whatsapp_accounts.webhook_secret`)
-        // is part of the planned v1 schema but the v1 migration shipped
-        // without it; Pasada B-1 reads from the model's attribute bag
-        // (set in-memory by tests) and falls back to config / env.
-        $attribute = $this->account->getAttributes()['webhook_secret'] ?? null;
-        if (is_string($attribute) && $attribute !== '') {
-            return $attribute;
-        }
+        $secret = config('integrations.whatsapp.webhook_secret');
 
-        return config('integrations.whatsapp.webhook_secret')
-            ?: env('INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET');
+        return is_string($secret) && $secret !== '' ? $secret : null;
     }
 
     private function resolveBusinessId(): ?string

@@ -142,12 +142,18 @@ class NotificationServiceTest extends TestCase
         $delivery->refresh();
         $this->assertSame(1, (int) $delivery->attempts);
         $this->assertSame(OutboundDelivery::STATUS_QUEUED, $delivery->status);
-        $this->assertSame('SmtpError', $delivery->last_error);
+        // E-4: the class AND the reason are persisted. Previously the error
+        // message argument was accepted and silently dropped, so the operator
+        // could see that a delivery failed but never why. The `Class: message`
+        // shape matches what SendOutboundDelivery::failed() already stored.
+        $this->assertStringContainsString('SmtpError', (string) $delivery->last_error);
+        $this->assertStringContainsString('connect timed out', (string) $delivery->last_error);
 
         $service->markFailed($delivery->id, 'SmtpError', 'connect timed out again');
         $delivery->refresh();
         $this->assertSame(2, (int) $delivery->attempts);
         $this->assertSame(OutboundDelivery::STATUS_QUEUED, $delivery->status);
+        $this->assertStringContainsString('connect timed out again', (string) $delivery->last_error);
     }
 
     public function test_mark_failed_finalises_status_when_attempts_exceed_max(): void

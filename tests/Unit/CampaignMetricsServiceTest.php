@@ -2,9 +2,12 @@
 
 namespace Tests\Unit;
 
+use App\Models\ActivityType;
 use App\Models\CampaignActionItem;
 use App\Models\CampaignParticipant;
 use App\Models\CampaignRun;
+use App\Models\CampaignStep;
+use App\Models\CampaignTemplate;
 use App\Models\User;
 use App\Services\CampaignMetricsService;
 use Database\Seeders\CatalogSeeder;
@@ -21,24 +24,36 @@ class CampaignMetricsServiceTest extends TestCase
 
     private CampaignRun $run;
     private CampaignMetricsService $service;
+    private int $actionTypeId = 0;
+    private int $stepCount = 0;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->seed(RolesAndPermissionsSeeder::class);
         $this->seed(CatalogSeeder::class);
-        $actor = User::query()->where('email', env('ADMIN_EMAIL'))->first();
+        // Resolve the actor the way the working suites do: create the user and
+        // assign the role explicitly. `env('ADMIN_EMAIL')` is null under a
+        // cached config, which made every test in this class ERROR in setUp.
+        $actor = User::factory()->create(['is_active' => true]);
+        $actor->assignRole('admin');
         $this->actingAs($actor);
 
         $this->run = CampaignRun::query()->create([
             'code' => 'CR-2026-99999',
             'name' => 'Test',
-            'template_id' => 1,
+            'template_id' => CampaignTemplate::query()->create([
+                'name' => 'Metrics template',
+                'objective' => 'custom',
+                'status' => 'active',
+                'owner_id' => $actor->id,
+            ])->id,
             'template_hash' => 'x',
             'starts_at' => now(),
             'owner_id' => $actor->id,
             'status' => CampaignRun::STATUS_RUNNING,
         ]);
+        $this->actionTypeId = (int) ActivityType::query()->where('slug', 'llamada')->value('id');
         $this->service = app(CampaignMetricsService::class);
     }
 
@@ -103,9 +118,25 @@ class CampaignMetricsServiceTest extends TestCase
 
     private function makeItem(CampaignParticipant $p, string $status): CampaignActionItem
     {
+        // `campaign_action_items` is UNIQUE(step_id, participant_id): each item
+        // needs its own step, otherwise the fixture violates the constraint that
+        // the (masked) foreign-key error was hiding.
+        $step = CampaignStep::query()->create([
+            'is_template' => false,
+            'template_id' => null,
+            'run_id' => $this->run->id,
+            'source_step_id' => null,
+            'order' => ++$this->stepCount,
+            'action_type_id' => $this->actionTypeId,
+            'title' => 'Llamada',
+            'day_offset' => 0,
+            'scheduled_time' => '09:00',
+            'status' => CampaignStep::STATUS_ACTIVE,
+        ]);
+
         return CampaignActionItem::query()->create([
             'run_id' => $this->run->id,
-            'step_id' => 1,
+            'step_id' => $step->id,
             'participant_id' => $p->id,
             'status' => $status,
             'scheduled_at' => now(),

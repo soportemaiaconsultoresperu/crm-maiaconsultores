@@ -5,6 +5,13 @@
     re-runs the totals; server-side recalculation is the source of
     truth.
 
+    D-4: the live preview and the server must never disagree. A line
+    discount above the line's own subtotal is rejected by the server
+    (LineDiscountRule via QuotationStoreRequest/QuotationUpdateRequest),
+    so the preview caps the discount at the subtotal, publishes the bound
+    on the input and flags the line instead of showing an IGV or a total
+    the server would never store.
+
     Expected data:
       $quotation (null on create), $prefill (default subject values),
       $items (array of payload), $leads, $customers, $contacts,
@@ -254,12 +261,35 @@
                 function recalcRow(row) {
                     var qty = parseFloat((row.querySelector('[data-line-field="quantity"]') || {}).value) || 0;
                     var price = parseFloat((row.querySelector('[data-line-field="unit_price"]') || {}).value) || 0;
-                    var discount = parseFloat((row.querySelector('[data-line-field="discount"]') || {}).value) || 0;
+                    var discountInput = row.querySelector('[data-line-field="discount"]');
+                    var discount = parseFloat(discountInput ? discountInput.value : '') || 0;
                     var taxSelect = row.querySelector('[data-line-field="tax_id"]');
                     var rate = taxRateFor(taxSelect);
 
                     var subtotal = qty * price;
-                    var taxable = Math.max(subtotal - discount, 0);
+
+                    // D-4: a line discount can never exceed its own subtotal.
+                    // The server refuses such a payload (QuotationStoreRequest /
+                    // QuotationUpdateRequest and QuotationService all enforce the same
+                    // rule), so the preview must not advertise an IGV or a total the
+                    // server will never honour: cap the discount, publish "max" so the
+                    // browser blocks the submit, and flag the input with the server's
+                    // own wording. Money is handled in cents so an exactly-equal
+                    // discount (the fully discounted zero line) is not flagged.
+                    var subtotalCents = Math.round(subtotal * 100);
+                    var discountCents = Math.round(discount * 100);
+                    var capped = Math.min(discountCents, subtotalCents) / 100;
+                    var overSubtotal = discountCents > subtotalCents;
+
+                    if (discountInput) {
+                        discountInput.max = money(subtotalCents / 100);
+                        discountInput.classList.toggle('is-invalid', overSubtotal);
+                        discountInput.setCustomValidity(overSubtotal
+                            ? 'El descuento de la línea no puede superar su subtotal (' + money(subtotalCents / 100) + ').'
+                            : '');
+                    }
+
+                    var taxable = subtotal - capped;
                     var tax = taxable * rate / 100;
                     var total = taxable + tax;
 
@@ -268,7 +298,7 @@
                         totalCell.textContent = money(total);
                     }
 
-                    return { subtotal: subtotal, discount: discount, tax: tax, total: total };
+                    return { subtotal: subtotal, discount: capped, tax: tax, total: total };
                 }
 
                 function recalcAll() {

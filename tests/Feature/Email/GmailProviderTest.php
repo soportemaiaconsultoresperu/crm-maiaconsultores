@@ -56,7 +56,7 @@ class GmailProviderTest extends TestCase
     public function test_webhook_signature_accepts_correct_hmac(): void
     {
         $secret = 'shared-secret-for-tests';
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET='.$secret);
+        config(['integrations.email.gmail.webhook_secret' => $secret]);
 
         $body = '{"id":"abc","ts":1700000000}';
         $sig = hash_hmac('sha256', $body, $secret);
@@ -68,14 +68,12 @@ class GmailProviderTest extends TestCase
 
         $provider = new GmailProvider(null);
         $this->assertTrue($provider->verifyWebhookSignature($request));
-
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET');
     }
 
     public function test_webhook_signature_rejects_tampered_body(): void
     {
         $secret = 'shared-secret-for-tests';
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET='.$secret);
+        config(['integrations.email.gmail.webhook_secret' => $secret]);
 
         $body = '{"id":"abc"}';
         $sig = hash_hmac('sha256', $body, $secret);
@@ -90,13 +88,11 @@ class GmailProviderTest extends TestCase
 
         $provider = new GmailProvider(null);
         $this->assertFalse($provider->verifyWebhookSignature($request));
-
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET');
     }
 
     public function test_webhook_signature_fails_closed_when_secret_is_missing(): void
     {
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET');
+        config(['integrations.email.gmail.webhook_secret' => null]);
 
         $request = Request::create('/webhooks/email/gmail', 'POST', [], [], [], [
             'CONTENT_TYPE' => 'application/json',

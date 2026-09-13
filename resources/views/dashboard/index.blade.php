@@ -354,4 +354,46 @@
             </x-table>
         </div>
     </div>
+
+    {{-- ===================================================================
+         ROW 6 — alertas de entrega de Cursos y charlas (Slice 7 unit 7.b).
+         Rendered only when DashboardService decided the viewer may open the
+         module: an aggregate count and a link to the module's own alert list,
+         never participant, payer, code or document data.
+         =================================================================== --}}
+    @if (($course_delivery_alerts ?? null) !== null)
+        <div class="row g-3 mb-3" data-testid="dashboard-course-delivery-alerts">
+            <div class="col-12">
+                <div class="card dashboard-kpi-card">
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
+                            <div>
+                                <p class="card-text small text-uppercase text-secondary mb-1">Cursos y charlas</p>
+                                <h3 class="h5 mb-1">Entregas de Cursos y charlas</h3>
+                                <p class="card-text text-secondary small mb-0">Documentos académicos y comprobantes cuya entrega sigue pendiente del operador.</p>
+                            </div>
+                            <span class="dashboard-kpi-icon dashboard-kpi-icon-orange" aria-hidden="true"><i class="bi bi-send-exclamation"></i></span>
+                        </div>
+                        <div class="row g-2 mt-3">
+                            <div class="col-6 col-md-4">
+                                <div class="dashboard-mini-stat text-primary">
+                                    <strong data-testid="kpi-course-alerts-pending">{{ $course_delivery_alerts['pending'] }}</strong>
+                                    <span>Entregas pendientes</span>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <div class="dashboard-mini-stat text-danger">
+                                    <strong data-testid="kpi-course-alerts-overdue">{{ $course_delivery_alerts['overdue'] }}</strong>
+                                    <span>Entregas vencidas</span>
+                                </div>
+                            </div>
+                            <div class="col-12 col-md-4 d-flex align-items-center">
+                                <a class="btn btn-sm btn-outline-primary" data-testid="dashboard-course-alerts-link" href="{{ route('course-talks.alerts.index') }}">Ver alertas de entrega</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 @endsection

@@ -2,9 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityType;
 use App\Models\CampaignActionItem;
 use App\Models\CampaignParticipant;
 use App\Models\CampaignRun;
+use App\Models\CampaignStep;
+use App\Models\CampaignTemplate;
 use App\Models\User;
 use Database\Seeders\CatalogSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -29,15 +32,27 @@ class CampaignItemActionHttpTest extends TestCase
         $this->seed(RolesAndPermissionsSeeder::class);
         $this->seed(CatalogSeeder::class);
 
-        $this->admin = User::query()->where('email', env('ADMIN_EMAIL'))->first();
-        $vendedorRole = \Spatie\Permission\Models\Role::findByName('vendedor');
-        $this->vendedor = User::query()->where('email', 'vendedor@example.com')->first() ?? User::factory()->create(['email' => 'vendedor@example.com']);
+        // Resolve the admin the way the working suites do: create the user and
+        // assign the role explicitly. Reading `env('ADMIN_EMAIL')` returns null
+        // under a cached config, which made this whole class ERROR in setUp and
+        // hid the real 403 the vendedor scenarios below were about to hit.
+        $this->admin = User::factory()->create(['is_active' => true]);
+        $this->admin->assignRole('admin');
+
+        $this->vendedor = User::factory()->create(['email' => 'vendedor@example.com', 'is_active' => true]);
         $this->vendedor->assignRole('vendedor');
+
+        $template = CampaignTemplate::query()->create([
+            'name' => 'Item action template',
+            'objective' => 'custom',
+            'status' => CampaignTemplate::STATUS_ACTIVE,
+            'owner_id' => $this->vendedor->id,
+        ]);
 
         $run = CampaignRun::query()->create([
             'code' => 'CR-2026-00088',
             'name' => 'Item action test',
-            'template_id' => 1,
+            'template_id' => $template->id,
             'template_hash' => 'x',
             'starts_at' => now(),
             'owner_id' => $this->vendedor->id,
@@ -51,9 +66,22 @@ class CampaignItemActionHttpTest extends TestCase
             'status' => CampaignParticipant::STATUS_ACTIVE,
             'display_name' => 'Test',
         ]);
+        $step = CampaignStep::query()->create([
+            'is_template' => false,
+            'template_id' => null,
+            'run_id' => $run->id,
+            'source_step_id' => null,
+            'order' => 1,
+            'action_type_id' => ActivityType::query()->where('slug', 'llamada')->value('id'),
+            'title' => 'Llamada',
+            'day_offset' => 0,
+            'scheduled_time' => '09:00',
+            'status' => CampaignStep::STATUS_ACTIVE,
+        ]);
+
         $this->item = CampaignActionItem::query()->create([
             'run_id' => $run->id,
-            'step_id' => 1,
+            'step_id' => $step->id,
             'participant_id' => $participant->id,
             'status' => CampaignActionItem::STATUS_PENDING,
             'scheduled_at' => now(),

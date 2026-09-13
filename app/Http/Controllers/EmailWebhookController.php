@@ -10,6 +10,7 @@ use App\Models\IntegrationAccount;
 use App\Services\Email\EmailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * B13 Pasada B — Inbound webhook endpoints for Gmail + Outlook.
@@ -47,6 +48,13 @@ class EmailWebhookController extends Controller
         $provider = $this->factory->for($account);
 
         if (! $provider->verifyWebhookSignature($request)) {
+            // Fail closed — and loudly. A missing/empty config secret silently
+            // rejected every inbound webhook; make it diagnosable in logs.
+            Log::warning('Gmail inbound webhook rejected: signature verification failed.', [
+                'account_id' => $account->getKey(),
+                'path' => $request->path(),
+            ]);
+
             return response()->json([
                 'ok' => false,
                 'error_class' => 'InvalidSignature',
@@ -76,6 +84,11 @@ class EmailWebhookController extends Controller
         $provider = $this->factory->for($account);
 
         if (! $provider->verifyWebhookSignature($request)) {
+            Log::warning('Outlook inbound webhook rejected: signature verification failed.', [
+                'account_id' => $account->getKey(),
+                'path' => $request->path(),
+            ]);
+
             return response()->json([
                 'ok' => false,
                 'error_class' => 'InvalidSignature',

@@ -177,4 +177,109 @@ class QuotationMathTest extends TestCase
             ],
         ]), $this->actor);
     }
+
+    /**
+     * D-4. `1 × 100` with a `1000` discount and IGV 18% used to persist
+     * `line_tax = -162.00` and `total = -1062.00` while the form preview
+     * clamped the taxable base and showed `0.00`. The preview and the server
+     * cannot both be right: a line discount larger than its own subtotal is
+     * not a discount, so the service refuses it (the request layer turns the
+     * same rule into a visible field error, and the form marks the input).
+     */
+    public function test_a_line_discount_above_its_subtotal_is_rejected_instead_of_persisting_negative_money(): void
+    {
+        $igv = Tax::where('slug', 'gravado-igv')->firstOrFail();
+
+        try {
+            $this->service->create($this->validData([
+                'items' => [
+                    [
+                        'description' => 'Descuento desmedido',
+                        'quantity' => 1,
+                        'unit_price' => 100,
+                        'discount_amount' => 1000,
+                        'tax_id' => $igv->id,
+                    ],
+                ],
+            ]), $this->actor);
+
+            $this->fail('A discount larger than the line subtotal must be rejected, not stored with negative IGV and total.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('descuento', mb_strtolower($e->getMessage()));
+        }
+
+        $this->assertSame(0, \App\Models\Quotation::query()->count());
+    }
+
+    /**
+     * D-4 boundary: a discount EQUAL to the line subtotal is a legitimate,
+     * fully discounted zero line. It must stay accepted, and the numbers must
+     * agree on both sides (subtotal 100, discount 100, tax 0, total 0).
+     */
+    public function test_a_discount_equal_to_the_line_subtotal_produces_a_zero_line_and_is_accepted(): void
+    {
+        $igv = Tax::where('slug', 'gravado-igv')->firstOrFail();
+
+        $quotation = $this->service->create($this->validData([
+            'items' => [
+                [
+                    'description' => 'Línea bonificada al 100%',
+                    'quantity' => 1,
+                    'unit_price' => 100,
+                    'discount_amount' => 100,
+                    'tax_id' => $igv->id,
+                ],
+            ],
+        ]), $this->actor);
+
+        $item = $quotation->items()->firstOrFail();
+
+        $this->assertSame('100.00', (string) $item->line_subtotal);
+        $this->assertSame('100.00', (string) $item->discount_amount);
+        $this->assertSame('0.00', (string) $item->line_tax);
+        $this->assertSame('0.00', (string) $item->line_total);
+        $this->assertSame('100.00', (string) $quotation->subtotal);
+        $this->assertSame('100.00', (string) $quotation->discount_total);
+        $this->assertSame('0.00', (string) $quotation->tax_total);
+        $this->assertSame('0.00', (string) $quotation->total);
+    }
+
+    /**
+     * D-4 defensive guard: the fix must not depend on the HTTP request, so a
+     * line that already carries the corrupt shape (as the defect left them)
+     * can never be re-persisted with negative tax or total. Duplicating such a
+     * quotation — a real path that feeds stored values back through the line
+     * math — must normalise the discount to the subtotal.
+     */
+    public function test_duplicating_a_legacy_line_with_an_oversized_discount_cannot_re_persist_negative_money(): void
+    {
+        $igv = Tax::where('slug', 'gravado-igv')->firstOrFail();
+
+        $quotation = $this->service->create($this->validData([
+            'items' => [
+                ['description' => 'Legacy', 'quantity' => 1, 'unit_price' => 100, 'tax_id' => $igv->id],
+            ],
+        ]), $this->actor);
+
+        // Recreate the exact row D-4 produced: discount 10× the subtotal, with
+        // the negative IGV/total the old server wrote next to it.
+        $item = $quotation->items()->firstOrFail();
+        $item->discount_amount = 1000;
+        $item->line_tax = -162;
+        $item->line_total = -1062;
+        $item->save();
+        $this->service->calculateTotals($quotation);
+
+        $this->assertLessThan(0, (float) $quotation->refresh()->total, 'Precondition: the legacy row must reproduce the negative total.');
+
+        $clone = $this->service->duplicate($quotation, $this->actor);
+
+        $clonedLine = $clone->items()->firstOrFail();
+
+        $this->assertGreaterThanOrEqual(0, (float) $clonedLine->line_tax, 'A duplicated line must never carry negative IGV.');
+        $this->assertGreaterThanOrEqual(0, (float) $clonedLine->line_total, 'A duplicated line must never carry a negative total.');
+        $this->assertGreaterThanOrEqual(0, (float) $clone->tax_total);
+        $this->assertGreaterThanOrEqual(0, (float) $clone->total);
+        $this->assertSame('100.00', (string) $clonedLine->discount_amount);
+    }
 }

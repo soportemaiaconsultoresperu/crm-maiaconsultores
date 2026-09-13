@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Admin\WhatsApp;
 
+use App\Contracts\WhatsApp\WhatsAppProviderFactory;
+use App\Jobs\V2\SendWhatsAppMessage;
 use App\Models\Contact;
 use App\Models\Customer;
 use App\Models\Team;
@@ -15,6 +17,7 @@ use App\Models\WhatsApp\WhatsAppMessage;
 use App\Models\WhatsApp\WhatsAppTemplate;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -228,14 +231,19 @@ class AdminWhatsAppControllerTest extends TestCase
         $response->assertSee('Bienvenido, gracias por escribir');
     }
 
-    public function test_send_message_creates_queued_outbound(): void
+    public function test_send_message_creates_and_actually_delivers_the_outbound_freeform_message(): void
     {
         \Illuminate\Support\Facades\Bus::fake();
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'messages' => [['id' => 'wamid.CONTROLLER-OK']],
+            ], 200),
+        ]);
 
         $admin = User::factory()->create(['is_active' => true]);
         $admin->assignRole('admin');
 
-        $account = $this->makeAccount();
+        $account = $this->makeSendableAccount();
         $conversation = $this->makeConversation($account);
 
         $response = $this->actingAs($admin)->post(
@@ -250,10 +258,26 @@ class AdminWhatsAppControllerTest extends TestCase
             'direction' => WhatsAppMessage::DIRECTION_OUTBOUND,
             'type' => 'freeform',
             'body' => 'Hola!',
-            'status' => WhatsAppMessage::STATUS_QUEUED,
         ]);
 
-        \Illuminate\Support\Facades\Bus::assertDispatched(\App\Jobs\V2\SendWhatsAppMessage::class);
+        \Illuminate\Support\Facades\Bus::assertDispatched(SendWhatsAppMessage::class);
+
+        /** @var WhatsAppMessage $message */
+        $message = WhatsAppMessage::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('direction', WhatsAppMessage::DIRECTION_OUTBOUND)
+            ->firstOrFail();
+
+        // E-3: the job had to EXECUTE for the defect to be visible. The old
+        // `status => queued` + `Bus::assertDispatched` pair asserted exactly
+        // where the defect started: the job always marked the free-form reply
+        // as failed (NoTemplate) without ever calling the provider.
+        (new SendWhatsAppMessage($message->id))->handle(app(WhatsAppProviderFactory::class));
+
+        $message->refresh();
+        $this->assertSame(WhatsAppMessage::STATUS_SENT, $message->status);
+        $this->assertSame('wamid.CONTROLLER-OK', $message->wamid);
+        $this->assertNotNull($message->sent_at);
     }
 
     public function test_send_message_requires_whatsapp_send_permission(): void
@@ -474,6 +498,26 @@ class AdminWhatsAppControllerTest extends TestCase
         $account = new WhatsAppAccount([
             'phone_number' => '+15551234567',
             'phone_number_id' => '1234567890',
+            'display_name' => 'Test Account',
+            'status' => WhatsAppAccount::STATUS_VERIFIED,
+        ]);
+        $account->save();
+
+        return $account;
+    }
+
+    /**
+     * Real-mode account (credentials configured) so the outbound job actually
+     * performs the Graph API POST instead of returning the stub envelope.
+     * Kept separate from makeAccount() because other tests deliberately rely
+     * on the stub provider (e.g. template sync returning no templates).
+     */
+    private function makeSendableAccount(): WhatsAppAccount
+    {
+        $account = new WhatsAppAccount([
+            'phone_number' => '+15551234567',
+            'phone_number_id' => '1234567890',
+            'business_id' => 'access-token',
             'display_name' => 'Test Account',
             'status' => WhatsAppAccount::STATUS_VERIFIED,
         ]);

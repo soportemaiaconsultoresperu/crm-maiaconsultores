@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Notification;
 
+use App\Models\Email\EmailMessage;
 use App\Models\IntegrationAccount;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -24,6 +25,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Per docs/v2/01-roadmap.md §2.7 and §10 (D-21a..D-21g). Status / channel
  * values are validated at the application layer via the STATUS_* /
  * CHANNEL_* constants on this class (no new MySQL ENUMs per C-03).
+ *
+ * `payload` (added additively, E-4) carries the content that actually goes
+ * out — the job is dispatched by id and re-runs on retry, so the content has
+ * to live with the row. Only `subject`/`body` are persisted (see
+ * {@see \App\Services\Notification\NotificationService::dispatch()});
+ * tokens, credentials and every other caller key are deliberately dropped.
  */
 class OutboundDelivery extends Model
 {
@@ -59,8 +66,10 @@ class OutboundDelivery extends Model
         'related_entity_type',
         'related_entity_id',
         'account_id',
+        'email_message_id',
         'status',
         'attempts',
+        'payload',
         'next_attempt_at',
         'last_error',
         'last_response_code',
@@ -71,6 +80,7 @@ class OutboundDelivery extends Model
     {
         return [
             'attempts' => 'integer',
+            'payload' => 'array',
             'next_attempt_at' => 'datetime',
             'last_response_code' => 'integer',
         ];
@@ -85,6 +95,12 @@ class OutboundDelivery extends Model
     public function account(): BelongsTo
     {
         return $this->belongsTo(IntegrationAccount::class, 'account_id');
+    }
+
+    /** @return BelongsTo<EmailMessage, $this> */
+    public function emailMessage(): BelongsTo
+    {
+        return $this->belongsTo(EmailMessage::class, 'email_message_id');
     }
 
     /**

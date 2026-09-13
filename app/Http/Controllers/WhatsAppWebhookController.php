@@ -13,6 +13,7 @@ use App\Models\WhatsApp\WhatsAppMessage;
 use App\Services\WhatsApp\WhatsAppService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * B14 Pasada B-3 — Inbound webhook endpoint for Meta WhatsApp Cloud API.
@@ -50,15 +51,30 @@ class WhatsAppWebhookController extends Controller
 
     public function verify(Request $request, WhatsAppAccount $account): JsonResponse
     {
+        $secret = $this->resolveWebhookSecret();
+
+        // Fail closed on a missing secret — but loudly. A deployment that
+        // forgot INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET used to 403 every
+        // inbound webhook silently; this makes the misconfiguration a
+        // diagnosable error instead of an invisible outage.
+        if ($secret === null) {
+            Log::error('WhatsApp inbound webhook rejected: no webhook secret configured. Set INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET.', [
+                'account_id' => $account->getKey(),
+                'path' => $request->path(),
+            ]);
+
+            return $this->signatureFailed('no_secret');
+        }
+
         $provider = $this->factory->for($account);
 
         if (! $provider->verifyWebhookSignature($request)) {
-            return $this->signatureFailed('provider');
-        }
+            Log::warning('WhatsApp inbound webhook rejected: provider signature verification failed.', [
+                'account_id' => $account->getKey(),
+                'path' => $request->path(),
+            ]);
 
-        $secret = $this->resolveWebhookSecret($account);
-        if ($secret === null || $secret === '') {
-            return $this->signatureFailed('no_secret');
+            return $this->signatureFailed('provider');
         }
 
         $verifier = new MetaSignatureVerifier($secret);
@@ -66,6 +82,12 @@ class WhatsAppWebhookController extends Controller
         $result = $verifier->verify($signature, (string) $request->getContent(), null);
 
         if ($result !== VerificationResult::VERIFIED) {
+            Log::warning('WhatsApp inbound webhook rejected: B11 signature verifier rejected the payload.', [
+                'account_id' => $account->getKey(),
+                'path' => $request->path(),
+                'reason' => 'b11_'.$result->value,
+            ]);
+
             return $this->signatureFailed('b11_'.$result->value);
         }
 
@@ -231,19 +253,19 @@ class WhatsAppWebhookController extends Controller
     }
 
     /**
-     * Resolve the webhook secret for the account — mirrors
-     * {@see MetaWhatsAppProvider::resolveWebhookSecret()} so the
-     * controller's B11 verifier sees the same secret the provider saw.
+     * E-5 — resolve the shared secret from the configuration layer only.
+     *
+     * Mirrors {@see MetaWhatsAppProvider::resolveWebhookSecret()} so the
+     * provider and the B11 verifier see the same secret. A phantom
+     * `webhook_secret` model attribute (no such column exists) and a bare
+     * `env()` fallback were removed: with a cached config `env()` is always
+     * null, which made every inbound webhook fail closed with a silent 403.
      */
-    private function resolveWebhookSecret(WhatsAppAccount $account): ?string
+    private function resolveWebhookSecret(): ?string
     {
-        $attribute = $account->getAttributes()['webhook_secret'] ?? null;
-        if (is_string($attribute) && $attribute !== '') {
-            return $attribute;
-        }
+        $secret = config('integrations.whatsapp.webhook_secret');
 
-        return config('integrations.whatsapp.webhook_secret')
-            ?: env('INTEGRATIONS_WHATSAPP_WEBHOOK_SECRET');
+        return is_string($secret) && $secret !== '' ? $secret : null;
     }
 
     private function signatureFailed(string $class): JsonResponse

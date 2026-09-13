@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Jobs\V2;
 
 use App\Contracts\WhatsApp\WhatsAppProviderFactory;
+use App\Models\WhatsApp\WhatsAppAccount;
+use App\Models\WhatsApp\WhatsAppConversation;
 use App\Models\WhatsApp\WhatsAppMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -25,6 +27,13 @@ use Illuminate\Support\Facades\Log;
  *
  * Idempotency: a row whose `status` is already `sent`/`delivered`/`read`
  * short-circuits so retries never double-send.
+ *
+ * E-3: an inbox reply is created as `freeform` with no `template_id`, and the
+ * job used to fail every one of them with `NoTemplate` without ever calling
+ * the provider. Template-less messages now go through the provider's free-form
+ * path and the provider's envelope decides the terminal state: `sent` + wamid
+ * on acceptance, `failed` + the provider's reason otherwise. There is no path
+ * that reports `sent` for a message the provider did not accept.
  */
 class SendWhatsAppMessage implements ShouldQueue
 {
@@ -75,12 +84,6 @@ class SendWhatsAppMessage implements ShouldQueue
             return;
         }
 
-        if ($message->template === null) {
-            $this->markFailed($message, 'NoTemplate', 'WhatsAppMessage has no template.');
-
-            return;
-        }
-
         if (! $this->isAccountUsable($account)) {
             $this->markFailed($message, 'AccountDisabled', 'WhatsAppAccount is disabled.');
 
@@ -88,12 +91,25 @@ class SendWhatsAppMessage implements ShouldQueue
         }
 
         $provider = $factory->for($account);
-        $result = $provider->sendTemplateMessage(
-            $message,
-            $message->template,
-            (string) $conversation->phone_number,
-            [],
-        );
+
+        if ($message->template === null) {
+            $blocked = $this->freeFormBlockedReason($conversation);
+
+            if ($blocked !== null) {
+                $this->markFailed($message, $blocked[0], $blocked[1]);
+
+                return;
+            }
+
+            $result = $provider->sendFreeFormMessage($message, (string) $conversation->phone_number);
+        } else {
+            $result = $provider->sendTemplateMessage(
+                $message,
+                $message->template,
+                (string) $conversation->phone_number,
+                [],
+            );
+        }
 
         DB::transaction(function () use ($message, $result): void {
             if (($result['ok'] ?? false) === true) {
@@ -136,8 +152,47 @@ class SendWhatsAppMessage implements ShouldQueue
         ])->save();
     }
 
-    private function isAccountUsable(\App\Models\WhatsApp\WhatsAppAccount $account): bool
+    /**
+     * Preconditions for a free-form (template-less) send.
+     *
+     * Meta only accepts free-form text inside the customer-service window and
+     * never after an opt-out. Two of those are checkable here:
+     *
+     *  - opt-out: a hard block (the UI blocks it at creation too, but a message
+     *    queued before the opt-out would otherwise still go out);
+     *  - `window_closes_at`: blocked only when the window is explicitly tracked
+     *    AND elapsed. It is tracked via the conversation columns the B14 schema
+     *    reserved for it, which nothing populates yet — so today this guard is
+     *    inert and the provider remains the authority. It is deliberately NOT
+     *    derived from message history: a Meta window can also be opened by
+     *    interactions we do not persist (e.g. click-to-WhatsApp), and blocking
+     *    a send Meta would accept is itself a defect. When the window is
+     *    unknown we attempt the send and record the provider's answer verbatim.
+     *
+     * @return array{0: string, 1: string}|null [error_class, error_message]
+     */
+    private function freeFormBlockedReason(WhatsAppConversation $conversation): ?array
     {
-        return $account->status !== \App\Models\WhatsApp\WhatsAppAccount::STATUS_DISABLED;
+        if ($conversation->opt_out_at !== null) {
+            return [
+                'ConversationOptedOut',
+                'WhatsAppConversation opted out at '.$conversation->opt_out_at->toDateTimeString().'; free-form messages are not permitted.',
+            ];
+        }
+
+        $closesAt = $conversation->window_closes_at;
+        if ($closesAt !== null && $closesAt->isPast()) {
+            return [
+                'FreeFormWindowClosed',
+                'The 24-hour customer-service window closed at '.$closesAt->toDateTimeString().'; send an approved template instead.',
+            ];
+        }
+
+        return null;
+    }
+
+    private function isAccountUsable(WhatsAppAccount $account): bool
+    {
+        return $account->status !== WhatsAppAccount::STATUS_DISABLED;
     }
 }

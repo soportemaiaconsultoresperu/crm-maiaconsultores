@@ -24,6 +24,8 @@ class EmailWebhookControllerTest extends TestCase
 
     public function test_gmail_webhook_rejects_invalid_signature_with_400(): void
     {
+        $this->configureGmailSecret('shared-secret');
+
         IntegrationAccount::create([
             'provider' => 'gmail',
             'label' => 'Gmail test',
@@ -31,11 +33,8 @@ class EmailWebhookControllerTest extends TestCase
             'test_mode' => true,
         ]);
 
-        $secret = 'shared-secret';
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET='.$secret);
-
         $body = '{"id":"abc"}';
-        $goodSig = hash_hmac('sha256', $body, $secret);
+        $goodSig = hash_hmac('sha256', $body, 'shared-secret');
         $tamperedBody = '{"id":"xyz"}';
 
         $this->call('POST', '/webhooks/email/gmail', [], [], [], [
@@ -44,12 +43,12 @@ class EmailWebhookControllerTest extends TestCase
         ], $tamperedBody)
             ->assertStatus(400)
             ->assertJson(['ok' => false]);
-
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET');
     }
 
     public function test_gmail_webhook_accepts_valid_signature(): void
     {
+        $this->configureGmailSecret('shared-secret');
+
         IntegrationAccount::create([
             'provider' => 'gmail',
             'label' => 'Gmail test',
@@ -57,11 +56,8 @@ class EmailWebhookControllerTest extends TestCase
             'test_mode' => true,
         ]);
 
-        $secret = 'shared-secret';
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET='.$secret);
-
         $body = '{"id":"abc"}';
-        $sig = hash_hmac('sha256', $body, $secret);
+        $sig = hash_hmac('sha256', $body, 'shared-secret');
 
         $response = $this->call('POST', '/webhooks/email/gmail', [], [], [], [
             'CONTENT_TYPE' => 'application/json',
@@ -70,8 +66,45 @@ class EmailWebhookControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertJson(['ok' => true]);
+    }
 
+    /**
+     * E-5 — the deployable path. Renders the shipped config file with the env
+     * variable exported (what `config:cache` does), clears the process
+     * variable to mirror the cached runtime where `env()` is null, and drives
+     * a correctly-signed webhook. It must be verified through the config layer.
+     */
+    public function test_gmail_webhook_secret_resolves_through_the_deployment_config_path(): void
+    {
+        $secret = 'deploy-gmail-secret';
+
+        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET='.$secret);
+        $integrations = require config_path('integrations.php');
         putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET');
+        config(['integrations' => $integrations]);
+
+        IntegrationAccount::create([
+            'provider' => 'gmail',
+            'label' => 'Gmail test',
+            'is_active' => true,
+            'test_mode' => true,
+        ]);
+
+        $body = '{"id":"abc"}';
+        $sig = hash_hmac('sha256', $body, $secret);
+
+        $this->call('POST', '/webhooks/email/gmail', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_GOOG_SIGNATURE' => $sig,
+        ], $body)
+            ->assertOk()
+            ->assertJson(['ok' => true]);
+
+        $this->assertSame(
+            $secret,
+            $integrations['email']['gmail']['webhook_secret'] ?? null,
+            'config/integrations.php must resolve integrations.email.gmail.webhook_secret from INTEGRATIONS_GMAIL_WEBHOOK_SECRET.',
+        );
     }
 
     public function test_outlook_webhook_rejects_invalid_signature(): void
@@ -93,18 +126,24 @@ class EmailWebhookControllerTest extends TestCase
 
     public function test_gmail_webhook_returns_503_when_no_account_configured(): void
     {
-        $secret = 'shared-secret';
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET='.$secret);
+        $this->configureGmailSecret('shared-secret');
 
         $body = '{"id":"abc"}';
-        $sig = hash_hmac('sha256', $body, $secret);
+        $sig = hash_hmac('sha256', $body, 'shared-secret');
 
         $this->call('POST', '/webhooks/email/gmail', [], [], [], [
             'CONTENT_TYPE' => 'application/json',
             'HTTP_X_GOOG_SIGNATURE' => $sig,
         ], $body)
             ->assertStatus(503);
+    }
 
-        putenv('INTEGRATIONS_GMAIL_WEBHOOK_SECRET');
+    /**
+     * Set the Gmail webhook secret through the configuration layer — the same
+     * source the deployment renders from INTEGRATIONS_GMAIL_WEBHOOK_SECRET.
+     */
+    private function configureGmailSecret(string $secret): void
+    {
+        config(['integrations.email.gmail.webhook_secret' => $secret]);
     }
 }

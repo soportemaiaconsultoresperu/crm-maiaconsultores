@@ -55,6 +55,13 @@
                                 <i class="nav-icon bi bi-calendar3" aria-hidden="true"></i><p>Calendario</p>
                             </a>
                         </li>
+                        @can('viewAny', \App\Models\Courses\CourseActivity::class)
+                            <li class="nav-item">
+                                <a href="{{ route('course-talks.activities.index') }}" class="nav-link {{ request()->routeIs('course-talks.*') ? 'active' : '' }}" aria-current="{{ request()->routeIs('course-talks.*') ? 'page' : 'false' }}" data-testid="sidebar-course-talks">
+                                    <i class="nav-icon bi bi-mortarboard" aria-hidden="true"></i><p>Cursos y charlas</p>
+                                </a>
+                            </li>
+                        @endcan
                         @can('viewAny', \App\Models\SupportTicket::class)
                             <li class="nav-item">
                                 <a href="{{ route('support.tickets.index') }}" class="nav-link {{ request()->routeIs('support.*') ? 'active' : '' }}">

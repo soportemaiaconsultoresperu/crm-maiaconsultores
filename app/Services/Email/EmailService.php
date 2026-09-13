@@ -9,6 +9,7 @@ use App\Models\Email\EmailMessage;
 use App\Models\Email\EmailParticipant;
 use App\Models\Email\EmailTemplate;
 use App\Models\IntegrationAccount;
+use App\Models\Notification\OutboundDelivery;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -54,6 +55,7 @@ class EmailService
      *     related_opportunity_id?: int|null,
      *     related_quotation_id?: int|null,
      *     related_contact_id?: int|null,
+     *     outbound_delivery_id?: int|null,
      *     create_version_snapshot?: bool,
      * }  $options
      */
@@ -73,7 +75,7 @@ class EmailService
             $accountId = $options['account_id'] ?? $this->resolveAccountId($source);
 
             $message = $source instanceof EmailMessage ? $source : new EmailMessage();
-            $providerMessageId = $source instanceof EmailMessage
+            $providerMessageId = $source instanceof EmailMessage && $source->provider_message_id !== null
                 ? $source->provider_message_id
                 : 'local-'.bin2hex(random_bytes(8));
 
@@ -98,6 +100,13 @@ class EmailService
 
             $this->persistParticipants($message, $recipients);
 
+            if (($options['outbound_delivery_id'] ?? null) !== null) {
+                OutboundDelivery::query()
+                    ->whereKey((int) $options['outbound_delivery_id'])
+                    ->whereNull('email_message_id')
+                    ->update(['email_message_id' => $message->id]);
+            }
+
             if ($source instanceof EmailTemplate
                 && ($options['create_version_snapshot'] ?? false) === true) {
                 $this->snapshotVersion($source, $actor);
@@ -106,9 +115,9 @@ class EmailService
             return $message->fresh(['participants']);
         });
 
-        // Dispatch the async send job after the transaction commits so a
-        // rollback never leaves a queued job pointing at a missing row.
-        SendEmailMessage::dispatch($message->id);
+        // Register with the connection so an enclosing transaction controls
+        // publication; standalone sends execute the callback immediately.
+        DB::afterCommit(static fn () => SendEmailMessage::dispatch($message->id));
 
         return $message;
     }

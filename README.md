@@ -94,28 +94,23 @@ La suite usa SQLite en memoria (`phpunit.xml`); la aplicación corre sobre MySQL
 ## Despliegue con Docker (producción)
 
 El despliegue publica exclusivamente Caddy en los puertos 80 y 443 para
-`crm.maiaconsultores.com`. Caddy obtiene y renueva automáticamente los
+`crm.maiaconsultoresperu.com`. Caddy obtiene y renueva automáticamente los
 certificados de Let's Encrypt; antes de iniciarlo, el DNS del dominio debe
 resolver hacia el servidor y ambos puertos deben estar accesibles desde
 Internet. Configurá `CADDY_EMAIL` en `.env.docker` con el correo de contacto
 para el registro de Let's Encrypt. MySQL no publica ningún puerto del host.
 
-```bash
-# Crear el archivo local de secretos (no se versiona) y completarlo.
-cp docker/env.docker.example .env.docker
+Seguí la guía completa en
+[docs/DESPLIEGUE_PRODUCCION_UBUNTU.md](docs/DESPLIEGUE_PRODUCCION_UBUNTU.md).
+En el primer despliegue, esperá a que MySQL esté saludable, ejecutá `init` en
+primer plano hasta que termine en `Exited (0)` (sin interrumpirlo con
+`Ctrl+C`) y solo entonces iniciá `app`, `caddy`, `queue` y `scheduler`.
 
-# Construir y arrancar. --env-file hace que la interpolación de Compose y los
-# contenedores usen el mismo archivo de producción.
-docker compose --env-file .env.docker up --build -d
-```
-
-El servicio `init` espera a que MySQL esté sano y ejecuta una vez
-`php artisan migrate --force` seguido de `php artisan db:seed --force`.
-`app`, `queue` y `scheduler` no arrancan hasta que termine correctamente. El
-`DatabaseSeeder` normal crea o actualiza el administrador de la **aplicación**
-en la tabla `users` usando `ADMIN_NAME`, `ADMIN_EMAIL` y `ADMIN_PASSWORD`, y le
-asigna el rol `admin`; esos valores no son el usuario de infraestructura MySQL.
-No se generan datos de demostración durante el despliegue.
+El `DatabaseSeeder` normal crea o actualiza el administrador de la
+**aplicación** en la tabla `users` usando `ADMIN_NAME`, `ADMIN_EMAIL` y
+`ADMIN_PASSWORD`, y le asigna el rol `admin`; esos valores no son el usuario de
+infraestructura MySQL. No se generan datos de demostración durante el
+despliegue normal.
 
 Para comprobar la configuración sin arrancar contenedores ni contactar
 servicios externos:

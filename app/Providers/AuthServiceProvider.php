@@ -4,8 +4,20 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Models\Courses\CourseAcademicDocument;
+use App\Models\Courses\CourseActivity;
+use App\Models\Courses\CourseCertificateTemplate;
+use App\Models\Courses\CourseCommercialDocument;
+use App\Models\Courses\CourseEdition;
+use App\Models\Courses\CourseEnrollment;
 use App\Models\CustomerInvoice;
 use App\Models\SupportTicket;
+use App\Policies\Courses\CourseAcademicDocumentPolicy;
+use App\Policies\Courses\CourseActivityPolicy;
+use App\Policies\Courses\CourseCertificateTemplatePolicy;
+use App\Policies\Courses\CourseCommercialDocumentPolicy;
+use App\Policies\Courses\CourseEditionPolicy;
+use App\Policies\Courses\CourseEnrollmentPolicy;
 use App\Policies\CustomerInvoicePolicy;
 use App\Policies\SupportTicketPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as BaseAuthServiceProvider;
@@ -30,11 +42,14 @@ use Illuminate\Support\Facades\Gate;
  * has the requested ability. The `?: null` falls through to Laravel's
  * default policy / closure check when the user does not have the permission.
  *
- * This is the canonical Spatie 6+ pattern for Laravel 11/12/13. It does
- * NOT grant `admin` blanket bypass — every check is per-permission. If the
- * application needs a blanket `admin` bypass, add a `hasRole('admin')` short
- * circuit above the `hasPermissionTo` call; that is a product decision, not
- * a technical one.
+ * This is the canonical Spatie 6+ pattern for Laravel 11/12/13, with one
+ * product decision layered on top: the `admin` ROLE short-circuits every ability
+ * check and is granted access unconditionally. That bypass is real and
+ * load-bearing — it is why the admin keeps working when a specific permission
+ * row is missing from the database. It also means REVOKING a permission from the
+ * admin does NOT hide or block anything for them: only non-admin roles can be
+ * restricted by permissions alone. Do not rely on a permission rollback to lock
+ * an admin out of a surface.
  */
 class AuthServiceProvider extends BaseAuthServiceProvider
 {
@@ -44,6 +59,12 @@ class AuthServiceProvider extends BaseAuthServiceProvider
      * @var array<class-string, class-string>
      */
     protected $policies = [
+        CourseAcademicDocument::class => CourseAcademicDocumentPolicy::class,
+        CourseActivity::class => CourseActivityPolicy::class,
+        CourseCertificateTemplate::class => CourseCertificateTemplatePolicy::class,
+        CourseCommercialDocument::class => CourseCommercialDocumentPolicy::class,
+        CourseEdition::class => CourseEditionPolicy::class,
+        CourseEnrollment::class => CourseEnrollmentPolicy::class,
         CustomerInvoice::class => CustomerInvoicePolicy::class,
         SupportTicket::class => SupportTicketPolicy::class,
     ];

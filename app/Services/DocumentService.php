@@ -2,14 +2,18 @@
 
 namespace App\Services;
 
+use App\Models\Courses\CourseAcademicDocument;
+use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Document;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * Documents service (B09 / RF-DOC-001..005, ADR-008, ADR-011).
@@ -159,7 +163,23 @@ class DocumentService
      * does not leak. Only the original uploader or an admin (RBAC) may
      * delete a document.
      *
+     * Order is load-bearing, twice over:
+     *
+     *   1. Every reference is checked BEFORE any side effect and the deletion
+     *      is refused when one exists.
+     *   2. The row is removed before the file.
+     *
+     * Both course tables declare `document_id` with an implicit RESTRICT, so a
+     * certificate's `documents` row cannot be removed while
+     * `course_academic_documents.document_id` (or its commercial twin) still
+     * points at it. Destroying the file first made that failure irreversible:
+     * the certificate stayed current, its public QR link started answering 404
+     * and no retry could ever remove the row. A referenced document therefore
+     * fails closed with a clear message and BOTH the row and the file stay
+     * exactly as they were.
+     *
      * @throws \Illuminate\Auth\Access\AuthorizationException
+     * @throws \Symfony\Component\HttpKernel\Exception\ConflictHttpException when a course document still references it
      */
     public function delete(Document $document, User $actor): void
     {
@@ -169,17 +189,29 @@ class DocumentService
             );
         }
 
-        $disk = Storage::disk($document->disk ?: (string) config('filesystems.docs_disk', 'docs'));
-
-        if ($document->path !== null && $disk->exists($document->path)) {
-            $disk->delete($document->path);
+        if ($this->referencedByCourseDocument($document)) {
+            throw new ConflictHttpException(
+                'Este documento no se puede eliminar porque un documento de curso (certificado o comprobante) todavía lo referencia. Primero anule o reemplace el documento del curso, y vuelva a intentarlo.'
+            );
         }
+
+        $disk = Storage::disk($document->disk ?: (string) config('filesystems.docs_disk', 'docs'));
 
         // Hard delete: physical file + DB row gone. Document uses SoftDeletes
         // for accidental deletes during business operations, but the
         // documents module treats delete() as the operator's intentional
         // removal — same as the file disappearance on disk.
-        $document->forceDelete();
+        //
+        // The row goes first, so the file is only destroyed once nothing can
+        // point at it: any database refusal (a foreign key nobody anticipated)
+        // then leaves the file untouched instead of orphaning the reference.
+        DB::transaction(static function () use ($document): void {
+            $document->forceDelete();
+        });
+
+        if ($document->path !== null && $disk->exists($document->path)) {
+            $disk->delete($document->path);
+        }
 
         activity()
             ->performedOn($document)
@@ -191,6 +223,23 @@ class DocumentService
                 'name' => $document->name,
             ])
             ->log("Documento \"{$document->name}\" eliminado");
+    }
+
+    /**
+     * Whether any course document still points at this row.
+     *
+     * `withTrashed()` on purpose: soft deleting a certificate does NOT remove
+     * the foreign key, so a trashed course document still blocks — and must
+     * still protect — the file.
+     */
+    private function referencedByCourseDocument(Document $document): bool
+    {
+        return CourseAcademicDocument::withTrashed()
+            ->where('document_id', $document->id)
+            ->exists()
+            || CourseCommercialDocument::withTrashed()
+                ->where('document_id', $document->id)
+                ->exists();
     }
 
     /**
@@ -247,9 +296,14 @@ class DocumentService
             return app(\App\Services\SupportTicketScopeService::class)->canView($actor, $supportTicket);
         }
 
-        $ownerId = $subject->owner_id
-            ?? $subject->customer?->owner_id
-            ?? null;
+        $ownerId = match (true) {
+            $subject instanceof \App\Models\Courses\CourseAcademicDocument => $subject->enrollment?->edition?->responsible_user_id,
+            $subject instanceof \App\Models\Courses\CourseCommercialDocument => $subject->enrollment?->edition?->responsible_user_id
+                ?? $subject->group?->edition?->responsible_user_id,
+            default => $subject->owner_id
+                ?? $subject->customer?->owner_id
+                ?? null,
+        };
 
         if ($ownerId === null) {
             return false;
@@ -305,6 +359,8 @@ class DocumentService
             \App\Models\SupportObservation::class,
             \App\Models\SupportIncidentDetail::class,
             \App\Models\SupportSessionDetail::class,
+            \App\Models\Courses\CourseAcademicDocument::class,
+            \App\Models\Courses\CourseCommercialDocument::class,
         ];
 
         if (! in_array($docable::class, $allowed, true)) {
@@ -403,6 +459,7 @@ class DocumentService
             \App\Models\SupportObservation::class => 'support/observations',
             \App\Models\SupportIncidentDetail::class => 'support/incidents',
             \App\Models\SupportSessionDetail::class => 'support/sessions',
+            \App\Models\Courses\CourseCommercialDocument::class => 'course-commercial-documents',
             default => 'misc',
         };
 

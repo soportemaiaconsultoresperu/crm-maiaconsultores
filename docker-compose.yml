@@ -61,8 +61,8 @@ services:
       target: caddy
     image: crm-maia-caddy
     environment:
-      # Require the variable to be defined while allowing the committed empty
-      # placeholder to support configuration-only validation.
+      # Caddy serves crm.maiaconsultoresperu.com. Require the contact email
+      # while allowing the committed empty placeholder for config validation.
       CADDY_EMAIL: ${CADDY_EMAIL?CADDY_EMAIL must be defined}
     ports:
       - "80:80"

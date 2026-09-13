@@ -6,6 +6,18 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
+use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
+use App\Http\Controllers\CourseTalks\CourseActivityController;
+use App\Http\Controllers\CourseTalks\CourseActivityReadController;
+use App\Http\Controllers\CourseTalks\CourseAlertController;
+use App\Http\Controllers\CourseTalks\CourseAttendanceController;
+use App\Http\Controllers\CourseTalks\CourseCertificateTemplateController;
+use App\Http\Controllers\CourseTalks\CourseCommercialDocumentController;
+use App\Http\Controllers\CourseTalks\CourseCommercialDocumentDeliveryController;
+use App\Http\Controllers\CourseTalks\CourseEditionController;
+use App\Http\Controllers\CourseTalks\CourseEnrollmentController;
+use App\Http\Controllers\CourseTalks\CourseGradeController;
 use App\Http\Controllers\CustomerInvoiceController;
 use App\Http\Controllers\CustomerProductController;
 use App\Http\Controllers\DashboardController;
@@ -14,6 +26,7 @@ use App\Http\Controllers\LeadConversionController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OpportunityController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\PublicCertificateQrController;
 use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\SupportDashboardController;
 use App\Http\Controllers\SupportTicketController;
@@ -24,6 +37,181 @@ use Illuminate\Support\Facades\Route;
  *
  * B01 ships auth + dashboard; B02 adds the Leads module (RF-LEAD-001..012).
  */
+
+Route::get('certificate/qr/{token}', [PublicCertificateQrController::class, 'show'])
+    ->middleware('throttle:60,1')
+    ->name('certificates.qr.show');
+Route::get('certificate/documents/{academicDocument}', [PublicCertificateQrController::class, 'showSigned'])
+    ->middleware(['signed', 'throttle:60,1'])
+    ->name('certificates.documents.show');
+Route::get('commercial-documents/{commercialDocument}/download', [PublicCertificateQrController::class, 'showSignedCommercial'])
+    ->middleware(['signed', 'throttle:60,1'])
+    ->name('commercial-documents.documents.show');
+
+Route::middleware(['auth', 'active'])
+    ->prefix('course-talks')
+    ->name('course-talks.')
+    ->group(function (): void {
+        // Static `activities/create` segment is registered before
+        // `activities/{activity}` so it is never swallowed by the binding.
+        Route::controller(CourseActivityController::class)->group(function (): void {
+            Route::get('activities/create', 'create')->name('activities.create');
+            Route::post('activities', 'store')->name('activities.store');
+        });
+
+        // Activity-scoped edition creation. Static segments and the teacher
+        // management routes are registered before the read-only group's
+        // `editions/{edition}` binding so it is never shadowed.
+        Route::controller(CourseEditionController::class)->group(function (): void {
+            Route::get('activities/{activity}/editions/create', 'create')->name('editions.create');
+            Route::post('activities/{activity}/editions', 'store')->name('editions.store');
+
+            Route::get('editions/{edition}/teachers', 'teachers')->name('editions.teachers');
+            Route::post('editions/{edition}/teachers', 'syncTeachers')->name('editions.teachers.sync');
+
+            // Same pattern for the session list: the static `sessions` segment
+            // is registered before the read-only group's `editions/{edition}`
+            // binding so it is never shadowed by it. Both session routes are
+            // authorized by `CourseEditionPolicy::manageSessions`, so the seeded
+            // `course-talks.sessions.manage` permission really gates a surface
+            // (the policy also accepts the coarser `editions.manage`, so no
+            // existing actor lost access).
+            Route::get('editions/{edition}/sessions', 'sessions')->name('editions.sessions');
+            Route::post('editions/{edition}/sessions', 'syncSessions')->name('editions.sessions.sync');
+        });
+
+        // Slice 6.b — participants/enrollments of one edition. The static
+        // `enrollments`, `enrollments/create` and `enrollment-groups` segments
+        // are registered before the read-only group's `editions/{edition}`
+        // binding so none of them can be shadowed by it, and the group surface
+        // posts to its own endpoint so each payload shape keeps its own
+        // FormRequest (same split as `editions.teachers.sync`).
+        Route::controller(CourseEnrollmentController::class)->group(function (): void {
+            Route::get('editions/{edition}/enrollments/create', 'create')->name('enrollments.create');
+            Route::get('editions/{edition}/enrollments', 'index')->name('enrollments.index');
+            Route::post('editions/{edition}/enrollments', 'store')->name('enrollments.store');
+            Route::post('editions/{edition}/enrollment-groups', 'storeGroup')->name('enrollments.groups.store');
+
+            Route::patch('enrollments/{enrollment}/payment-status', 'updatePaymentStatus')
+                ->name('enrollments.payment-status.update');
+        });
+
+        // Slice 6.c — attendance matrix of one edition (read the matrix, mark
+        // the submitted cells). The static `attendance` segment is registered
+        // before the read-only group's `editions/{edition}` binding so it is
+        // never shadowed by it.
+        Route::controller(CourseAttendanceController::class)->group(function (): void {
+            Route::get('editions/{edition}/attendance', 'index')->name('attendance.index');
+            Route::post('editions/{edition}/attendance', 'store')->name('attendance.store');
+        });
+
+        // Slice 6.d — grade matrix of one edition (read the matrix, record the
+        // submitted grades). Same per-cell bulk submit as attendance; the static
+        // `grades` segment is registered before the read-only group's
+        // `editions/{edition}` binding so it is never shadowed by it.
+        Route::controller(CourseGradeController::class)->group(function (): void {
+            Route::get('editions/{edition}/grades', 'index')->name('grades.index');
+            Route::post('editions/{edition}/grades', 'store')->name('grades.store');
+        });
+
+        // Slice 6.e-1 — academic document lifecycle of one edition (list with the
+        // expected type and eligibility, generate, regenerate and annul). The
+        // enrollment-scoped and document-scoped actions post to their own
+        // endpoints so each payload keeps its own FormRequest (same split as
+        // `enrollments.groups.store` and `editions.teachers.sync`), and the static
+        // `documents` segments are registered before the read-only group's
+        // `editions/{edition}` binding so none of them is shadowed by it.
+        Route::controller(CourseAcademicDocumentController::class)->group(function (): void {
+            Route::get('editions/{edition}/documents', 'index')->name('documents.index');
+            Route::post('enrollments/{enrollment}/documents', 'store')->name('documents.generate');
+            Route::post('documents/{academicDocument}/regenerate', 'regenerate')->name('documents.regenerate');
+            Route::post('documents/{academicDocument}/annul', 'annul')->name('documents.annul');
+        });
+
+        // Slice 6.e-2 — academic document delivery actions (email, assisted
+        // WhatsApp handoff and manual confirmation). Each action posts to its own
+        // document-scoped endpoint so every payload keeps its own FormRequest,
+        // and all three are registered before the read-only group's
+        // `editions/{edition}` binding so none of them can be shadowed by it.
+        Route::controller(CourseAcademicDocumentDeliveryController::class)->group(function (): void {
+            Route::post('documents/{academicDocument}/email', 'email')->name('documents.email');
+            Route::post('documents/{academicDocument}/whatsapp', 'whatsapp')->name('documents.whatsapp');
+            Route::post('documents/{academicDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('documents.whatsapp.confirm');
+        });
+
+        // Slice 6.f-1 — commercial documents of one edition (register an
+        // external factura/boleta/recibo for one enrollment, upload its private
+        // attachment and list the edition's documents). The enrollment-scoped,
+        // group-scoped and document-scoped actions post to their own endpoints so
+        // each payload keeps its own target and FormRequest (same split as
+        // `enrollments.groups.store` and `editions.teachers.sync`), and the static
+        // `commercial-documents` and `enrollment-groups` segments are registered
+        // before the read-only group's `editions/{edition}` binding so none of
+        // them is shadowed by it.
+        Route::controller(CourseCommercialDocumentController::class)->group(function (): void {
+            Route::get('editions/{edition}/commercial-documents', 'index')->name('commercial-documents.index');
+            Route::post('enrollments/{enrollment}/commercial-documents', 'store')->name('commercial-documents.store');
+            Route::post('enrollment-groups/{group}/commercial-documents', 'storeGroup')
+                ->name('commercial-documents.groups.store');
+            Route::post('commercial-documents/{commercialDocument}/file', 'upload')->name('commercial-documents.file');
+        });
+
+        // Slice 6.f-2b — delivery actions of a commercial document (email through
+        // the queued path, assisted WhatsApp handoff and manual confirmation).
+        // Each action posts to its own document-scoped endpoint so every payload
+        // keeps its own FormRequest, and all three are registered before the
+        // read-only group's `editions/{edition}` binding so none of them can be
+        // shadowed by it.
+        Route::controller(CourseCommercialDocumentDeliveryController::class)->group(function (): void {
+            Route::post('commercial-documents/{commercialDocument}/email', 'email')->name('commercial-documents.email');
+            Route::post('commercial-documents/{commercialDocument}/whatsapp', 'whatsapp')->name('commercial-documents.whatsapp');
+            Route::post('commercial-documents/{commercialDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('commercial-documents.whatsapp.confirm');
+        });
+
+        // Slice 6.t2 — certificate template management (list, create, edit,
+        // activate and deactivate). Every route is authorized by
+        // CourseCertificateTemplatePolicy::manage (`course-talks.templates.manage`),
+        // the same ability the rendered controls in the activity list and the
+        // templates list ask for, so a control that is offered always opens.
+        // The static `templates` and `templates/create` segments are registered
+        // before the `templates/{certificateTemplate}` binding so neither can be
+        // swallowed by it.
+        Route::controller(CourseCertificateTemplateController::class)->group(function (): void {
+            Route::get('templates', 'index')->name('templates.index');
+            Route::get('templates/create', 'create')->name('templates.create');
+            Route::post('templates', 'store')->name('templates.store');
+            Route::get('templates/{certificateTemplate}/edit', 'edit')->name('templates.edit');
+            Route::put('templates/{certificateTemplate}', 'update')->name('templates.update');
+            Route::post('templates/{certificateTemplate}/activate', 'activate')->name('templates.activate');
+            Route::post('templates/{certificateTemplate}/deactivate', 'deactivate')->name('templates.deactivate');
+        });
+
+        // Slice 7.b — the delivery alert screen: the outstanding academic and
+        // commercial follow-ups of the module in one filterable list, plus the
+        // discard action. The list is gated by `CourseActivityPolicy::viewAny`
+        // (`course-talks.view`), the same ability the module's other read surfaces
+        // and the sidebar entry ask for, so a rendered link always opens; discard is
+        // gated by `send` on the concrete document, the same ability
+        // `CourseAlertService::discard()` re-asks for.
+        // Discard needs TWO routes: Laravel binds one model class per route
+        // parameter, so `alerts/{document}/discard` could not resolve an academic
+        // AND a commercial document without resolving the id by hand (losing both
+        // route-model binding and its 404). Each route binds its own model and both
+        // call the same domain method.
+        Route::controller(CourseAlertController::class)->group(function (): void {
+            Route::get('alerts', 'index')->name('alerts.index');
+            Route::post('alerts/academic-documents/{academicDocument}/discard', 'discardAcademic')
+                ->name('alerts.academic-discard');
+            Route::post('alerts/commercial-documents/{commercialDocument}/discard', 'discardCommercial')
+                ->name('alerts.commercial-discard');
+        });
+
+        Route::controller(CourseActivityReadController::class)->group(function (): void {
+            Route::get('activities', 'index')->name('activities.index');
+            Route::get('activities/{activity}', 'show')->name('activities.show');
+            Route::get('editions/{edition}', 'showEdition')->name('editions.show');
+        });
+    });
 
 Route::middleware('guest')->group(function (): void {
     Route::get('login', [AuthenticatedSessionController::class, 'create'])

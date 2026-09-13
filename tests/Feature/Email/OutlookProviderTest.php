@@ -48,7 +48,7 @@ class OutlookProviderTest extends TestCase
     public function test_webhook_signature_accepts_correct_hmac(): void
     {
         $secret = 'shared-outlook-secret';
-        putenv('INTEGRATIONS_OUTLOOK_WEBHOOK_SECRET='.$secret);
+        config(['integrations.email.outlook.webhook_secret' => $secret]);
 
         $body = '{"id":"abc"}';
         $sig = hash_hmac('sha256', $body, $secret);
@@ -60,14 +60,12 @@ class OutlookProviderTest extends TestCase
 
         $provider = new OutlookProvider(null);
         $this->assertTrue($provider->verifyWebhookSignature($request));
-
-        putenv('INTEGRATIONS_OUTLOOK_WEBHOOK_SECRET');
     }
 
     public function test_webhook_signature_rejects_missing_header(): void
     {
         $secret = 'shared-outlook-secret';
-        putenv('INTEGRATIONS_OUTLOOK_WEBHOOK_SECRET='.$secret);
+        config(['integrations.email.outlook.webhook_secret' => $secret]);
 
         $request = Request::create('/webhooks/email/outlook', 'POST', [], [], [], [
             'CONTENT_TYPE' => 'application/json',
@@ -75,7 +73,5 @@ class OutlookProviderTest extends TestCase
 
         $provider = new OutlookProvider(null);
         $this->assertFalse($provider->verifyWebhookSignature($request));
-
-        putenv('INTEGRATIONS_OUTLOOK_WEBHOOK_SECRET');
     }
 }

@@ -10,8 +10,8 @@ use Illuminate\Http\Request;
  * Dashboard controller (RF-DASH-001..005).
  *
  * Thin: DashboardService::forUser already returns the aggregated
- * 12-key payload, scoped by the requester's data visibility
- * (ADR-006) and grouped by currency (ADR-004). The controller
+ * payload for the visible dashboard sections, scoped by the requester's
+ * data visibility (ADR-006) and grouped by currency (ADR-004). The controller
  * resolves the viewer and hands the payload to the Blade view.
  */
 class DashboardController extends Controller
