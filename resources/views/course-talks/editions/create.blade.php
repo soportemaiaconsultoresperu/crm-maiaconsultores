@@ -48,7 +48,7 @@
                     </div>
                     <div class="col-md-4">
                         <x-text-input name="price_amount" type="number" label="Precio"
-                                      :value="old('price_amount')" step="0.01" min="0"/>
+                                      :value="old('price_amount')" step="0.01" min="0" :required="true"/>
                     </div>
                     <div class="col-md-3">
                         <x-text-input name="starts_on" type="date" label="Fecha de inicio" :value="old('starts_on')"/>

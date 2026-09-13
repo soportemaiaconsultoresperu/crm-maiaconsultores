@@ -290,6 +290,7 @@ class CourseEditionTeachersHttpTest extends TestCase
             ->post(route('course-talks.editions.store', $activity), [
                 'modality' => CourseModality::Virtual->value,
                 'access_url' => 'https://meet.example.test',
+                'price_amount' => '150.00',
             ])
             ->assertRedirect(route('course-talks.editions.create', $activity));
 

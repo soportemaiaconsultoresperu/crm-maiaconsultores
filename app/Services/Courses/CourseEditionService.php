@@ -25,6 +25,20 @@ class CourseEditionService
         $location = $this->validateModality($attributes['modality'] ?? '', $attributes['address'] ?? null, $attributes['access_url'] ?? null);
         $code = trim((string) ($attributes['code'] ?? ''));
 
+        // The price is required by the spec and the column is NOT NULL, so the rule
+        // belongs here as well as in the form request: a caller that does not come
+        // through HTTP used to reach the database with a null and die as a 500.
+        // Zero is allowed — a free edition is still an edition.
+        $price = $attributes['price_amount'] ?? null;
+
+        if ($price === null || $price === '' || ! is_numeric($price)) {
+        throw InvalidCourseEditionData::forField('price_amount', 'El precio de la edición es obligatorio.');
+        }
+
+        if ((float) $price < 0) {
+        throw InvalidCourseEditionData::forField('price_amount', 'El precio de la edición no puede ser negativo.');
+        }
+
         if ($code !== '' && CourseEdition::withTrashed()->where('code', $code)->exists()) {
             throw InvalidCourseEditionData::forField('code', "Course edition code {$code} is already in use.");
         }

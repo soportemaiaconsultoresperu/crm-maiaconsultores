@@ -64,7 +64,11 @@ class StoreCourseEditionRequest extends FormRequest
             'access_url' => ['nullable', 'string', 'max:255'],
             'starts_on' => ['nullable', 'date'],
             'ends_on' => ['nullable', 'date', 'after_or_equal:starts_on'],
-            'price_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            // The spec requires an edition to carry a price and the column is NOT NULL.
+            // While this was `nullable`, a blank value travelled all the way to the database
+            // and died there as an uncaught QueryException instead of telling the operator what
+            // was missing. Zero stays valid, because a free edition is a real edition.
+            'price_amount' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
             'syllabus_override_json' => ['nullable', 'array'],
             'syllabus_override_json.*' => ['string', 'max:255'],
             'responsible_user_id' => ['nullable', 'integer', 'exists:users,id'],

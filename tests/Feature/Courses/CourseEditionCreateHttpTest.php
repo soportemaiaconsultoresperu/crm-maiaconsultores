@@ -140,6 +140,7 @@ class CourseEditionCreateHttpTest extends TestCase
         $this->actingAs($user)->post(route('course-talks.editions.store', $activity), [
             'modality' => CourseModality::Virtual->value,
             'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
             'state' => CourseEditionState::Finished->value,
             'currency' => 'USD',
             'delivery_due_days' => 90,
@@ -165,6 +166,7 @@ class CourseEditionCreateHttpTest extends TestCase
                 'code' => 'ED-DUP-001',
                 'modality' => CourseModality::Virtual->value,
                 'access_url' => 'https://meet.example.test',
+                'price_amount' => '150.00',
             ])
             ->assertRedirect(route('course-talks.editions.create', $activity))
             ->assertSessionHasErrors('code');
@@ -182,6 +184,7 @@ class CourseEditionCreateHttpTest extends TestCase
             ->post(route('course-talks.editions.store', $activity), [
                 'modality' => CourseModality::Presential->value,
                 'address' => '   ',
+                'price_amount' => '150.00',
             ])
             ->assertRedirect(route('course-talks.editions.create', $activity))
             ->assertSessionHasErrors('address');
@@ -199,6 +202,7 @@ class CourseEditionCreateHttpTest extends TestCase
             ->post(route('course-talks.editions.store', $activity), [
                 'modality' => CourseModality::Hybrid->value,
                 'address' => 'Sede Lima',
+                'price_amount' => '150.00',
             ])
             ->assertRedirect(route('course-talks.editions.create', $activity))
             ->assertSessionHasErrors('access_url');
@@ -218,6 +222,7 @@ class CourseEditionCreateHttpTest extends TestCase
                 ->from(route('course-talks.editions.create', $activity))
                 ->post(route('course-talks.editions.store', $activity), array_merge([
                     'modality' => CourseModality::Virtual->value,
+                    'price_amount' => '150.00',
                 ], $location))
                 ->assertRedirect(route('course-talks.editions.create', $activity))
                 ->assertSessionHasErrors(['access_url' => 'Virtual editions require an access URL.'])
@@ -236,6 +241,7 @@ class CourseEditionCreateHttpTest extends TestCase
             ->from(route('course-talks.editions.create', $activity))
             ->post(route('course-talks.editions.store', $activity), [
                 'modality' => CourseModality::Hybrid->value,
+                'price_amount' => '150.00',
             ])
             ->assertRedirect(route('course-talks.editions.create', $activity))
             ->assertSessionHasErrors(['address' => 'Hybrid editions require both address and access URL.']);
@@ -260,6 +266,7 @@ class CourseEditionCreateHttpTest extends TestCase
             ->from(route('course-talks.editions.create', $activity))
             ->post(route('course-talks.editions.store', $activity), [
                 'modality' => CourseModality::Virtual->value,
+                'price_amount' => '150.00',
             ])
             ->assertRedirect(route('course-talks.editions.create', $activity))
             ->assertSessionHasErrors(['edition' => 'La edición no pudo ser creada.'])
@@ -290,6 +297,7 @@ class CourseEditionCreateHttpTest extends TestCase
         $this->actingAs($user)->post(route('course-talks.editions.store', $activity), [
             'modality' => CourseModality::Virtual->value,
             'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
             'syllabus_override_json' => ['Intro', '', '   '],
         ])->assertRedirect();
 
@@ -309,6 +317,7 @@ class CourseEditionCreateHttpTest extends TestCase
         $this->actingAs($user)->post(route('course-talks.editions.store', $activity), [
             'modality' => CourseModality::Virtual->value,
             'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
         ])->assertRedirect();
 
         $edition = CourseEdition::query()->latest('id')->firstOrFail();
@@ -467,5 +476,52 @@ class CourseEditionCreateHttpTest extends TestCase
         $activity = CourseActivity::query()->where('code', 'CUR-SYL-A3')->firstOrFail();
 
         $this->assertSame(['Modulo 1', 'Modulo 2'], $activity->base_syllabus_json);
+    }
+
+    // --- The price is required ---------------------------------------------
+    //
+    // Found in production, not by this suite: the form request declared the price
+    // nullable while the column is NOT NULL, so a blank value travelled all the way to
+    // the database and surfaced as an uncaught QueryException (1048, cannot be null)
+    // instead of a message telling the operator what was missing. Every test above
+    // posts a price, which is exactly why none of them could see it.
+
+    public function test_creating_an_edition_without_a_price_is_a_validation_error_not_a_database_error(): void
+    {
+        $user = $this->editionManager();
+
+        $this->actingAs($user)->post(route('course-talks.editions.store', $this->activity()), [
+'modality' => CourseModality::Virtual->value,
+'access_url' => 'https://example.test/clase',
+'starts_on' => '2026-09-13',
+'ends_on' => '2026-09-14',
+        ])->assertSessionHasErrors('price_amount');
+
+        $this->assertDatabaseCount('course_editions', 0);
+    }
+
+    public function test_a_free_edition_is_allowed_because_zero_is_a_real_price(): void
+    {
+        $user = $this->editionManager();
+
+        $this->actingAs($user)->post(route('course-talks.editions.store', $this->activity()), [
+'modality' => CourseModality::Virtual->value,
+'access_url' => 'https://example.test/clase',
+'starts_on' => '2026-09-13',
+'ends_on' => '2026-09-14',
+'price_amount' => '0',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('course_editions', ['price_amount' => '0.00']);
+    }
+
+    public function test_the_service_refuses_an_edition_without_a_price_for_callers_that_bypass_http(): void
+    {
+        $this->expectException(InvalidCourseEditionData::class);
+
+        app(CourseEditionService::class)->create($this->activity(), [
+'modality' => CourseModality::Virtual->value,
+'access_url' => 'https://example.test/clase',
+        ]);
     }
 }
