@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Comprobantes comerciales de la edición')
-@section('page-title', 'Comprobantes comerciales de la edición')
+@section('title', 'Comprobantes comerciales del dictado')
+@section('page-title', 'Comprobantes comerciales del dictado')
 
 @section('content')
     @php
@@ -89,14 +89,14 @@
         $deliverableStatuses = ['registered', 'sent'];
     @endphp
 
-    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver a la edición</a>
+    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver al dictado</a>
 
     <div class="card mb-3" data-testid="course-talks-commercial-edition">
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-3">Actividad</dt>
+                <dt class="col-sm-3">Curso o charla</dt>
                 <dd class="col-sm-9">{{ $edition->activity->name }} · {{ $edition->activity->type->label() }}</dd>
-                <dt class="col-sm-3">Edición</dt>
+                <dt class="col-sm-3">Dictado</dt>
                 <dd class="col-sm-9"><code>{{ $edition->code ?: '—' }}</code> · {{ $edition->modality->label() }}</dd>
                 <dt class="col-sm-3">Comprobantes registrados</dt>
                 <dd class="col-sm-9">{{ $commercialDocuments->count() }}</dd>
@@ -117,7 +117,7 @@
         </x-alert>
     @endif
 
-    <x-table title="Comprobantes comerciales de la edición">
+    <x-table title="Comprobantes comerciales del dictado">
         @slot('headers')
             <tr>
                 <th scope="col">Comprobante</th>
@@ -274,7 +274,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="12" class="text-center text-secondary py-4" data-testid="course-talks-commercial-empty">Todavía no se ha registrado ningún comprobante comercial en esta edición.</td>
+                    <td colspan="12" class="text-center text-secondary py-4" data-testid="course-talks-commercial-empty">Todavía no se ha registrado ningún comprobante comercial en este dictado.</td>
                 </tr>
             @endforelse
         @endslot
@@ -283,7 +283,7 @@
     @if ($canManage)
         <h2 class="h5 mt-4">Registrar comprobante por matrícula</h2>
         <p class="text-secondary small">
-            El desglose lo calcula el sistema con el precio de la actividad, el cargo por certificado y el descuento de cada
+            El desglose lo calcula el sistema con el precio del curso o charla, el cargo por certificado y el descuento de cada
             matrícula. La compra de un grupo con un solo pagador se factura en la sección de grupos.
         </p>
 
@@ -391,12 +391,12 @@
                 </div>
             </div>
         @empty
-            <x-alert type="info" data-testid="course-talks-commercial-enrollments-empty">Todavía no hay participantes inscritos en esta edición.</x-alert>
+            <x-alert type="info" data-testid="course-talks-commercial-enrollments-empty">Todavía no hay participantes inscritos en este dictado.</x-alert>
         @endforelse
 
         <h2 class="h5 mt-4" id="grupos-de-matricula">Registrar comprobante por grupo</h2>
         <p class="text-secondary small">
-            El desglose lo calcula el sistema sumando el precio de la actividad, el cargo por certificado y el descuento de
+            El desglose lo calcula el sistema sumando el precio del curso o charla, el cargo por certificado y el descuento de
             las matrículas facturables de cada grupo. El pagador es el propio grupo.
         </p>
 
@@ -504,7 +504,7 @@
                 </div>
             </div>
         @empty
-            <x-alert type="info" data-testid="course-talks-commercial-groups-empty">Todavía no hay grupos de matrícula en esta edición.</x-alert>
+            <x-alert type="info" data-testid="course-talks-commercial-groups-empty">Todavía no hay grupos de matrícula en este dictado.</x-alert>
         @endforelse
     @endif
 @endsection

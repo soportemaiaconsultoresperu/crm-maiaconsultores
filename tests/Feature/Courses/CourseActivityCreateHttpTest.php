@@ -67,7 +67,7 @@ class CourseActivityCreateHttpTest extends TestCase
 
         $this->actingAs($user)->get(route('course-talks.activities.create'))
             ->assertOk()
-            ->assertSee('Nueva actividad')
+            ->assertSee('Nuevo curso o charla')
             ->assertSee('Curso')
             ->assertSee('Charla');
 

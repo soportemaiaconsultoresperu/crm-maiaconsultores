@@ -258,7 +258,7 @@ class CourseEnrollmentHttpTest extends TestCase
     {
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('Todavía no hay participantes inscritos en esta edición.');
+            ->assertSee('Todavía no hay participantes inscritos en este dictado.');
 
         $otherEdition = CourseEdition::factory()->create(['code' => 'ED-ENR-002']);
         app(CourseEnrollmentService::class)->enroll($otherEdition, $this->minimumParticipant([

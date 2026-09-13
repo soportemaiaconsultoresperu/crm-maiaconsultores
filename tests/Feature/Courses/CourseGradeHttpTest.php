@@ -392,7 +392,7 @@ class CourseGradeHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl($emptyEdition))
             ->assertOk()
-            ->assertSee('Todavía no hay participantes inscritos en esta edición.')
+            ->assertSee('Todavía no hay participantes inscritos en este dictado.')
             ->assertDontSee('grades[')
             ->assertDontSee('Guardar notas');
     }

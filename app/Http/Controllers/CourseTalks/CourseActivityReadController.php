@@ -28,11 +28,11 @@ class CourseActivityReadController extends Controller
      * own label: an edition can be the featured one because it is in progress, or
      * because it is the next one, or simply because it is the most recent one.
      */
-    private const FEATURED_REASON_IN_PROGRESS = 'Edición en curso';
+    private const FEATURED_REASON_IN_PROGRESS = 'Dictado en curso';
 
-    private const FEATURED_REASON_SCHEDULED = 'Próxima edición';
+    private const FEATURED_REASON_SCHEDULED = 'Próximo dictado';
 
-    private const FEATURED_REASON_LATEST = 'Última edición';
+    private const FEATURED_REASON_LATEST = 'Último dictado';
 
     public function index(Request $request): View
     {

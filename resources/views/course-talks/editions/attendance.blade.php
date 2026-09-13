@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Asistencia de la edición')
-@section('page-title', 'Asistencia de la edición')
+@section('title', 'Asistencia del dictado')
+@section('page-title', 'Asistencia del dictado')
 
 @section('content')
     @php
@@ -25,14 +25,14 @@
             && $enrollments->isNotEmpty();
     @endphp
 
-    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver a la edición</a>
+    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver al dictado</a>
 
     <div class="card mb-3" data-testid="course-talks-attendance-edition">
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-3">Actividad</dt>
+                <dt class="col-sm-3">Curso o charla</dt>
                 <dd class="col-sm-9">{{ $edition->activity->name }} · {{ $edition->activity->type->label() }}</dd>
-                <dt class="col-sm-3">Edición</dt>
+                <dt class="col-sm-3">Dictado</dt>
                 <dd class="col-sm-9"><code>{{ $edition->code ?: '—' }}</code> · {{ $edition->modality->label() }}</dd>
                 <dt class="col-sm-3">Sesiones</dt>
                 <dd class="col-sm-9">{{ $sessions->count() }}</dd>
@@ -56,17 +56,17 @@
 
     @if ($isTalk)
         <x-alert type="info" data-testid="course-talks-attendance-talk-note">
-            Esta edición es una charla: la asistencia de cada participante determina su participación. Los estados Presente, Tardanza y Justificado confirman la participación, que junto con el pago y las validaciones habilita el certificado de la charla.
+            Este dictado es una charla: la asistencia de cada participante determina su participación. Los estados Presente, Tardanza y Justificado confirman la participación, que junto con el pago y las validaciones habilita el certificado de la charla.
         </x-alert>
     @else
         <x-alert type="info" data-testid="course-talks-attendance-course-note">
-            Esta edición es un curso: la asistencia es informativa y no modifica la nota ni el resultado final del participante.
+            Este dictado es un curso: la asistencia es informativa y no modifica la nota ni el resultado final del participante.
         </x-alert>
     @endif
 
     @if ($sessions->isEmpty())
         <x-alert type="info" data-testid="course-talks-attendance-no-sessions">
-            Esta edición todavía no tiene sesiones registradas. Registre las sesiones de la edición para poder marcar la asistencia.
+            Este dictado todavía no tiene sesiones registradas. Registre las sesiones del dictado para poder marcar la asistencia.
         </x-alert>
     @else
         @if ($editable)
@@ -130,7 +130,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ $sessions->count() + ($isTalk ? 2 : 1) }}" class="text-center text-secondary py-4" data-testid="course-talks-attendance-empty">Todavía no hay participantes inscritos en esta edición.</td>
+                        <td colspan="{{ $sessions->count() + ($isTalk ? 2 : 1) }}" class="text-center text-secondary py-4" data-testid="course-talks-attendance-empty">Todavía no hay participantes inscritos en este dictado.</td>
                     </tr>
                 @endforelse
             @endslot

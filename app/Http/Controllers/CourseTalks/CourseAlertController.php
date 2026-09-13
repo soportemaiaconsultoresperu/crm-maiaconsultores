@@ -427,7 +427,7 @@ class CourseAlertController extends Controller
             return null;
         }
 
-        return ($edition->activity?->name ?? 'Actividad sin nombre').' · '.($edition->code ?: 'Edición #'.$edition->id);
+        return ($edition->activity?->name ?? 'Curso o charla sin nombre').' · '.($edition->code ?: 'Dictado #'.$edition->id);
     }
 
     private function participantLabel(?CourseParticipant $participant): ?string
@@ -468,7 +468,7 @@ class CourseAlertController extends Controller
             $edition = $this->editionOf($document);
 
             if ($edition !== null) {
-                $options[(int) $edition->id] = $this->editionLabel($edition) ?? 'Edición #'.$edition->id;
+                $options[(int) $edition->id] = $this->editionLabel($edition) ?? 'Dictado #'.$edition->id;
             }
         }
 

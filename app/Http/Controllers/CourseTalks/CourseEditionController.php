@@ -53,7 +53,7 @@ class CourseEditionController extends Controller
 
         return redirect()
             ->route('course-talks.editions.show', $edition)
-            ->with('status', "Edición ".($edition->code ?: 'sin código')." creada correctamente.");
+            ->with('status', "Dictado ".($edition->code ?: 'sin código')." creado correctamente.");
     }
 
     /**
@@ -84,7 +84,7 @@ class CourseEditionController extends Controller
 
         return redirect()
             ->route('course-talks.editions.teachers', $edition)
-            ->with('status', 'Docentes de la edición actualizados correctamente.');
+            ->with('status', 'Docentes del dictado actualizados correctamente.');
     }
 
     /**
@@ -119,7 +119,7 @@ class CourseEditionController extends Controller
 
         return redirect()
             ->route('course-talks.editions.sessions', $edition)
-            ->with('status', 'Sesiones de la edición actualizadas correctamente.');
+            ->with('status', 'Sesiones del dictado actualizadas correctamente.');
     }
 
     /**

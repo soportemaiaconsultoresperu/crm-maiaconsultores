@@ -444,7 +444,7 @@ class CourseAttendanceHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('Todavía no hay participantes inscritos en esta edición.')
+            ->assertSee('Todavía no hay participantes inscritos en este dictado.')
             ->assertDontSee('Guardar asistencia')
             ->assertDontSee('cells[');
     }

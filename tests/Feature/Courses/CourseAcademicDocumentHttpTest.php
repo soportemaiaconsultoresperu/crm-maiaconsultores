@@ -232,7 +232,7 @@ class CourseAcademicDocumentHttpTest extends TestCase
             ->assertSee('No elegible')
             ->assertSee('Condiciones pendientes')
             ->assertSee('Pago pendiente de completar')
-            ->assertSee('Validaciones de la edición pendientes')
+            ->assertSee('Validaciones del dictado pendientes')
             ->assertSee('La generación estará disponible cuando se cumplan las condiciones pendientes.')
             ->assertDontSee('Elegible')
             // Generation is not offered while the conditions are pending: the

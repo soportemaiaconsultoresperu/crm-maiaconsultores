@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Nueva actividad')
-@section('page-title', 'Nueva actividad')
+@section('title', 'Nuevo curso o charla')
+@section('page-title', 'Nuevo curso o charla')
 
 @section('content')
     @php
@@ -22,14 +22,14 @@
         );
     @endphp
 
-    <a href="{{ route('course-talks.activities.index') }}" class="btn btn-outline-secondary mb-3">Volver a actividades</a>
+    <a href="{{ route('course-talks.activities.index') }}" class="btn btn-outline-secondary mb-3">Volver al catálogo</a>
 
     <form method="POST" action="{{ route('course-talks.activities.store') }}" data-testid="course-talks-activity-create-form">
         @csrf
 
         <div class="card">
             <div class="card-header">
-                <h3 class="card-title mb-0">Nueva actividad</h3>
+                <h3 class="card-title mb-0">Nuevo curso o charla</h3>
             </div>
             <div class="card-body">
                 <div class="row g-3">
@@ -37,7 +37,7 @@
                         <x-select name="type" label="Tipo" :options="$typeOptions" :value="old('type')" placeholder="Seleccione" :required="true"/>
                     </div>
                     <div class="col-md-4">
-                        <x-text-input name="code" label="Código" :required="true" maxlength="60" help="El código es único entre todas las actividades."/>
+                        <x-text-input name="code" label="Código" :required="true" maxlength="60" help="El código es único entre todos los cursos y charlas."/>
                     </div>
                     <div class="col-md-4">
                         <x-text-input name="name" label="Nombre" :required="true" maxlength="255"/>
@@ -81,7 +81,7 @@
                 </div>
             </div>
             <div class="card-footer d-flex gap-2">
-                <button type="submit" class="btn btn-primary" data-testid="btn-save-course-activity">Crear actividad</button>
+                <button type="submit" class="btn btn-primary" data-testid="btn-save-course-activity">Crear curso o charla</button>
                 <a href="{{ route('course-talks.activities.index') }}" class="btn btn-outline-secondary">Cancelar</a>
             </div>
         </div>

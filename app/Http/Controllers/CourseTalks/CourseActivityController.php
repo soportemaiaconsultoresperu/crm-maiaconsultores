@@ -44,6 +44,6 @@ class CourseActivityController extends Controller
 
         return redirect()
             ->route('course-talks.activities.index')
-            ->with('status', "Actividad \"{$activity->name}\" creada correctamente.");
+            ->with('status', "Curso o charla \"{$activity->name}\" creado correctamente.");
     }
 }

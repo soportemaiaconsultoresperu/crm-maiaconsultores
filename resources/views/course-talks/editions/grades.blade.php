@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Notas de la edición')
-@section('page-title', 'Notas de la edición')
+@section('title', 'Notas del dictado')
+@section('page-title', 'Notas del dictado')
 
 @section('content')
     @php
@@ -26,14 +26,14 @@
         $hasMatrix = $sessions->isNotEmpty() && $enrollments->isNotEmpty();
     @endphp
 
-    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver a la edición</a>
+    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver al dictado</a>
 
     <div class="card mb-3" data-testid="course-talks-grades-edition">
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-3">Actividad</dt>
+                <dt class="col-sm-3">Curso o charla</dt>
                 <dd class="col-sm-9">{{ $edition->activity->name }} · {{ $edition->activity->type->label() }}</dd>
-                <dt class="col-sm-3">Edición</dt>
+                <dt class="col-sm-3">Dictado</dt>
                 <dd class="col-sm-9"><code>{{ $edition->code ?: '—' }}</code> · {{ $edition->modality->label() }}</dd>
                 <dt class="col-sm-3">Sesiones</dt>
                 <dd class="col-sm-9">{{ $sessions->count() }}</dd>
@@ -57,7 +57,7 @@
 
     @if ($isTalk)
         <x-alert type="info" data-testid="course-talks-grades-talk-note">
-            Esta edición es una charla: las charlas no usan notas en esta versión. El resultado de cada participante se define por su participación confirmada, junto con el pago y las validaciones de la edición.
+            Este dictado es una charla: las charlas no usan notas en esta versión. El resultado de cada participante se define por su participación confirmada, junto con el pago y las validaciones del dictado.
         </x-alert>
 
         <x-table title="Participación de la charla">
@@ -84,22 +84,22 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="2" class="text-center text-secondary py-4" data-testid="course-talks-grades-empty">Todavía no hay participantes inscritos en esta edición.</td>
+                        <td colspan="2" class="text-center text-secondary py-4" data-testid="course-talks-grades-empty">Todavía no hay participantes inscritos en este dictado.</td>
                     </tr>
                 @endforelse
             @endslot
         </x-table>
     @else
         <x-alert type="info" data-testid="course-talks-grades-course-note">
-            Esta edición es un curso: cada sesión acepta una nota de 0 a 20 con hasta dos decimales, todas con el mismo peso. El resultado final se recalcula al guardar y se muestra en cada fila.
+            Este dictado es un curso: cada sesión acepta una nota de 0 a 20 con hasta dos decimales, todas con el mismo peso. El resultado final se recalcula al guardar y se muestra en cada fila.
         </x-alert>
 
         @if (! $hasMatrix)
             <x-alert type="info" data-testid="course-talks-grades-no-matrix">
                 @if ($sessions->isEmpty())
-                    Esta edición todavía no tiene sesiones registradas. Registre las sesiones de la edición para poder ingresar notas.
+                    Este dictado todavía no tiene sesiones registradas. Registre las sesiones del dictado para poder ingresar notas.
                 @else
-                    Todavía no hay participantes inscritos en esta edición.
+                    Todavía no hay participantes inscritos en este dictado.
                 @endif
             </x-alert>
         @else
@@ -158,7 +158,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="{{ $sessions->count() + 2 }}" class="text-center text-secondary py-4" data-testid="course-talks-grades-empty">Todavía no hay participantes inscritos en esta edición.</td>
+                            <td colspan="{{ $sessions->count() + 2 }}" class="text-center text-secondary py-4" data-testid="course-talks-grades-empty">Todavía no hay participantes inscritos en este dictado.</td>
                         </tr>
                     @endforelse
                 @endslot

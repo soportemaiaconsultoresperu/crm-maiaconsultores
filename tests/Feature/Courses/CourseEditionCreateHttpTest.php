@@ -101,7 +101,7 @@ class CourseEditionCreateHttpTest extends TestCase
 
         $this->actingAs($user)->get(route('course-talks.editions.create', $activity))
             ->assertOk()
-            ->assertSee('Nueva edición')
+            ->assertSee('Nuevo dictado')
             ->assertSee('Presencial')
             ->assertSee('Virtual')
             ->assertSee('Híbrida');

@@ -13,9 +13,9 @@
     <form method="GET" action="{{ route('course-talks.activities.index') }}" class="card card-body mb-3" data-testid="course-talks-activities-type-filter">
         <div class="row g-2 align-items-end">
             <div class="col-12 col-sm-6 col-xl-3">
-                <label class="form-label small" for="activities-type">Tipo de actividad</label>
+                <label class="form-label small" for="activities-type">Tipo</label>
                 <select class="form-select form-select-sm" id="activities-type" name="activity_type">
-                    <option value="" @selected($activeType === null)>Todas las actividades</option>
+                    <option value="" @selected($activeType === null)>Todos</option>
                     @foreach ($typeOptions as $value => $label)
                         <option value="{{ $value }}" @selected($activeType === $value)>{{ $label }}</option>
                     @endforeach
@@ -35,18 +35,18 @@
     @if ($typeFilterWarning !== null)
         <x-alert type="warning" data-testid="course-talks-activities-type-filter-invalid">
             @if ($typeFilterWarning === 'unknown')
-                <p class="mb-1">El tipo de actividad <code>{{ $activeType }}</code> no es un valor válido y no coincide con ninguna actividad registrada.</p>
-                <p class="mb-0">Elija <strong>Todas las actividades</strong> o uno de los tipos disponibles para volver a ver la lista.</p>
+                <p class="mb-1">El tipo <code>{{ $activeType }}</code> no es un valor válido y no coincide con ningún curso o charla registrado.</p>
+                <p class="mb-0">Elija <strong>Todos</strong> o uno de los tipos disponibles para volver a ver la lista.</p>
             @else
-                <p class="mb-0">El filtro de tipo de actividad llegó con un valor que no es válido y se descartó: se muestra la lista completa. Use el selector para filtrar por tipo.</p>
+                <p class="mb-0">El filtro de tipo llegó con un valor que no es válido y se descartó: se muestra la lista completa. Use el selector para filtrar por tipo.</p>
             @endif
         </x-alert>
     @endif
 
-    <x-table title="Actividades" data-testid="course-talks-activities-table">
+    <x-table title="Catálogo de cursos y charlas" data-testid="course-talks-activities-table">
         @slot('filters')
             @can('create', App\Models\Courses\CourseActivity::class)
-                <a class="btn btn-sm btn-primary" data-testid="course-talks-activity-create-link" href="{{ route('course-talks.activities.create') }}">Nueva actividad</a>
+                <a class="btn btn-sm btn-primary" data-testid="course-talks-activity-create-link" href="{{ route('course-talks.activities.create') }}">Nuevo curso o charla</a>
             @endcan
             {{-- Contextual access point to the certificate template surface, gated
                  by exactly the ability its routes ask for
@@ -66,7 +66,7 @@
             @endcan
         @endslot
         @slot('headers')
-            <tr><th>Código</th><th>Tipo</th><th>Actividad</th><th>Horas</th><th>Ediciones</th><th></th></tr>
+            <tr><th>Código</th><th>Tipo</th><th>Curso o charla</th><th>Horas</th><th>Dictados</th><th></th></tr>
         @endslot
         @slot('rows')
             @forelse ($activities as $activity)
@@ -103,7 +103,7 @@
                                      the edition page. No rendered control can therefore
                                      answer 403. --}}
                                 @can('view', $featured['edition'])
-                                    <div class="d-flex flex-wrap justify-content-end gap-1" role="group" aria-label="Secciones de la edición destacada de {{ $activity->name }}">
+                                    <div class="d-flex flex-wrap justify-content-end gap-1" role="group" aria-label="Secciones del dictado destacado de {{ $activity->name }}">
                                         @can('update', App\Models\Courses\CourseEdition::class)
                                             <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.editions.teachers', $featured['edition']) }}">Docentes</a>
                                             <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.editions.sessions', $featured['edition']) }}">Sesiones</a>
@@ -125,7 +125,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="6" class="text-center text-secondary py-4">No hay actividades registradas.</td></tr>
+                <tr><td colspan="6" class="text-center text-secondary py-4">No hay cursos o charlas registrados.</td></tr>
             @endforelse
         @endslot
     </x-table>

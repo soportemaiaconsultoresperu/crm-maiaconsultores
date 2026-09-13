@@ -22,7 +22,7 @@
         $text = static fn (mixed $value): string => is_scalar($value) ? (string) $value : '';
     @endphp
 
-    <a href="{{ route('course-talks.activities.index') }}" class="btn btn-outline-secondary mb-3">Volver a actividades</a>
+    <a href="{{ route('course-talks.activities.index') }}" class="btn btn-outline-secondary mb-3">Volver al catálogo</a>
 
     <p class="text-secondary">
         Una plantilla define lo que un certificado generado muestra. Sólo puede haber una plantilla activa por alcance:

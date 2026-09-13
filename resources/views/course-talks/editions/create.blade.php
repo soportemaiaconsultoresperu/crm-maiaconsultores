@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Nueva edición')
-@section('page-title', 'Nueva edición')
+@section('title', 'Nuevo dictado')
+@section('page-title', 'Nuevo dictado')
 
 @section('content')
     @php
@@ -36,12 +36,12 @@
 
         <div class="card">
             <div class="card-header">
-                <h3 class="card-title mb-0">Nueva edición de {{ $activity->name }}</h3>
+                <h3 class="card-title mb-0">Nuevo dictado de {{ $activity->name }}</h3>
             </div>
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-4">
-                        <x-text-input name="code" label="Código" maxlength="60" help="Opcional. Debe ser único entre todas las ediciones."/>
+                        <x-text-input name="code" label="Código" maxlength="60" help="Opcional. Debe ser único entre todos los dictados."/>
                     </div>
                     <div class="col-md-4">
                         <x-select name="modality" label="Modalidad" :options="$modalityOptions" :value="old('modality')" placeholder="Seleccione" :required="true"/>
@@ -65,7 +65,7 @@
                                       help="Requerido para modalidad Virtual o Híbrida."/>
                     </div>
                     <div class="col-12">
-                        <x-label for="syllabus_override_json" label="Temario de la edición"/>
+                        <x-label for="syllabus_override_json" label="Temario del dictado"/>
                         @foreach ($syllabus as $topic)
                             <input type="text" name="syllabus_override_json[]" value="{{ $topic }}"
                                    class="form-control mb-2 @error('syllabus_override_json.*') is-invalid @enderror"
@@ -77,7 +77,7 @@
                 </div>
             </div>
             <div class="card-footer d-flex gap-2">
-                <button type="submit" class="btn btn-primary" data-testid="btn-save-course-edition">Crear edición</button>
+                <button type="submit" class="btn btn-primary" data-testid="btn-save-course-edition">Crear dictado</button>
                 <a href="{{ route('course-talks.activities.show', $activity) }}" class="btn btn-outline-secondary">Cancelar</a>
             </div>
         </div>

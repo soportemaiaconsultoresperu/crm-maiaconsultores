@@ -123,7 +123,7 @@ class CourseEditionSessionsHttpTest extends TestCase
         $this->actingAs($this->manager)->get($this->sessionsUrl())
             ->assertOk()
             ->assertSee('ED-SES-001')
-            ->assertSee('Sesiones de la edición')
+            ->assertSee('Sesiones del dictado')
             ->assertSee('Introducción')
             ->assertSee('15/09/2026')
             ->assertSee('09:00')

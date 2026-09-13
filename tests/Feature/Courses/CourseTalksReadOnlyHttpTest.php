@@ -304,7 +304,7 @@ class CourseTalksReadOnlyHttpTest extends TestCase
             ->assertSee('data-testid="course-talks-activities-type-filter-invalid"', false)
             ->assertSee('webinar')
             ->assertSee('no es un valor válido')
-            ->assertSee('no coincide con ninguna actividad registrada')
+            ->assertSee('no coincide con ningún curso o charla registrado')
             ->assertDontSee('CUR-FILT-001')
             ->assertDontSee('CHA-FILT-001')
             ->assertDontSee('Curso avanzado de saneamiento')
@@ -618,7 +618,7 @@ class CourseTalksReadOnlyHttpTest extends TestCase
             ->assertOk()
             ->assertSee('data-testid="course-talks-activity-featured-edition-'.$activity->id.'"', false)
             ->assertSee('data-testid="course-talks-activity-featured-reason-'.$activity->id.'"', false)
-            ->assertSee('Edición en curso')
+            ->assertSee('Dictado en curso')
             ->assertSee('ED-FEAT-IP-NEW')
             ->assertSee('href="'.route('course-talks.attendance.index', $newerInProgress).'"', false)
             ->assertSee('href="'.route('course-talks.enrollments.index', $newerInProgress).'"', false)
@@ -639,7 +639,7 @@ class CourseTalksReadOnlyHttpTest extends TestCase
 
         $this->actingAs($user)->get(route('course-talks.activities.index'))
             ->assertOk()
-            ->assertSee('Próxima edición')
+            ->assertSee('Próximo dictado')
             ->assertSee('ED-FEAT-SCH-NEAR')
             ->assertSee('href="'.route('course-talks.attendance.index', $scheduledNearest).'"', false)
             ->assertDontSee('href="'.route('course-talks.attendance.index', $finished).'"', false)
@@ -662,7 +662,7 @@ class CourseTalksReadOnlyHttpTest extends TestCase
         // the reader.
         $this->actingAs($user)->get(route('course-talks.activities.index'))
             ->assertOk()
-            ->assertSee('Próxima edición')
+            ->assertSee('Próximo dictado')
             ->assertSee('ED-FEAT-SCH-TODAY')
             ->assertSee('href="'.route('course-talks.attendance.index', $startsToday).'"', false)
             ->assertDontSee('href="'.route('course-talks.attendance.index', $later).'"', false)
@@ -678,7 +678,7 @@ class CourseTalksReadOnlyHttpTest extends TestCase
 
         $this->actingAs($user)->get(route('course-talks.activities.index'))
             ->assertOk()
-            ->assertSee('Última edición')
+            ->assertSee('Último dictado')
             ->assertSee('ED-FEAT-FIN-RECENT')
             ->assertSee('href="'.route('course-talks.attendance.index', $mostRecent).'"', false)
             ->assertDontSee('href="'.route('course-talks.attendance.index', $oldest).'"', false);
@@ -699,7 +699,7 @@ class CourseTalksReadOnlyHttpTest extends TestCase
         // actually took place.
         $this->actingAs($user)->get(route('course-talks.activities.index'))
             ->assertOk()
-            ->assertSee('Última edición')
+            ->assertSee('Último dictado')
             ->assertSee('ED-FEAT-FIN-030')
             ->assertSee('href="'.route('course-talks.attendance.index', $finished).'"', false)
             ->assertDontSee('href="'.route('course-talks.attendance.index', $cancelled).'"', false);
@@ -833,7 +833,7 @@ class CourseTalksReadOnlyHttpTest extends TestCase
             $response->assertSee('data-testid="course-talks-activity-featured-edition-'.$activity->id.'"', false);
         }
 
-        $response->assertSee('Edición en curso');
+        $response->assertSee('Dictado en curso');
 
         $this->assertCount(
             1,

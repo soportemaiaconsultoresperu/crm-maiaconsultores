@@ -32,11 +32,11 @@ class CourseEditionService
         $price = $attributes['price_amount'] ?? null;
 
         if ($price === null || $price === '' || ! is_numeric($price)) {
-        throw InvalidCourseEditionData::forField('price_amount', 'El precio de la edición es obligatorio.');
+        throw InvalidCourseEditionData::forField('price_amount', 'El precio del dictado es obligatorio.');
         }
 
         if ((float) $price < 0) {
-        throw InvalidCourseEditionData::forField('price_amount', 'El precio de la edición no puede ser negativo.');
+        throw InvalidCourseEditionData::forField('price_amount', 'El precio del dictado no puede ser negativo.');
         }
 
         if ($code !== '' && CourseEdition::withTrashed()->where('code', $code)->exists()) {

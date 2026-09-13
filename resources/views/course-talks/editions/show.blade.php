@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Edición '.$edition->code)
-@section('page-title', 'Edición '.$edition->code)
+@section('title', 'Dictado '.$edition->code)
+@section('page-title', 'Dictado '.$edition->code)
 
 @section('content')
     <a href="{{ route('course-talks.activities.show', $edition->activity) }}" class="btn btn-outline-secondary mb-3">Volver a {{ $edition->activity->name }}</a>
@@ -16,7 +16,7 @@
     {{-- Slice 6.g — contextual navigation: every screen this edition owns is one
          click away. Management surfaces are advertised only to holders of the
          ability their own route already requires, so no link can 403. --}}
-    <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Secciones de la edición" data-testid="course-talks-edition-navigation">
+    <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Secciones del dictado" data-testid="course-talks-edition-navigation">
         @can('update', \App\Models\Courses\CourseEdition::class)
             <a href="{{ route('course-talks.editions.teachers', $edition) }}" class="btn btn-outline-primary">Docentes</a>
             <a href="{{ route('course-talks.editions.sessions', $edition) }}" class="btn btn-outline-primary">Sesiones</a>
@@ -67,7 +67,7 @@
          keeps working (and querying nothing extra) as before. --}}
     @isset($teachers)
         <div class="card mt-3" data-testid="course-talks-edition-teachers">
-            <div class="card-header"><h3 class="card-title mb-0">Docentes de la edición</h3></div>
+            <div class="card-header"><h3 class="card-title mb-0">Docentes del dictado</h3></div>
             <div class="card-body">
                 @forelse ($teachers as $teacher)
                     <div data-testid="course-talks-edition-teacher">
@@ -76,7 +76,7 @@
                         @if ($teacher->user_id)<span class="badge text-bg-light ms-2">Usuario interno</span>@endif
                     </div>
                 @empty
-                    <p class="text-secondary mb-0" data-testid="course-talks-edition-teachers-empty">Esta edición todavía no tiene docentes registrados.</p>
+                    <p class="text-secondary mb-0" data-testid="course-talks-edition-teachers-empty">Este dictado todavía no tiene docentes registrados.</p>
                 @endforelse
             </div>
         </div>
@@ -97,7 +97,7 @@
             <div class="card mt-3">
                 <div class="card-header"><h3 class="card-title mb-0">Actualizar docentes</h3></div>
                 <div class="card-body">
-                    <x-alert type="warning">Guardar reemplaza toda la lista de docentes de esta edición: los docentes que no aparezcan en el formulario quedarán sin asignar.</x-alert>
+                    <x-alert type="warning">Guardar reemplaza toda la lista de docentes de este dictado: los docentes que no aparezcan en el formulario quedarán sin asignar.</x-alert>
 
                     @if ($errors->any())
                         <x-alert type="error" data-testid="course-talks-teachers-errors">
@@ -146,7 +146,7 @@
          `$sessions`, so they keep working (and query nothing extra). --}}
     @isset($sessions)
         <div class="card mt-3" data-testid="course-talks-edition-sessions">
-            <div class="card-header"><h3 class="card-title mb-0">Sesiones de la edición</h3></div>
+            <div class="card-header"><h3 class="card-title mb-0">Sesiones del dictado</h3></div>
             <div class="card-body">
                 @forelse ($sessions as $session)
                     <div class="mb-1" data-testid="course-talks-edition-session">
@@ -159,7 +159,7 @@
                         @if ($session->teacher_name)<span class="ms-2">{{ $session->teacher_name }}</span>@endif
                     </div>
                 @empty
-                    <p class="text-secondary mb-0" data-testid="course-talks-edition-sessions-empty">Esta edición todavía no tiene sesiones registradas.</p>
+                    <p class="text-secondary mb-0" data-testid="course-talks-edition-sessions-empty">Este dictado todavía no tiene sesiones registradas.</p>
                 @endforelse
             </div>
         </div>

@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Documentos académicos de la edición')
-@section('page-title', 'Documentos académicos de la edición')
+@section('title', 'Documentos académicos del dictado')
+@section('page-title', 'Documentos académicos del dictado')
 
 @section('content')
     @php
@@ -14,7 +14,7 @@
         $missingMeta = [
             'payment' => 'Pago pendiente de completar',
             'participant_data' => 'Datos del participante incompletos',
-            'edition_validations' => 'Validaciones de la edición pendientes',
+            'edition_validations' => 'Validaciones del dictado pendientes',
             'academic_result' => 'Resultado académico o participación pendiente',
             'participation' => 'Participación de la charla sin confirmar',
             'enrollment_state' => 'La matrícula está retirada o el participante no asistió',
@@ -80,14 +80,14 @@
         );
     @endphp
 
-    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver a la edición</a>
+    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver al dictado</a>
 
     <div class="card mb-3" data-testid="course-talks-documents-edition">
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-3">Actividad</dt>
+                <dt class="col-sm-3">Curso o charla</dt>
                 <dd class="col-sm-9">{{ $edition->activity->name }} · {{ $edition->activity->type->label() }}</dd>
-                <dt class="col-sm-3">Edición</dt>
+                <dt class="col-sm-3">Dictado</dt>
                 <dd class="col-sm-9"><code>{{ $edition->code ?: '—' }}</code> · {{ $edition->modality->label() }}</dd>
                 <dt class="col-sm-3">Participantes</dt>
                 <dd class="col-sm-9">{{ $enrollments->count() }}</dd>
@@ -289,7 +289,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="4" class="text-center text-secondary py-4" data-testid="course-talks-documents-empty">Todavía no hay participantes inscritos en esta edición.</td>
+                    <td colspan="4" class="text-center text-secondary py-4" data-testid="course-talks-documents-empty">Todavía no hay participantes inscritos en este dictado.</td>
                 </tr>
             @endforelse
         @endslot
