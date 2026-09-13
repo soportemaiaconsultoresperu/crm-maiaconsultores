@@ -10,7 +10,9 @@ use App\Models\Courses\CourseEdition;
 use App\Models\User;
 use Database\Seeders\CoursePermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 class CourseTalksReadOnlyHttpTest extends TestCase
@@ -522,5 +524,350 @@ class CourseTalksReadOnlyHttpTest extends TestCase
             ->assertSee('—')
             ->assertDontSee('Modulo anidado')
             ->assertDontSee('Array');
+    }
+
+    // -----------------------------------------------------------------
+    // Featured-edition shortcut on the unified list.
+    //
+    // The activity/edition split is deliberate: an activity is the reusable
+    // definition (syllabus, code, academic hours) and an edition is one concrete
+    // delivery (dates, modality, price, its own teachers, sessions, participants,
+    // grades, certificates and receipts). Every operational screen therefore hangs
+    // off the EDITION, so the list offers a way in when the target edition is
+    // obvious, with a short label saying WHY that edition was chosen.
+    //
+    // The rule, resolved in the controller in PHP over the editions loaded by ONE
+    // eager query (no `FIELD()`, no engine-specific ordering function, no
+    // collation-dependent comparison):
+    //
+    //   1. an `in_progress` edition; among several, the latest `starts_on`;
+    //   2. otherwise the `scheduled` edition with the nearest future `starts_on`;
+    //   3. otherwise the most recent edition by `starts_on`;
+    //   4. an activity with no editions gets no shortcut, only "Ver detalle".
+    //
+    // DEVIATION, recorded deliberately: the stated rule says `open`. The enum has
+    // no `open` case — its five cases are `draft`, `scheduled`, `in_progress`,
+    // `finished`, `cancelled` (`Borrador`, `Programada`, `En curso`, `Finalizada`,
+    // `Cancelada`, the module spec's own vocabulary) — so `scheduled`, the
+    // published pre-start state, is the `open` the rule means. Nothing else about
+    // the rule was adapted.
+    //
+    // Every assertion below is about the LINK TARGET — the route of the expected
+    // edition id — and never about the existence of a button. A test that only
+    // counted controls would pass while linking the WRONG edition, which is the
+    // defect shape this section exists to prevent.
+    // -----------------------------------------------------------------
+
+    private function courseTalkPermissions(): void
+    {
+        $this->seed(CoursePermissionsSeeder::class);
+    }
+
+    /**
+     * @param  list<string>  $permissions
+     */
+    private function courseEditionShortcutViewer(array $permissions): User
+    {
+        $this->courseTalkPermissions();
+
+        $user = User::factory()->create(['is_active' => true]);
+
+        foreach ($permissions as $permission) {
+            $user->givePermissionTo($permission);
+        }
+
+        return $user;
+    }
+
+    private function editionFor(CourseActivity $activity, CourseEditionState $state, ?string $startsOn, string $code): CourseEdition
+    {
+        return CourseEdition::factory()->for($activity, 'activity')->create([
+            'code' => $code,
+            'state' => $state,
+            'starts_on' => $startsOn,
+            'ends_on' => $startsOn === null ? null : Carbon::parse($startsOn)->addDay()->toDateString(),
+        ]);
+    }
+
+    /**
+     * The HTML of ONE activity row, so a negative assertion is about that row and
+     * not about the page (whose other rows legitimately carry edition links).
+     */
+    private function activityRowHtml(TestResponse $response, CourseActivity $activity): string
+    {
+        $matched = preg_match(
+            '/data-testid="course-talks-activity-'.$activity->id.'"(.*?)<\/tr>/s',
+            (string) $response->getContent(),
+            $matches
+        );
+
+        $this->assertSame(1, $matched, 'The row of activity '.$activity->code.' was not found in the list.');
+
+        return $matches[1];
+    }
+
+    public function test_the_activity_row_shortcut_targets_the_in_progress_edition_and_says_why(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-FEAT-001', 'name' => 'Curso de brigadas']);
+        $olderInProgress = $this->editionFor($activity, CourseEditionState::InProgress, now()->subDays(30)->toDateString(), 'ED-FEAT-IP-ANT');
+        $newerInProgress = $this->editionFor($activity, CourseEditionState::InProgress, now()->subDays(5)->toDateString(), 'ED-FEAT-IP-NEW');
+        $scheduled = $this->editionFor($activity, CourseEditionState::Scheduled, now()->addDays(10)->toDateString(), 'ED-FEAT-SCH-010');
+
+        $this->actingAs($user)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('data-testid="course-talks-activity-featured-edition-'.$activity->id.'"', false)
+            ->assertSee('data-testid="course-talks-activity-featured-reason-'.$activity->id.'"', false)
+            ->assertSee('Edición en curso')
+            ->assertSee('ED-FEAT-IP-NEW')
+            ->assertSee('href="'.route('course-talks.attendance.index', $newerInProgress).'"', false)
+            ->assertSee('href="'.route('course-talks.enrollments.index', $newerInProgress).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $olderInProgress).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $scheduled).'"', false)
+            ->assertDontSee('in_progress');
+    }
+
+    public function test_a_scheduled_edition_with_the_nearest_future_date_beats_a_draft_a_past_scheduled_and_a_finished_one(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-FEAT-002', 'name' => 'Curso de alturas']);
+        $finished = $this->editionFor($activity, CourseEditionState::Finished, now()->subDays(90)->toDateString(), 'ED-FEAT-FIN-090');
+        $draftSooner = $this->editionFor($activity, CourseEditionState::Draft, now()->addDays(3)->toDateString(), 'ED-FEAT-DRA-003');
+        $scheduledPast = $this->editionFor($activity, CourseEditionState::Scheduled, now()->subDays(5)->toDateString(), 'ED-FEAT-SCH-PAST');
+        $scheduledNearest = $this->editionFor($activity, CourseEditionState::Scheduled, now()->addDays(20)->toDateString(), 'ED-FEAT-SCH-NEAR');
+        $scheduledLater = $this->editionFor($activity, CourseEditionState::Scheduled, now()->addDays(40)->toDateString(), 'ED-FEAT-SCH-LATER');
+
+        $this->actingAs($user)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('Próxima edición')
+            ->assertSee('ED-FEAT-SCH-NEAR')
+            ->assertSee('href="'.route('course-talks.attendance.index', $scheduledNearest).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $finished).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $draftSooner).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $scheduledPast).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $scheduledLater).'"', false);
+    }
+
+    public function test_a_scheduled_edition_starting_today_is_still_the_nearest_future_candidate(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-FEAT-003', 'name' => 'Curso de primeros auxilios']);
+        $finished = $this->editionFor($activity, CourseEditionState::Finished, now()->subDays(2)->toDateString(), 'ED-FEAT-FIN-002');
+        $startsToday = $this->editionFor($activity, CourseEditionState::Scheduled, now()->toDateString(), 'ED-FEAT-SCH-TODAY');
+        $later = $this->editionFor($activity, CourseEditionState::Scheduled, now()->addDays(15)->toDateString(), 'ED-FEAT-SCH-015');
+
+        // An edition scheduled for today is the one the operator is about to run,
+        // so the boundary is INCLUSIVE: `starts_on >= today`. The rule is stated in
+        // the controller, and this test pins the boundary rather than leaving it to
+        // the reader.
+        $this->actingAs($user)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('Próxima edición')
+            ->assertSee('ED-FEAT-SCH-TODAY')
+            ->assertSee('href="'.route('course-talks.attendance.index', $startsToday).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $later).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $finished).'"', false);
+    }
+
+    public function test_an_activity_with_only_finished_editions_still_offers_the_most_recent_one(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-FEAT-004', 'name' => 'Curso de evacuación']);
+        $oldest = $this->editionFor($activity, CourseEditionState::Finished, now()->subDays(90)->toDateString(), 'ED-FEAT-FIN-OLD');
+        $mostRecent = $this->editionFor($activity, CourseEditionState::Finished, now()->subDays(30)->toDateString(), 'ED-FEAT-FIN-RECENT');
+
+        $this->actingAs($user)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('Última edición')
+            ->assertSee('ED-FEAT-FIN-RECENT')
+            ->assertSee('href="'.route('course-talks.attendance.index', $mostRecent).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $oldest).'"', false);
+    }
+
+    public function test_the_most_recent_fallback_rule_skips_a_cancelled_edition(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-FEAT-005', 'name' => 'Curso de soldadura']);
+        $finished = $this->editionFor($activity, CourseEditionState::Finished, now()->subDays(30)->toDateString(), 'ED-FEAT-FIN-030');
+        $cancelled = $this->editionFor($activity, CourseEditionState::Cancelled, now()->subDays(5)->toDateString(), 'ED-FEAT-CAN-005');
+
+        // Rule 3 read literally offered the CANCELLED edition here, because it was the
+        // most recent by `starts_on`. That was flagged as a product question rather than
+        // settled unilaterally, and the answer is no: pointing "go and mark attendance" at
+        // the most recent thing that never happened is worse than offering nothing. The
+        // fallback now skips cancelled editions and offers the most recent delivery that
+        // actually took place.
+        $this->actingAs($user)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('Última edición')
+            ->assertSee('ED-FEAT-FIN-030')
+            ->assertSee('href="'.route('course-talks.attendance.index', $finished).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $cancelled).'"', false);
+    }
+
+    public function test_an_activity_whose_editions_were_all_cancelled_offers_no_shortcut(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-FEAT-006', 'name' => 'Curso suspendido']);
+        $cancelled = $this->editionFor($activity, CourseEditionState::Cancelled, now()->subDays(5)->toDateString(), 'ED-FEAT-CAN-ALL');
+
+        // Every edition cancelled is the same outcome as no editions at all: there is no
+        // operational destination, so the row keeps only its "Ver detalle" link.
+        $this->actingAs($user)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $cancelled).'"', false)
+            ->assertSee('Ver detalle');
+    }
+
+    public function test_an_activity_without_editions_offers_no_operational_shortcut(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $withEditions = CourseActivity::factory()->create(['code' => 'CUR-FEAT-HAS', 'name' => 'Curso con ediciones']);
+        $this->editionFor($withEditions, CourseEditionState::InProgress, now()->subDay()->toDateString(), 'ED-FEAT-HAS-001');
+        $withoutEditions = CourseActivity::factory()->create(['code' => 'CUR-FEAT-NONE', 'name' => 'Curso sin ediciones']);
+
+        $response = $this->actingAs($user)->get(route('course-talks.activities.index'))->assertOk();
+
+        $response
+            ->assertSee('data-testid="course-talks-activity-featured-edition-'.$withEditions->id.'"', false)
+            ->assertDontSee('data-testid="course-talks-activity-featured-edition-'.$withoutEditions->id.'"', false)
+            ->assertSee('CUR-FEAT-NONE');
+
+        // Scoped to the row itself: the neighbouring row has editions and DOES carry
+        // edition links, so a page-level "does not contain" assertion would be both
+        // weaker and false.
+        $row = $this->activityRowHtml($response, $withoutEditions);
+
+        $this->assertStringNotContainsString('/course-talks/editions/', $row);
+        $this->assertStringContainsString(route('course-talks.activities.show', $withoutEditions), $row);
+    }
+
+    public function test_the_shortcut_links_mirror_the_edition_page_gates(): void
+    {
+        $viewer = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-FEAT-006', 'name' => 'Curso de trabajos en caliente']);
+        $featured = $this->editionFor($activity, CourseEditionState::InProgress, now()->subDay()->toDateString(), 'ED-FEAT-006');
+
+        // A plain edition viewer: the edition page renders attendance, participants,
+        // documents and comprobantes outside any management gate, and gates teachers,
+        // sessions and enrollment with the abilities their own routes require.
+        $this->actingAs($viewer)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('href="'.route('course-talks.attendance.index', $featured).'"', false)
+            ->assertSee('href="'.route('course-talks.enrollments.index', $featured).'"', false)
+            ->assertSee('href="'.route('course-talks.documents.index', $featured).'"', false)
+            ->assertSee('href="'.route('course-talks.commercial-documents.index', $featured).'"', false)
+            ->assertSee('Asistencia')
+            ->assertSee('Participantes')
+            ->assertSee('Documentos')
+            ->assertSee('Comprobantes')
+            ->assertDontSee('href="'.route('course-talks.editions.teachers', $featured).'"', false)
+            ->assertDontSee('href="'.route('course-talks.editions.sessions', $featured).'"', false)
+            ->assertDontSee('href="'.route('course-talks.enrollments.create', $featured).'"', false)
+            ->assertDontSee('href="'.route('course-talks.grades.index', $featured).'"', false);
+
+        // The abilities whose routes the edition page gates: holding them adds exactly
+        // those links, and holding `editions.manage` does NOT leak the grade matrix.
+        $manager = $this->courseEditionShortcutViewer([
+            'course-talks.view',
+            'course-talks.editions.manage',
+            'course-talks.participants.manage',
+        ]);
+
+        $this->actingAs($manager)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('href="'.route('course-talks.editions.teachers', $featured).'"', false)
+            ->assertSee('href="'.route('course-talks.editions.sessions', $featured).'"', false)
+            ->assertSee('href="'.route('course-talks.enrollments.create', $featured).'"', false)
+            ->assertDontSee('href="'.route('course-talks.grades.index', $featured).'"', false);
+    }
+
+    public function test_the_grades_shortcut_appears_only_with_the_ability_the_grades_route_requires(): void
+    {
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-FEAT-007', 'name' => 'Curso de rescate']);
+        $featured = $this->editionFor($activity, CourseEditionState::InProgress, now()->subDay()->toDateString(), 'ED-FEAT-007');
+
+        $gradesManager = $this->courseEditionShortcutViewer(['course-talks.view', 'course-talks.grades.manage']);
+
+        $this->actingAs($gradesManager)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('href="'.route('course-talks.grades.index', $featured).'"', false);
+
+        $plainViewer = $this->courseEditionShortcutViewer(['course-talks.view']);
+
+        $this->actingAs($plainViewer)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertDontSee('href="'.route('course-talks.grades.index', $featured).'"', false)
+            ->assertSee('href="'.route('course-talks.attendance.index', $featured).'"', false);
+    }
+
+    public function test_the_featured_editions_of_the_whole_list_are_loaded_in_one_query(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $activities = [];
+
+        foreach (range(1, 4) as $index) {
+            $activity = CourseActivity::factory()->create([
+                'code' => 'CUR-FEAT-Q'.$index,
+                'name' => 'Curso de consulta '.$index,
+            ]);
+            $activities[] = $activity;
+            $this->editionFor($activity, CourseEditionState::InProgress, now()->subDays($index)->toDateString(), 'ED-FEAT-Q'.$index);
+            $this->editionFor($activity, CourseEditionState::Finished, now()->subDays(30 + $index)->toDateString(), 'ED-FEAT-Q'.$index.'-FIN');
+        }
+
+        DB::enableQueryLog();
+        $response = $this->actingAs($user)->get(route('course-talks.activities.index'))->assertOk();
+        $queries = collect(DB::getQueryLog())->pluck('query')->map(fn ($query): string => trim((string) $query));
+        DB::disableQueryLog();
+
+        $editionListQueries = $queries->filter(
+            fn (string $query): bool => (bool) preg_match('/^select \* from ["`]?course_editions["`]?/i', $query)
+        );
+
+        // 4 activities, 8 editions: if the controller resolved each row lazily this
+        // would be 4 queries instead of 1, so the assertion is falsifiable by
+        // removing the single eager load. The rendered output is asserted too, so the
+        // query count cannot pass on a page that rendered nothing.
+        foreach ($activities as $activity) {
+            $response->assertSee('data-testid="course-talks-activity-featured-edition-'.$activity->id.'"', false);
+        }
+
+        $response->assertSee('Edición en curso');
+
+        $this->assertCount(
+            1,
+            $editionListQueries,
+            'The list must load every listed activity\'s editions in ONE query; got: '.$editionListQueries->implode(' | ')
+        );
+    }
+
+    public function test_the_featured_edition_shortcut_follows_the_activity_type_filter(): void
+    {
+        $user = $this->courseEditionShortcutViewer(['course-talks.view']);
+        $talk = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'code' => 'CHA-FEAT-001',
+            'name' => 'Charla con edición en curso',
+        ]);
+        $talkEdition = $this->editionFor($talk, CourseEditionState::InProgress, now()->subDay()->toDateString(), 'ED-FEAT-CHA-001');
+        $course = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Course,
+            'code' => 'CUR-FEAT-008',
+            'name' => 'Curso con edición en curso',
+        ]);
+        $courseEdition = $this->editionFor($course, CourseEditionState::InProgress, now()->subDay()->toDateString(), 'ED-FEAT-CUR-008');
+
+        $this->actingAs($user)->get(route('course-talks.activities.index'))
+            ->assertOk()
+            ->assertSee('data-testid="course-talks-activity-featured-edition-'.$talk->id.'"', false)
+            ->assertSee('data-testid="course-talks-activity-featured-edition-'.$course->id.'"', false);
+
+        $this->actingAs($user)->get(route('course-talks.activities.index', ['activity_type' => 'talk']))
+            ->assertOk()
+            ->assertSee('data-testid="course-talks-activity-featured-edition-'.$talk->id.'"', false)
+            ->assertDontSee('data-testid="course-talks-activity-featured-edition-'.$course->id.'"', false)
+            ->assertSee('href="'.route('course-talks.attendance.index', $talkEdition).'"', false)
+            ->assertDontSee('href="'.route('course-talks.attendance.index', $courseEdition).'"', false);
     }
 }

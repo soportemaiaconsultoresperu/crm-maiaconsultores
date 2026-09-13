@@ -76,7 +76,53 @@
                     <td><strong>{{ $activity->name }}</strong></td>
                     <td>{{ $activity->official_academic_hours }}</td>
                     <td>{{ $activity->editions_count }}</td>
-                    <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.activities.show', $activity) }}">Ver detalle</a></td>
+                    {{-- The activity is the reusable definition; every operational
+                         screen hangs off an EDITION. So the row offers a way into the
+                         featured edition when there is one, and the reason it was
+                         chosen is stated in words — never by colour or position alone.
+                         An activity with no editions keeps "Ver detalle" as its only
+                         affordance. The selection itself is the controller's (see
+                         featuredEdition()); this view only renders it. --}}
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.activities.show', $activity) }}">Ver detalle</a>
+                        @php $featured = $featuredEditions[$activity->id] ?? null; @endphp
+                        @if ($featured !== null)
+                            <div class="mt-2 d-flex flex-column align-items-end gap-1" data-testid="course-talks-activity-featured-edition-{{ $activity->id }}">
+                                <span class="badge text-bg-info" data-testid="course-talks-activity-featured-reason-{{ $activity->id }}">{{ $featured['reason'] }}</span>
+                                <span class="small text-secondary">
+                                    {{ $featured['edition']->code ?: '—' }}@if ($featured['edition']->starts_on)<span class="ms-1">{{ $featured['edition']->starts_on->format('d/m/Y') }}</span>@endif
+                                </span>
+                                {{-- One gate per link, and they are the edition page's
+                                     OWN gates, not new ones: the edition page's route
+                                     requires `view`, so its attendance, participants,
+                                     documents and comprobantes controls never render
+                                     for a user who cannot open the edition — that is
+                                     the outer `view` here. Teachers and sessions stay
+                                     behind `update`, enrolling behind `create` and the
+                                     grade matrix behind `manageGrades`, exactly as on
+                                     the edition page. No rendered control can therefore
+                                     answer 403. --}}
+                                @can('view', $featured['edition'])
+                                    <div class="d-flex flex-wrap justify-content-end gap-1" role="group" aria-label="Secciones de la edición destacada de {{ $activity->name }}">
+                                        @can('update', App\Models\Courses\CourseEdition::class)
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.editions.teachers', $featured['edition']) }}">Docentes</a>
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.editions.sessions', $featured['edition']) }}">Sesiones</a>
+                                        @endcan
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.enrollments.index', $featured['edition']) }}">Participantes</a>
+                                        @can('create', App\Models\Courses\CourseEnrollment::class)
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.enrollments.create', $featured['edition']) }}">Inscribir participante</a>
+                                        @endcan
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.attendance.index', $featured['edition']) }}">Asistencia</a>
+                                        @can('manageGrades', $featured['edition'])
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.grades.index', $featured['edition']) }}">Notas</a>
+                                        @endcan
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.documents.index', $featured['edition']) }}">Documentos</a>
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.commercial-documents.index', $featured['edition']) }}">Comprobantes</a>
+                                    </div>
+                                @endcan
+                            </div>
+                        @endif
+                    </td>
                 </tr>
             @empty
                 <tr><td colspan="6" class="text-center text-secondary py-4">No hay actividades registradas.</td></tr>
