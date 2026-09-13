@@ -61,7 +61,12 @@ class StoreCourseActivityRequest extends FormRequest
             'type' => ['required', Rule::enum(CourseActivityType::class)],
             'code' => ['required', 'string', 'max:60'],
             'name' => ['required', 'string', 'max:255'],
-            'official_academic_hours' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
+            // Required by the spec and NOT NULL in the column, with no default. While
+            // this was `nullable`, leaving the field blank sent an empty string that
+            // ConvertEmptyStringsToNull turned into a NULL, and the insert died as an
+            // uncaught QueryException instead of telling the operator what was missing
+            // — the same defect the edition price had.
+            'official_academic_hours' => ['required', 'numeric', 'min:0', 'max:999999.99'],
             'base_syllabus_json' => ['nullable', 'array'],
             'base_syllabus_json.*' => ['string', 'max:255'],
             'talk_includes_certificate' => ['nullable', 'boolean'],

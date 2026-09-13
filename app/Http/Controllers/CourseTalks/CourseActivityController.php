@@ -39,7 +39,9 @@ class CourseActivityController extends Controller
         try {
             $activity = $this->activities->create($request->validated());
         } catch (InvalidCourseEditionData $exception) {
-            return back()->withInput()->withErrors(['code' => $exception->getMessage()]);
+            // The domain names the field when it knows it, so the message lands under the
+            // input the operator must fix instead of always under the code.
+            return back()->withInput()->withErrors([$exception->field() ?? 'code' => $exception->getMessage()]);
         }
 
         return redirect()

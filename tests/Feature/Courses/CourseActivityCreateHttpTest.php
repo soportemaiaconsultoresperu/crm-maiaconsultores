@@ -3,8 +3,10 @@
 namespace Tests\Feature\Courses;
 
 use App\Enums\Courses\CourseActivityType;
+use App\Exceptions\Courses\InvalidCourseEditionData;
 use App\Models\Courses\CourseActivity;
 use App\Models\User;
+use App\Services\Courses\CourseActivityService;
 use Database\Seeders\CoursePermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -111,7 +113,7 @@ class CourseActivityCreateHttpTest extends TestCase
                 'name' => '',
             ])
             ->assertRedirect(route('course-talks.activities.create'))
-            ->assertSessionHasErrors(['type', 'code', 'name']);
+            ->assertSessionHasErrors(['type', 'code', 'name', 'official_academic_hours']);
 
         $this->assertDatabaseCount('course_activities', 0);
     }
@@ -124,6 +126,7 @@ class CourseActivityCreateHttpTest extends TestCase
             'type' => CourseActivityType::Talk->value,
             'code' => 'CHA-NEW-001',
             'name' => 'Charla de Alta',
+            'official_academic_hours' => '4.00',
             'talk_includes_certificate' => '1',
             'talk_certificate_price' => '25.00',
             'is_active' => '1',
@@ -147,6 +150,9 @@ class CourseActivityCreateHttpTest extends TestCase
                 'type' => CourseActivityType::Course->value,
                 'code' => 'CUR-DUP-001',
                 'name' => 'Curso Duplicado',
+                // The hours are required, so this payload must be valid in every other
+                // respect for the duplicate-code rule to be the error under test.
+                'official_academic_hours' => '8.00',
             ])
             ->assertRedirect(route('course-talks.activities.create'))
             ->assertSessionHasErrors('code');
@@ -177,5 +183,43 @@ class CourseActivityCreateHttpTest extends TestCase
         $this->actingAs($viewer)->get(route('course-talks.activities.index'))
             ->assertOk()
             ->assertDontSee($createUrl, false);
+    }
+
+    // --- The academic hours are required -------------------------------------
+    //
+    // Found while answering a question about the create form, not by this suite:
+    // `official_academic_hours` is NOT NULL in the column with no default, but the
+    // form request declared it `nullable` and the form did not require it. Leaving it
+    // blank sent an empty string, ConvertEmptyStringsToNull made it a NULL, and the
+    // insert died as an uncaught QueryException instead of telling the operator what
+    // was missing — the same defect the edition price had, in a different column.
+    // Every test above posted the hours, which is exactly why none of them could see it.
+
+    public function test_creating_an_activity_without_academic_hours_is_a_validation_error_not_a_database_error(): void
+    {
+        $user = $this->manager();
+
+        $this->actingAs($user)
+            ->from(route('course-talks.activities.create'))
+            ->post(route('course-talks.activities.store'), [
+'type' => CourseActivityType::Course->value,
+'code' => 'CUR-NOHOURS-001',
+'name' => 'Curso sin horas',
+            ])
+            ->assertRedirect(route('course-talks.activities.create'))
+            ->assertSessionHasErrors('official_academic_hours');
+
+        $this->assertDatabaseCount('course_activities', 0);
+    }
+
+    public function test_the_service_refuses_an_activity_without_academic_hours_for_callers_that_bypass_http(): void
+    {
+        $this->expectException(InvalidCourseEditionData::class);
+
+        app(CourseActivityService::class)->create([
+            'type' => CourseActivityType::Course->value,
+            'code' => 'CUR-NOHOURS-002',
+            'name' => 'Curso sin horas',
+        ]);
     }
 }

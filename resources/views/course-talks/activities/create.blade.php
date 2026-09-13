@@ -44,7 +44,7 @@
                     </div>
                     <div class="col-md-4">
                         <x-text-input name="official_academic_hours" type="number" label="Horas académicas"
-                                      :value="old('official_academic_hours')" step="0.01" min="0"/>
+                                      :value="old('official_academic_hours')" step="0.01" min="0" :required="true"/>
                     </div>
                     <div class="col-md-4">
                         <x-text-input name="talk_certificate_price" type="number" label="Precio del certificado de charla"

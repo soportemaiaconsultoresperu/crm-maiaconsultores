@@ -470,6 +470,7 @@ class CourseEditionCreateHttpTest extends TestCase
             'type' => CourseActivityType::Course->value,
             'code' => 'CUR-SYL-A3',
             'name' => 'Curso Syllabus Limpio',
+            'official_academic_hours' => '8.00',
             'base_syllabus_json' => ['Modulo 1', '', '   ', 'Modulo 2'],
         ])->assertRedirect(route('course-talks.activities.index'));
 

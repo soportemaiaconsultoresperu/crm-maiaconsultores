@@ -16,6 +16,22 @@ class CourseActivityService
      */
     public function create(array $attributes): CourseActivity
     {
+        // The academic hours are validated BEFORE normalize(), because normalize()
+        // used to substitute '0.00' for a missing value. That default is what made this
+        // defect silent instead of loud: leaving the field blank did not fail, it
+        // created a course with ZERO academic hours, and those hours are printed on the
+        // student's certificate. A rule that runs after the substitution can never see
+        // the missing value, so it has to run before it.
+        $hours = $attributes['official_academic_hours'] ?? null;
+
+        if ($hours === null || $hours === '' || ! is_numeric($hours)) {
+        throw InvalidCourseEditionData::forField('official_academic_hours', 'Las horas académicas son obligatorias.');
+        }
+
+        if ((float) $hours < 0) {
+        throw InvalidCourseEditionData::forField('official_academic_hours', 'Las horas académicas no pueden ser negativas.');
+        }
+
         $attributes = $this->normalize($attributes);
 
         if (CourseActivity::withTrashed()->where('code', $attributes['code'])->exists()) {
@@ -49,7 +65,8 @@ class CourseActivityService
         $attributes['code'] = $code;
         $attributes['name'] = $name;
         $attributes['slug'] = $attributes['slug'] ?? Str::slug($name);
-        $attributes['official_academic_hours'] = $attributes['official_academic_hours'] ?? '0.00';
+        // Deliberately NO default for `official_academic_hours`: it is required, and a
+        // silent '0.00' here is what produced certificates reading "0 horas académicas".
         $attributes['base_syllabus_json'] = $attributes['base_syllabus_json'] ?? [];
         $attributes['talk_includes_certificate'] = $attributes['talk_includes_certificate'] ?? false;
         $attributes['talk_certificate_price'] = $attributes['talk_certificate_price'] ?? '0.00';
