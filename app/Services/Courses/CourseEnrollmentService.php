@@ -60,40 +60,24 @@ class CourseEnrollmentService
     }
 
     /**
-     * The enrollment's subtotal, defined exactly as
-     * `CourseCommercialDocumentService::calculateCharges()` defines it: activity
-     * price + certificate charge - discount, computed in integer cents so the
-     * enrollment's stored subtotal and the invoice's subtotal cannot drift by a
-     * float. A negative subtotal is refused here rather than persisted, mirroring
-     * the commercial service's own non-negative rule.
+     * The enrollment's subtotal: activity price + certificate charge - discount,
+     * defined exactly as `CourseCommercialDocumentService::calculateCharges()`
+     * defines the amount it taxes.
+     *
+     * The ARITHMETIC is not here: it lives once, in `CourseEdition::sumMoney()` and
+     * `CourseEdition::subtractMoney()` — the same helpers
+     * `CourseEdition::enrollmentMoney()` renders the delivery screen from. That is
+     * what makes the total the screen shows and the subtotal persisted here the same
+     * number for the same delivery, instead of two implementations that happen to
+     * agree until one of them is edited. A negative subtotal is still refused rather
+     * than stored, mirroring the commercial service's own non-negative rule.
      */
     private function subtotalAmount(string $activityPrice, string $certificateCharge, string $discount): string
     {
-        $cents = $this->cents($activityPrice)
-            + $this->cents($certificateCharge)
-            - $this->cents($discount);
-
-        if ($cents < 0) {
-            throw new InvalidCourseEditionData('El subtotal de la matrícula no puede ser negativo.');
-        }
-
-        return sprintf('%d.%02d', intdiv($cents, 100), $cents % 100);
-    }
-
-    /**
-     * A non-negative amount with up to two decimals, read as integer cents without
-     * going through a float — the same reading `CourseCommercialDocumentService`
-     * uses for the charges it taxes.
-     */
-    private function cents(string $amount): int
-    {
-        if (! preg_match('/^\d+(?:\.\d{1,2})?$/', $amount)) {
-            throw new InvalidCourseEditionData("Monto de matrícula inválido: {$amount}.");
-        }
-
-        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
-
-        return ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
+        return CourseEdition::subtractMoney(
+            CourseEdition::sumMoney($activityPrice, $certificateCharge),
+            $discount,
+        );
     }
 
     public function changePaymentStatus(

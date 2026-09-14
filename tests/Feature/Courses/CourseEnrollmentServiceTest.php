@@ -351,4 +351,81 @@ class CourseEnrollmentServiceTest extends TestCase
         $this->assertDatabaseCount('course_enrollments', 2);
         $this->assertSame(2, CourseEnrollment::where('course_edition_id', $edition->id)->count());
     }
+
+    // -----------------------------------------------------------------
+    // The delivery's own per-enrollment money, and the identity that makes a
+    // screen showing it trustworthy: the amount the delivery answers and the
+    // amount the enrollment persists come from ONE definition.
+    // -----------------------------------------------------------------
+
+    public function test_the_delivery_answers_the_same_money_the_enrollment_persists(): void
+    {
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'talk_includes_certificate' => true,
+        ]);
+        $edition = CourseEdition::factory()->create([
+            'course_activity_id' => $activity->id,
+            'price_amount' => '100.00',
+            'certificate_charge_amount' => '25.00',
+        ]);
+
+        // The delivery answers its own money in the shape the screens render: what
+        // attending costs, what the certificate costs, and the total per enrollment.
+        $money = $edition->enrollmentMoney();
+
+        $this->assertSame('100.00', $money['activity_price_amount']);
+        $this->assertSame('25.00', $money['certificate_charge_amount']);
+        $this->assertSame('125.00', $money['total_amount']);
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition, [
+            'first_name' => 'Nora', 'last_name' => 'Vega', 'document_type' => 'dni',
+            'document_number' => '70999101', 'email' => 'nora@example.test', 'mobile' => '+51 999 111 222',
+        ]);
+
+        // ONE definition: an enrollment with no discount charges the delivery's own
+        // total, so a screen rendering that total cannot contradict what was stored.
+        $this->assertSame($money['total_amount'], $enrollment->subtotal_amount);
+        $this->assertDatabaseHas('course_enrollments', [
+            'id' => $enrollment->id,
+            'subtotal_amount' => $money['total_amount'],
+        ]);
+    }
+
+    public function test_a_course_delivery_answers_no_certificate_money_even_when_the_row_was_tampered_with(): void
+    {
+        $activity = CourseActivity::factory()->create(['type' => CourseActivityType::Course]);
+        $edition = CourseEdition::factory()->create([
+            'course_activity_id' => $activity->id,
+            'price_amount' => '300.00',
+        ]);
+
+        DB::table('course_editions')->where('id', $edition->id)->update(['certificate_charge_amount' => '50.00']);
+
+        // The delivery does not re-derive "does a certificate apply": it reads the
+        // same predicate the enrollment charges through, so a tampered row cannot
+        // make the screen promise a certificate nobody bills.
+        $money = $edition->fresh()->enrollmentMoney();
+
+        $this->assertSame('0.00', $money['certificate_charge_amount']);
+        $this->assertSame('300.00', $money['total_amount']);
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition->fresh(), [
+            'first_name' => 'Paz', 'last_name' => 'Rios', 'document_type' => 'dni',
+            'document_number' => '70999102', 'email' => 'paz@example.test', 'mobile' => '+51 999 111 222',
+        ]);
+
+        $this->assertSame($money['total_amount'], $enrollment->subtotal_amount);
+    }
+
+    public function test_the_shared_money_arithmetic_refuses_an_amount_that_is_not_money(): void
+    {
+        // Moving the arithmetic must not turn a malformed amount into zero: the
+        // same refusal the enrollment service always had still comes from the one
+        // place the arithmetic now lives.
+        $this->expectException(InvalidCourseEditionData::class);
+        $this->expectExceptionMessage('Monto de matrícula inválido');
+
+        CourseEdition::sumMoney('100.00', '25,00');
+    }
 }

@@ -58,6 +58,28 @@
                         @endif
                     </dd>
                 @endif
+
+                {{-- The money the operator typed, read back through the ONE definition
+                     the enrollment derives its persisted subtotal from:
+                     `CourseEdition::enrollmentMoney()`. A CANCELLED dictado shows its
+                     money too — it is still what was agreed. No IGV here: the tax
+                     belongs to the commercial document, which already renders it. --}}
+                @php
+                    $money = $edition->enrollmentMoney();
+                @endphp
+                <dt class="col-sm-3">Precio</dt>
+                <dd class="col-sm-9" data-testid="course-talks-edition-price">{{ $money['activity_price_amount'] }} {{ $edition->currency }}</dd>
+
+                {{-- The certificate charge exists only for the activities that issue
+                     one; that is the activity's own predicate, consumed here instead
+                     of re-derived, so a course cannot grow a certificate line. --}}
+                @if ($edition->activity?->issuesTalkCertificate())
+                    <dt class="col-sm-3">Precio del certificado</dt>
+                    <dd class="col-sm-9" data-testid="course-talks-edition-certificate-charge">{{ $money['certificate_charge_amount'] }} {{ $edition->currency }}</dd>
+                @endif
+
+                <dt class="col-sm-3">Total por matrícula</dt>
+                <dd class="col-sm-9 fw-semibold" data-testid="course-talks-edition-total">{{ $money['total_amount'] }} {{ $edition->currency }}</dd>
             </dl>
         </div>
     </div>

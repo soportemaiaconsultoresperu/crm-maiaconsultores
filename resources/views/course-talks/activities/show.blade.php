@@ -19,12 +19,12 @@
                 <a class="btn btn-sm btn-primary" data-testid="course-talks-edition-create-link" href="{{ route('course-talks.editions.create', $activity) }}">Nuevo dictado</a>
             @endcan
         @endslot
-        @slot('headers')<tr><th>Código</th><th>Fechas</th><th>Modalidad</th><th>Estado</th><th></th></tr>@endslot
+        @slot('headers')<tr><th>Código</th><th>Fechas</th><th>Modalidad</th><th>Estado</th><th class="text-end">Precio</th><th></th></tr>@endslot
         @slot('rows')
             @forelse ($activity->editions as $edition)
-                <tr><td><code>{{ $edition->code ?: '—' }}</code></td><td>{{ $edition->starts_on?->format('d/m/Y') }} — {{ $edition->ends_on?->format('d/m/Y') }}</td><td>{{ $edition->modality->label() }}</td><td><span class="badge text-bg-secondary">{{ $edition->state->label() }}</span></td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.editions.show', $edition) }}">Ver detalle</a></td></tr>
+                <tr><td><code>{{ $edition->code ?: '—' }}</code></td><td>{{ $edition->starts_on?->format('d/m/Y') }} — {{ $edition->ends_on?->format('d/m/Y') }}</td><td>{{ $edition->modality->label() }}</td><td><span class="badge text-bg-secondary">{{ $edition->state->label() }}</span></td>{{-- The price each dictado charges, printed here so a mistyped amount is visible without opening every one. The exact stored string, never a reformatted approximation. --}}<td class="text-end" data-testid="course-talks-edition-price-{{ $edition->id }}">{{ $edition->price_amount }} {{ $edition->currency }}</td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{{ route('course-talks.editions.show', $edition) }}">Ver detalle</a></td></tr>
             @empty
-                <tr><td colspan="5" class="text-center text-secondary py-4">No hay dictados registrados.</td></tr>
+                <tr><td colspan="6" class="text-center text-secondary py-4">No hay dictados registrados.</td></tr>
             @endforelse
         @endslot
     </x-table>

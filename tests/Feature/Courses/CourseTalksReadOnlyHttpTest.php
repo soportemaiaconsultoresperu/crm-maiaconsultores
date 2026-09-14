@@ -8,6 +8,7 @@ use App\Enums\Courses\CourseModality;
 use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
 use App\Models\User;
+use App\Services\Courses\CourseEnrollmentService;
 use Database\Seeders\CoursePermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -869,5 +870,192 @@ class CourseTalksReadOnlyHttpTest extends TestCase
             ->assertDontSee('data-testid="course-talks-activity-featured-edition-'.$course->id.'"', false)
             ->assertSee('href="'.route('course-talks.attendance.index', $talkEdition).'"', false)
             ->assertDontSee('href="'.route('course-talks.attendance.index', $courseEdition).'"', false);
+    }
+
+    // -----------------------------------------------------------------
+    // The money the operator saved, read back. The claim under test is NOT
+    // "a number is printed": it is that the amount these screens show for a
+    // delivery is the SAME amount the enrollment persists, so a mistyped price
+    // or certificate charge becomes visible on the screen instead of on the
+    // invoice. Every assertion below reads money out of its own node or out of
+    // the stored row — never out of the page as a whole.
+    // -----------------------------------------------------------------
+
+    /** The delivery-detail viewer used by the money tests. */
+    private function moneyViewer(): User
+    {
+        $this->seed(CoursePermissionsSeeder::class);
+
+        $user = User::factory()->create(['is_active' => true]);
+        $user->givePermissionTo('course-talks.view');
+
+        return $user;
+    }
+
+    /** A talk that issues a certificate: the only activity that may charge one. */
+    private function talkWithCertificate(string $code, string $name): CourseActivity
+    {
+        return CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'talk_includes_certificate' => true,
+            'code' => $code,
+            'name' => $name,
+        ]);
+    }
+
+    /**
+     * One money node of the delivery detail, read from its own `data-testid`, so
+     * the value is the one that cell renders and not a string that happens to
+     * appear somewhere else on the page.
+     */
+    private function renderedMoney(CourseEdition $edition, User $user, string $testId): string
+    {
+        $response = $this->actingAs($user)->get(route('course-talks.editions.show', $edition))->assertOk();
+
+        $matched = preg_match(
+            '/data-testid="'.preg_quote($testId, '/').'"[^>]*>\s*([^<]*?)\s*</',
+            (string) $response->getContent(),
+            $matches
+        );
+
+        $this->assertSame(1, $matched, 'The delivery detail rendered no node `'.$testId.'`.');
+
+        return $matches[1];
+    }
+
+    public function test_the_delivery_detail_renders_the_price_the_certificate_charge_and_the_per_enrollment_total(): void
+    {
+        $user = $this->moneyViewer();
+        $edition = CourseEdition::factory()
+            ->for($this->talkWithCertificate('CHA-MON-001', 'Charla de montos visibles'), 'activity')
+            ->create([
+                'code' => 'ED-MON-001',
+                'price_amount' => '100.00',
+                'certificate_charge_amount' => '25.00',
+            ]);
+
+        $this->actingAs($user)->get(route('course-talks.editions.show', $edition))
+            ->assertOk()
+            ->assertSee('Precio del certificado')
+            ->assertSee('Total por matrícula')
+            // The exact strings the model holds, in the module's own
+            // `amount currency` shape — never a reformatted approximation.
+            ->assertSee('100.00 PEN')
+            ->assertSee('25.00 PEN')
+            ->assertSee('125.00 PEN')
+            // The tax belongs to the commercial document, which already renders
+            // it; this screen must not grow a second breakdown.
+            ->assertDontSee('IGV');
+
+        $this->assertSame('100.00 PEN', $this->renderedMoney($edition, $user, 'course-talks-edition-price'));
+        $this->assertSame('25.00 PEN', $this->renderedMoney($edition, $user, 'course-talks-edition-certificate-charge'));
+        $this->assertSame('125.00 PEN', $this->renderedMoney($edition, $user, 'course-talks-edition-total'));
+    }
+
+    public function test_the_total_the_delivery_detail_renders_is_the_subtotal_the_enrollment_persists(): void
+    {
+        $user = $this->moneyViewer();
+        $edition = CourseEdition::factory()
+            ->for($this->talkWithCertificate('CHA-MON-002', 'Charla de totales'), 'activity')
+            ->create([
+                'code' => 'ED-MON-002',
+                'price_amount' => '100.00',
+                'certificate_charge_amount' => '25.00',
+            ]);
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition, [
+            'first_name' => 'Ana', 'last_name' => 'Torres', 'document_type' => 'dni',
+            'document_number' => '70999001', 'email' => 'moneda@example.test', 'mobile' => '+51 999 111 222',
+        ]);
+
+        // The whole unit exists for this identity: the number the screen SHOWS
+        // and the number the enrollment STORED are the same number, because both
+        // are the delivery's own money read through ONE definition. Compared as
+        // the exact stored strings (no float, no rounding) so a drift of a single
+        // cent fails here.
+        $this->assertSame('125.00', $enrollment->subtotal_amount);
+        $this->assertSame(
+            $enrollment->subtotal_amount.' '.$enrollment->currency,
+            $this->renderedMoney($edition, $user, 'course-talks-edition-total')
+        );
+    }
+
+    public function test_a_course_delivery_detail_shows_its_money_but_no_certificate_line(): void
+    {
+        $user = $this->moneyViewer();
+        $edition = CourseEdition::factory()
+            ->for(CourseActivity::factory()->state([
+                'type' => CourseActivityType::Course,
+                'code' => 'CUR-MON-003',
+                'name' => 'Curso sin certificado de charla',
+            ]), 'activity')
+            ->create(['code' => 'ED-MON-003', 'price_amount' => '480.00']);
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition, [
+            'first_name' => 'Luz', 'last_name' => 'Ramos', 'document_type' => 'dni',
+            'document_number' => '70999002', 'email' => 'curso.moneda@example.test', 'mobile' => '+51 999 111 222',
+        ]);
+
+        $this->actingAs($user)->get(route('course-talks.editions.show', $edition))
+            ->assertOk()
+            ->assertSee('480.00 PEN')
+            // A course has no talk certificate, so the line does not exist at all
+            // — not even reading 0.00, which would suggest a merely empty amount.
+            ->assertDontSee('Precio del certificado')
+            ->assertDontSee('data-testid="course-talks-edition-certificate-charge"', false)
+            ->assertDontSee('IGV');
+
+        $this->assertSame('0.00', $enrollment->certificate_charge_amount);
+        $this->assertSame(
+            $enrollment->subtotal_amount.' '.$enrollment->currency,
+            $this->renderedMoney($edition, $user, 'course-talks-edition-total')
+        );
+    }
+
+    public function test_a_cancelled_delivery_still_shows_the_money_that_was_agreed(): void
+    {
+        $user = $this->moneyViewer();
+        $edition = CourseEdition::factory()
+            ->for($this->talkWithCertificate('CHA-MON-004', 'Charla cancelada'), 'activity')
+            ->create([
+                'code' => 'ED-MON-004',
+                'state' => CourseEditionState::Cancelled,
+                'price_amount' => '80.00',
+                'certificate_charge_amount' => '20.00',
+            ]);
+
+        $this->actingAs($user)->get(route('course-talks.editions.show', $edition))
+            ->assertOk()
+            ->assertSee('Cancelada')
+            ->assertSee('80.00 PEN')
+            ->assertSee('20.00 PEN')
+            ->assertSee('100.00 PEN');
+    }
+
+    public function test_the_activity_detail_lists_the_price_of_every_delivery(): void
+    {
+        $user = $this->moneyViewer();
+        $activity = CourseActivity::factory()->create(['code' => 'CUR-MON-005', 'name' => 'Curso de precios visibles']);
+        $priced = CourseEdition::factory()->for($activity, 'activity')->create([
+            'code' => 'ED-MON-005',
+            'price_amount' => '1234.50',
+        ]);
+        $free = CourseEdition::factory()->for($activity, 'activity')->create([
+            'code' => 'ED-MON-006',
+            'price_amount' => '0.00',
+        ]);
+
+        $this->actingAs($user)->get(route('course-talks.activities.show', $activity))
+            ->assertOk()
+            ->assertSee('Precio')
+            // The exact string the column holds, so a mistyped price is readable
+            // on the list itself: never rounded, never re-grouped.
+            ->assertSee('data-testid="course-talks-edition-price-'.$priced->id.'"', false)
+            ->assertSee('1234.50 PEN')
+            ->assertDontSee('1,234.50')
+            // A free delivery is a price too, and it must read 0.00 rather than
+            // an empty cell nobody can tell from a missing value.
+            ->assertSee('data-testid="course-talks-edition-price-'.$free->id.'"', false)
+            ->assertSee('0.00 PEN');
     }
 }
