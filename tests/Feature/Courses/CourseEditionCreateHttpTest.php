@@ -10,6 +10,7 @@ use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
 use App\Models\User;
 use App\Services\Courses\CourseEditionService;
+use App\Services\Courses\CourseEnrollmentService;
 use Database\Seeders\CoursePermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -56,6 +57,30 @@ class CourseEditionCreateHttpTest extends TestCase
             'type' => CourseActivityType::Course,
             'code' => 'CUR-EDX-001',
             'name' => 'Curso Base',
+        ]);
+    }
+
+    /**
+     * The only activity kind a certificate charge applies to: a TALK that
+     * includes a certificate.
+     */
+    private function certificateTalk(string $code = 'CHA-CERT-001'): CourseActivity
+    {
+        return CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'code' => $code,
+            'name' => 'Charla con certificado',
+            'talk_includes_certificate' => true,
+        ]);
+    }
+
+    private function talkWithoutCertificate(string $code = 'CHA-NOCERT-001'): CourseActivity
+    {
+        return CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'code' => $code,
+            'name' => 'Charla sin certificado',
+            'talk_includes_certificate' => false,
         ]);
     }
 
@@ -524,5 +549,224 @@ class CourseEditionCreateHttpTest extends TestCase
 'modality' => CourseModality::Virtual->value,
 'access_url' => 'https://example.test/clase',
         ]);
+    }
+
+    // --- The certificate charge lives on the delivery -------------------------
+    //
+    // The certificate price moved from the ACTIVITY (the reusable template, whose
+    // `talk_certificate_price` column was dropped) to the DELIVERY (the concrete
+    // one, whose `certificate_charge_amount` column was added), so the create-form
+    // for a delivery is the only place an operator can still enter it.
+    //
+    // WHERE the field is offered is decided on the SERVER: `$activity` is already
+    // bound when `CourseEditionController::create()` renders the view, so the view
+    // simply does not render a control that cannot apply. Script-based hiding was
+    // rejected here because a course, or a talk without a certificate, is answered
+    // by `CourseActivity::issuesTalkCertificate()` before any JavaScript runs, and
+    // `CourseEdition`'s write guard zeroes the column anyway — offering the field
+    // would be a lie about what the operator can change.
+
+    public function test_the_edition_form_does_not_offer_a_certificate_charge_for_a_course(): void
+    {
+        $user = $this->editionManager();
+
+        $this->actingAs($user)->get(route('course-talks.editions.create', $this->activity()))
+            ->assertOk()
+            ->assertDontSee('certificate_charge_amount');
+    }
+
+    public function test_the_edition_form_does_not_offer_a_certificate_charge_for_a_talk_without_one(): void
+    {
+        $user = $this->editionManager();
+
+        $this->actingAs($user)->get(route('course-talks.editions.create', $this->talkWithoutCertificate()))
+            ->assertOk()
+            ->assertDontSee('certificate_charge_amount');
+    }
+
+    public function test_the_edition_form_offers_a_certificate_charge_for_a_talk_that_includes_one(): void
+    {
+        $user = $this->editionManager();
+
+        $this->actingAs($user)->get(route('course-talks.editions.create', $this->certificateTalk()))
+            ->assertOk()
+            ->assertSee('certificate_charge_amount');
+    }
+
+    public function test_a_certificate_talk_edition_stores_the_submitted_certificate_charge(): void
+    {
+        $user = $this->editionManager();
+        $activity = $this->certificateTalk();
+
+        $this->actingAs($user)->post(route('course-talks.editions.store', $activity), [
+            'modality' => CourseModality::Virtual->value,
+            'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
+            'certificate_charge_amount' => '25.00',
+        ])->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('course_editions', [
+            'course_activity_id' => $activity->id,
+            'certificate_charge_amount' => '25.00',
+        ]);
+    }
+
+    public function test_a_course_edition_ignores_a_certificate_charge_the_payload_tries_to_set(): void
+    {
+        // The form no longer renders the control for a course, so only a crafted
+        // payload (curl, a stale tab, a future consumer of the service) can try.
+        // This is the test that proves the CourseEdition write guard is reachable
+        // from the CREATE path and not bypassed there.
+        $user = $this->editionManager();
+        $activity = $this->activity();
+
+        $this->actingAs($user)->post(route('course-talks.editions.store', $activity), [
+            'modality' => CourseModality::Virtual->value,
+            'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
+            'certificate_charge_amount' => '50.00',
+        ])->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $edition = CourseEdition::query()->latest('id')->firstOrFail();
+
+        $this->assertSame('0.00', $edition->certificate_charge_amount);
+        $this->assertDatabaseHas('course_editions', [
+            'id' => $edition->id,
+            'certificate_charge_amount' => '0.00',
+        ]);
+    }
+
+    public function test_a_talk_without_a_certificate_ignores_a_certificate_charge_the_payload_tries_to_set(): void
+    {
+        $user = $this->editionManager();
+        $activity = $this->talkWithoutCertificate();
+
+        $this->actingAs($user)->post(route('course-talks.editions.store', $activity), [
+            'modality' => CourseModality::Virtual->value,
+            'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
+            'certificate_charge_amount' => '50.00',
+        ])->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('course_editions', [
+            'course_activity_id' => $activity->id,
+            'certificate_charge_amount' => '0.00',
+        ]);
+    }
+
+    public function test_an_omitted_certificate_charge_stores_zero_instead_of_dying_on_a_not_null_column(): void
+    {
+        // `course_editions.certificate_charge_amount` is NOT NULL with a default of 0.
+        // A blank value used to be the exact shape that killed `price_amount`: the
+        // request let a NULL through and the insert died as a QueryException instead
+        // of storing the zero it means. Both the absent key and the blank string are
+        // enumerated here for that reason.
+        $user = $this->editionManager();
+        $activity = $this->certificateTalk();
+
+        foreach ([['k' => null], ['k' => ''], ['k' => '0']] as $case) {
+            $payload = [
+                'modality' => CourseModality::Virtual->value,
+                'access_url' => 'https://meet.example.test',
+                'price_amount' => '150.00',
+            ];
+
+            if ($case['k'] !== null) {
+                $payload['certificate_charge_amount'] = $case['k'];
+            }
+
+            $this->actingAs($user)->post(route('course-talks.editions.store', $activity), $payload)
+                ->assertRedirect()
+                ->assertSessionHasNoErrors();
+        }
+
+        $this->assertDatabaseCount('course_editions', 3);
+        $this->assertDatabaseHas('course_editions', ['certificate_charge_amount' => '0.00']);
+    }
+
+    public function test_the_certificate_charge_is_rejected_when_it_is_not_money_within_bounds(): void
+    {
+        // Money is REJECTED, never clamped: silently turning 999999999 into the
+        // maximum, or -1 into 0, would change what the operator typed.
+        $user = $this->editionManager();
+        $activity = $this->certificateTalk();
+
+        foreach (['-1', 'no-es-un-monto', '999999999.99'] as $invalid) {
+            $this->actingAs($user)
+                ->from(route('course-talks.editions.create', $activity))
+                ->post(route('course-talks.editions.store', $activity), [
+                    'modality' => CourseModality::Virtual->value,
+                    'access_url' => 'https://meet.example.test',
+                    'price_amount' => '150.00',
+                    'certificate_charge_amount' => $invalid,
+                ])
+                ->assertRedirect(route('course-talks.editions.create', $activity))
+                ->assertSessionHasErrors('certificate_charge_amount');
+        }
+
+        $this->assertDatabaseCount('course_editions', 0);
+    }
+
+    public function test_the_certificate_charge_entered_on_the_form_is_what_the_enrollment_is_charged(): void
+    {
+        // The whole point of moving the money to the delivery: what the operator
+        // types on this form is what a participant is charged, and it is part of the
+        // subtotal the commercial document taxes. The form is the only INPUT; the
+        // charge itself is still resolved by the edition.
+        $user = $this->editionManager();
+        $activity = $this->certificateTalk();
+
+        $this->actingAs($user)->post(route('course-talks.editions.store', $activity), [
+            'modality' => CourseModality::Virtual->value,
+            'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
+            'certificate_charge_amount' => '25.00',
+        ])->assertRedirect();
+
+        $edition = CourseEdition::query()->latest('id')->firstOrFail();
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition, [
+            'first_name' => 'Ana',
+            'last_name' => 'Torres',
+            'document_type' => 'dni',
+            'document_number' => '70999001',
+            'email' => 'ana.edition-certificate@example.test',
+            'mobile' => '+51 999 000 111',
+        ]);
+
+        $this->assertSame('25.00', $enrollment->certificate_charge_amount);
+        $this->assertSame('175.00', $enrollment->subtotal_amount);
+    }
+
+    public function test_the_write_guard_is_reachable_on_the_create_path_for_callers_that_bypass_http(): void
+    {
+        // The previous commit claims "the write guard forces a course's charge to
+        // 0.00 on write". This calls the SERVICE directly, so the FormRequest is not
+        // in the way at all: if the value comes back as 0.00 it is because the MODEL
+        // enforced it, not because a request happened to drop the key. This is the
+        // answer to "is the write guard reachable from the create path?" — yes.
+        $edition = app(CourseEditionService::class)->create($this->activity(), [
+            'modality' => CourseModality::Virtual->value,
+            'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
+            'certificate_charge_amount' => '50.00',
+        ]);
+
+        $this->assertSame('0.00', $edition->fresh()->certificate_charge_amount);
+    }
+
+    public function test_the_service_passes_the_certificate_charge_through_for_a_certificate_talk(): void
+    {
+        $edition = app(CourseEditionService::class)->create($this->certificateTalk(), [
+            'modality' => CourseModality::Virtual->value,
+            'access_url' => 'https://meet.example.test',
+            'price_amount' => '150.00',
+            'certificate_charge_amount' => '25.00',
+        ]);
+
+        $this->assertSame('25.00', $edition->fresh()->certificate_charge_amount);
     }
 }

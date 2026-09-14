@@ -135,11 +135,11 @@ class CourseActivityCreateHttpTest extends TestCase
         $activity = CourseActivity::query()->where('code', 'CHA-NEW-001')->firstOrFail();
         $this->assertSame(CourseActivityType::Talk, $activity->type);
         $this->assertTrue($activity->talk_includes_certificate);
-        // `talk_certificate_price` still travels in the payload (the create form is a
-        // separate step and still renders the field), but it is no longer an activity
-        // property: the delivery owns the amount now, and the service deliberately
-        // ignores the activity-level price that would otherwise be written to a column
-        // that no longer exists.
+        // `talk_certificate_price` still travels in the payload because an
+        // operator's cached form can still post it, but it is no longer an
+        // activity property: the price moved to the delivery
+        // (`course_editions.certificate_charge_amount`) and neither this request
+        // nor the service owns an activity-level certificate price any more.
         $this->assertSame([], $activity->base_syllabus_json);
     }
 
@@ -300,6 +300,64 @@ class CourseActivityCreateHttpTest extends TestCase
             'talk_includes_certificate' => true,
             'talk_certificate_price' => 12.50,
         ]);
+
+        $this->assertSame(CourseActivityType::Talk, $activity->type);
+        $this->assertTrue($activity->talk_includes_certificate);
+    }
+
+    // --- The dead certificate price is gone from the activity form -------------
+    //
+    // `course_activities.talk_certificate_price` was dropped when the certificate
+    // charge moved to the delivery, but the create form kept rendering the input:
+    // the operator typed a price, the browser posted it, and the server silently
+    // ignored it. A control that cannot change anything is worse than no control,
+    // because it makes the operator believe the price they typed was saved. The
+    // field that IS still meaningful (`talk_includes_certificate`) stays, and stays
+    // talk-only for the existing script.
+
+    public function test_the_activity_form_no_longer_offers_the_dead_certificate_price_field(): void
+    {
+        $user = $this->manager();
+
+        $this->actingAs($user)->get(route('course-talks.activities.create'))
+            ->assertOk()
+            ->assertDontSee('talk_certificate_price');
+    }
+
+    public function test_the_talk_certificate_checkbox_survives_the_removal_of_the_dead_field(): void
+    {
+        // The negative control for the removal: the checkbox is a real talk field
+        // (it drives certificate eligibility) and must not have been swept away with
+        // the dead price. `data-talk-only` is the DOM hook the view's script reads to
+        // hide it for a course.
+        $user = $this->manager();
+
+        $this->actingAs($user)->get(route('course-talks.activities.create'))
+            ->assertOk()
+            ->assertSee('talk_includes_certificate')
+            ->assertSee('data-talk-only', false)
+            ->assertSee('Charla con certificado');
+    }
+
+    public function test_a_payload_carrying_the_removed_certificate_price_is_still_accepted(): void
+    {
+        // A cached form (rendered before the deploy) can still post the removed key.
+        // The request no longer declares a rule for it, so it must be IGNORED rather
+        // than rejected — otherwise every operator holding a stale tab would get a
+        // validation error they cannot fix.
+        $user = $this->manager();
+
+        $this->actingAs($user)->post(route('course-talks.activities.store'), [
+            'type' => CourseActivityType::Talk->value,
+            'code' => 'CHA-STALEPRICE-001',
+            'name' => 'Charla con precio obsoleto',
+            'official_academic_hours' => '3.00',
+            'talk_includes_certificate' => '1',
+            'talk_certificate_price' => '999.00',
+        ])->assertRedirect(route('course-talks.activities.index'))
+            ->assertSessionHasNoErrors();
+
+        $activity = CourseActivity::query()->where('code', 'CHA-STALEPRICE-001')->firstOrFail();
 
         $this->assertSame(CourseActivityType::Talk, $activity->type);
         $this->assertTrue($activity->talk_includes_certificate);

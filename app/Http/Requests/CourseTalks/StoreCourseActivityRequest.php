@@ -10,8 +10,14 @@ use Illuminate\Validation\Rule;
  * Validates exactly the attributes the existing CourseActivityService::create()
  * contract consumes. Domain rules stay in the service: `code` uniqueness is not
  * re-implemented here, and `slug`, `official_academic_hours`, `base_syllabus_json`,
- * `talk_includes_certificate`, `talk_certificate_price` and `is_active` keep their
- * service-side defaults when the request omits them.
+ * `talk_includes_certificate` and `is_active` keep their service-side defaults
+ * when the request omits them.
+ *
+ * `talk_certificate_price` is NOT declared and must not come back: the column was
+ * dropped when the certificate charge moved to the delivery, so a rule here would
+ * only give a dead input a plausible-looking home. An operator's cached form can
+ * still post the key; undeclared keys are ignored, which is the behaviour we want
+ * (reporting an error the operator cannot fix would be worse than accepting it).
  */
 class StoreCourseActivityRequest extends FormRequest
 {
@@ -70,7 +76,6 @@ class StoreCourseActivityRequest extends FormRequest
             'base_syllabus_json' => ['nullable', 'array'],
             'base_syllabus_json.*' => ['string', 'max:255'],
             'talk_includes_certificate' => ['nullable', 'boolean'],
-            'talk_certificate_price' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'is_active' => ['nullable', 'boolean'],
         ];
     }

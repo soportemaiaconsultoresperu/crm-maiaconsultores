@@ -16,6 +16,13 @@ use Illuminate\Validation\Rule;
  * `required_if` rules. `state`, `currency` and `delivery_due_days` are
  * intentionally absent: the service owns those defaults, so posting them has no
  * effect (FormRequest::validated() only returns keys that have rules here).
+ *
+ * `certificate_charge_amount` is DELIVERY money that only applies to a talk that
+ * includes a certificate, but the "does it apply" rule is deliberately NOT
+ * repeated here (no `required_if` over the route's activity):
+ * CourseActivity::issuesTalkCertificate() owns it and CourseEdition's write
+ * guard enforces it, so a course's submission is accepted and zeroed rather than
+ * rejected by a second, drifting copy of the same rule.
  */
 class StoreCourseEditionRequest extends FormRequest
 {
@@ -69,6 +76,13 @@ class StoreCourseEditionRequest extends FormRequest
             // and died there as an uncaught QueryException instead of telling the operator what
             // was missing. Zero stays valid, because a free edition is a real edition.
             'price_amount' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            // Optional DELIVERY money, same bounds as every other amount in the module.
+            // Money is REJECTED, never clamped: silently turning a typo into the
+            // maximum, or a negative into zero, would change what the operator typed.
+            // `nullable` because it genuinely does not apply to most deliveries (a
+            // course, or a talk without a certificate), and the model's write guard
+            // — not this rule — is what keeps it at '0.00' when it does not apply.
+            'certificate_charge_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'syllabus_override_json' => ['nullable', 'array'],
             'syllabus_override_json.*' => ['string', 'max:255'],
             'responsible_user_id' => ['nullable', 'integer', 'exists:users,id'],

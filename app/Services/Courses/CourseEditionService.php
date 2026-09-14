@@ -43,6 +43,20 @@ class CourseEditionService
             throw InvalidCourseEditionData::forField('code', "Course edition code {$code} is already in use.");
         }
 
+        // The certificate charge is OPTIONAL DELIVERY MONEY: the create form offers it
+        // only for a talk that includes a certificate, and every other delivery is worth
+        // '0.00' (the column's own default). A blank value must become '0.00' HERE
+        // instead of travelling as an explicit NULL, because the column is NOT NULL and
+        // the insert would die as a QueryException — the exact defect `price_amount`
+        // had. This is NOT a second copy of "does a certificate apply": that rule
+        // belongs to CourseActivity::issuesTalkCertificate() and is enforced on write by
+        // CourseEdition's `saving` guard, which zeroes the column whenever the activity
+        // is not a certificate talk. This only reads "no amount entered" as the zero it
+        // means.
+        $attributes['certificate_charge_amount'] = $this->normalizeCertificateCharge(
+            $attributes['certificate_charge_amount'] ?? null,
+        );
+
         return DB::transaction(function () use ($activity, $attributes, $location, $code): CourseEdition {
             $edition = CourseEdition::create(array_merge($attributes, $location, [
                 'course_activity_id' => $activity->id,
@@ -142,6 +156,22 @@ class CourseEditionService
         }
 
         return ['modality' => $modality->value, 'address' => $address ?: null, 'access_url' => $accessUrl ?: null];
+    }
+
+    /**
+     * An absent or blank certificate charge means "this delivery charges nothing for
+     * the certificate", which is the column's own default ('0.00'), not a NULL — the
+     * column is NOT NULL and an explicit NULL insert raises a QueryException instead of
+     * storing the zero. A value that IS present is passed through untouched: whether it
+     * may be kept at all is the model's write guard's decision, never this method's.
+     */
+    private function normalizeCertificateCharge(mixed $charge): string
+    {
+        if ($charge === null || $charge === '') {
+            return '0.00';
+        }
+
+        return (string) $charge;
     }
 
     public function transitionState(CourseEdition $edition, CourseEditionState|string $target): CourseEdition

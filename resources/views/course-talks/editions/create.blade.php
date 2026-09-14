@@ -50,6 +50,24 @@
                         <x-text-input name="price_amount" type="number" label="Precio"
                                       :value="old('price_amount')" step="0.01" min="0" :required="true"/>
                     </div>
+                    {{-- The certificate charge is DELIVERY money, and it only applies to a
+                         talk that includes a certificate. That decision is made
+                         SERVER-SIDE: the activity is already bound when this view renders
+                         (`CourseEditionController::create()` passes `$activity`), so the
+                         field simply is not rendered when it cannot apply. Hiding it with
+                         script would be the weaker option — a script is not a rule, it can
+                         be skipped, and for a course the value would be zeroed by
+                         `CourseEdition`'s write guard anyway, so offering the control
+                         would promise a change the domain refuses to keep.
+                         `CourseActivity::issuesTalkCertificate()` owns the rule; this view
+                         only asks it. --}}
+                    @if ($activity->issuesTalkCertificate())
+                        <div class="col-md-4" data-testid="course-talks-edition-certificate-charge">
+                            <x-text-input name="certificate_charge_amount" type="number" label="Precio del certificado"
+                                          :value="old('certificate_charge_amount')" step="0.01" min="0"
+                                          help="Se suma al precio en cada matrícula de este dictado. Use 0 si el certificado no se cobra."/>
+                        </div>
+                    @endif
                     <div class="col-md-3">
                         <x-text-input name="starts_on" type="date" label="Fecha de inicio" :value="old('starts_on')"/>
                     </div>

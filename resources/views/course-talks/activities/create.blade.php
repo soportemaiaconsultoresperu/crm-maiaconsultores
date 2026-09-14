@@ -46,17 +46,20 @@
                         <x-text-input name="official_academic_hours" type="number" label="Horas académicas"
                                       :value="old('official_academic_hours')" step="0.01" min="0" :required="true"/>
                     </div>
-                    {{-- The two talk-only controls are rendered VISIBLE and ENABLED on the
+                    {{-- The talk-only control is rendered VISIBLE and ENABLED on the
                          server, and the script at the bottom of this view is what hides
-                         them for a course. That order is deliberate: a user whose script
+                         it for a course. That order is deliberate: a user whose script
                          does not run still gets a usable form in which a talk can carry
-                         its certificate, and the fields only disappear when something is
-                         actually running to keep them truthful (cleared and disabled, so
-                         no stale value can post). --}}
-                    <div class="col-md-4" data-talk-only>
-                        <x-text-input name="talk_certificate_price" type="number" label="Precio del certificado de charla"
-                                      :value="old('talk_certificate_price')" step="0.01" min="0"/>
-                    </div>
+                         its certificate, and the field only disappears when something is
+                         actually running to keep it truthful (cleared and disabled, so
+                         no stale value can post).
+
+                         The certificate PRICE used to sit next to it and was REMOVED:
+                         `course_activities.talk_certificate_price` was dropped when the
+                         charge moved to the delivery, so the input collected a number
+                         the server silently ignored. The delivery form
+                         (`course-talks.editions.create`) is now the only place a
+                         certificate charge can be entered. --}}
                     <div class="col-md-4 d-flex flex-column justify-content-end" data-talk-only>
                         <div class="form-check mb-2">
                             <input type="hidden" name="talk_includes_certificate" value="0">
@@ -103,28 +106,31 @@
             (function () {
                 'use strict';
 
-                // Hiding the talk-only certificate fields while the type is a course.
+                // Hiding the talk-only certificate checkbox while the type is a course.
                 //
                 // Progressive enhancement, in this order on purpose: the server renders
-                // the fields visible and enabled, and THIS script is what hides them.
+                // the control visible and enabled, and THIS script is what hides it.
                 // A user whose script does not run therefore keeps a working form in
-                // which a talk can carry its certificate price, and only loses the
-                // tidiness of not seeing two inapplicable controls while creating a
-                // course. Nothing is hidden from someone who cannot un-hide it.
+                // which a talk can carry its certificate, and only loses the tidiness
+                // of not seeing an inapplicable control while creating a course.
+                // Nothing is hidden from someone who cannot un-hide it.
                 //
                 // Hiding alone would also be a lie, because a hidden control still
                 // posts: the value is cleared and the control DISABLED (a disabled
                 // control is excluded from the submitted payload), which is what stops
-                // a seller who typed a certificate price and then switched to Course
-                // from saving it on a course. Switching back to Talk un-hides and
-                // re-enables the fields but does NOT resurrect the cleared value — the
-                // operator retypes the price rather than inheriting one they discarded.
+                // a seller who ticked "Charla con certificado" and then switched to
+                // Course from saving it on a course. Switching back to Talk un-hides
+                // and re-enables the control but does NOT resurrect the cleared value
+                // — the operator re-ticks it rather than inheriting a declaration they
+                // discarded.
                 //
                 // The DOM contract the server owns: the form carries
                 // data-testid="course-talks-activity-create-form", the type <select> is
                 // named "type" and uses the CourseActivityType values, and each wrapper
                 // the script may hide is marked data-talk-only. The script reads those
-                // hooks and never hard-codes the visibility of anything else.
+                // hooks and never hard-codes the visibility of anything else. There is
+                // one such wrapper today (the certificate checkbox); the loop stays
+                // generic so a future talk-only field needs no script change.
                 //
                 // No test seam: this repository has no JavaScript test runner, so the
                 // behaviour described above is NOT covered by an assertion anywhere.
