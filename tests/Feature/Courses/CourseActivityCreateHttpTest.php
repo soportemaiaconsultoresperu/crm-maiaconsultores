@@ -135,7 +135,11 @@ class CourseActivityCreateHttpTest extends TestCase
         $activity = CourseActivity::query()->where('code', 'CHA-NEW-001')->firstOrFail();
         $this->assertSame(CourseActivityType::Talk, $activity->type);
         $this->assertTrue($activity->talk_includes_certificate);
-        $this->assertSame('25.00', $activity->talk_certificate_price);
+        // `talk_certificate_price` still travels in the payload (the create form is a
+        // separate step and still renders the field), but it is no longer an activity
+        // property: the delivery owns the amount now, and the service deliberately
+        // ignores the activity-level price that would otherwise be written to a column
+        // that no longer exists.
         $this->assertSame([], $activity->base_syllabus_json);
     }
 
@@ -225,9 +229,9 @@ class CourseActivityCreateHttpTest extends TestCase
 
     // --- A course cannot carry talk certificate data --------------------------
     //
-    // The talk-only fields (`talk_includes_certificate`, `talk_certificate_price`)
-    // are meaningless on a course: a course does not issue a per-activity
-    // certificate at its own price. The form now hides them for a course, but a
+    // The talk-only flag (`talk_includes_certificate`) is meaningless on a course:
+    // a course does not issue a per-activity certificate at its own price. The form
+    // now hides it for a course, but a
     // HIDDEN field is only a presentation detail — the payload is the thing that
     // reaches the database, and a payload can be built by anything (curl, a
     // stale browser tab, a future consumer of the service). The invariant
@@ -254,13 +258,11 @@ class CourseActivityCreateHttpTest extends TestCase
         $this->assertDatabaseHas('course_activities', [
             'code' => 'CUR-TALKFLAGS-001',
             'talk_includes_certificate' => 0,
-            'talk_certificate_price' => '0.00',
         ]);
 
         $activity = CourseActivity::query()->where('code', 'CUR-TALKFLAGS-001')->firstOrFail();
         $this->assertSame(CourseActivityType::Course, $activity->type);
         $this->assertFalse($activity->talk_includes_certificate);
-        $this->assertSame('0.00', $activity->talk_certificate_price);
     }
 
     public function test_the_service_strips_talk_certificate_data_from_a_course_for_callers_that_bypass_http(): void
@@ -278,12 +280,10 @@ class CourseActivityCreateHttpTest extends TestCase
         ]);
 
         $this->assertFalse($activity->talk_includes_certificate);
-        $this->assertSame('0.00', $activity->talk_certificate_price);
 
         $this->assertDatabaseHas('course_activities', [
             'code' => 'CUR-TALKFLAGS-002',
             'talk_includes_certificate' => 0,
-            'talk_certificate_price' => '0.00',
         ]);
     }
 
@@ -303,6 +303,5 @@ class CourseActivityCreateHttpTest extends TestCase
 
         $this->assertSame(CourseActivityType::Talk, $activity->type);
         $this->assertTrue($activity->talk_includes_certificate);
-        $this->assertSame('12.50', $activity->talk_certificate_price);
     }
 }

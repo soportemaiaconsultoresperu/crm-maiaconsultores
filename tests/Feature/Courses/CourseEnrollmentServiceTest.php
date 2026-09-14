@@ -4,11 +4,16 @@ namespace Tests\Feature\Courses;
 
 use App\Models\Contact;
 use App\Models\Customer;
+use App\Enums\Courses\CommercialDocumentType;
+use App\Exceptions\Courses\InvalidCourseEditionData;
+use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
+use App\Enums\Courses\CourseActivityType;
 use App\Enums\Courses\PaymentStatus;
 use App\Events\Courses\CourseEligibilityEvaluationRequested;
 use App\Jobs\Courses\EvaluateCourseDocumentEligibility;
 use App\Models\Courses\CourseEnrollment;
+use App\Services\Courses\CourseCommercialDocumentService;
 use App\Services\Courses\CourseEnrollmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +25,164 @@ use Tests\TestCase;
 class CourseEnrollmentServiceTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_a_talk_enrollment_charges_the_delivery_certificate_and_includes_it_in_the_subtotal(): void
+    {
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'talk_includes_certificate' => true,
+        ]);
+        $edition = CourseEdition::factory()->create([
+            'course_activity_id' => $activity->id,
+            'price_amount' => '100.00',
+            'certificate_charge_amount' => '25.00',
+        ]);
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition, [
+            'first_name' => 'Ana', 'last_name' => 'Torres', 'document_type' => 'dni',
+            'document_number' => '70123456', 'email' => 'ana@example.test', 'mobile' => '+51 999 111 222',
+        ]);
+
+        // The delivery charges S/25 for the certificate, so the enrollment charges
+        // S/25 too and its subtotal is the sum it claims to be: 100 + 25 - 0.
+        $this->assertSame('100.00', $enrollment->activity_price_amount);
+        $this->assertSame('25.00', $enrollment->certificate_charge_amount);
+        $this->assertSame('125.00', $enrollment->subtotal_amount);
+        $this->assertDatabaseHas('course_enrollments', [
+            'id' => $enrollment->id,
+            'certificate_charge_amount' => '25.00',
+            'subtotal_amount' => '125.00',
+        ]);
+    }
+
+    public function test_a_course_enrollment_never_charges_a_certificate_even_when_the_delivery_row_holds_one(): void
+    {
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Course,
+            'talk_includes_certificate' => false,
+        ]);
+        $edition = CourseEdition::factory()->create([
+            'course_activity_id' => $activity->id,
+            'price_amount' => '100.00',
+        ]);
+
+        // The write guard forces a course's stored charge to 0.00; this raw write
+        // bypasses it on purpose, so the test proves the ENROLLMENT resolver also
+        // refuses to charge — even a tampered row cannot make a course bill a
+        // certificate nobody issues.
+        DB::table('course_editions')->where('id', $edition->id)->update(['certificate_charge_amount' => '50.00']);
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition->fresh(), [
+            'first_name' => 'Ana', 'last_name' => 'Torres', 'document_type' => 'dni',
+            'document_number' => '70123457', 'email' => 'ana.course@example.test', 'mobile' => '+51 999 111 222',
+        ]);
+
+        $this->assertSame('0.00', $enrollment->certificate_charge_amount);
+        $this->assertSame('100.00', $enrollment->subtotal_amount);
+    }
+
+    public function test_a_talk_without_a_certificate_never_charges_one_even_when_the_delivery_row_holds_one(): void
+    {
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'talk_includes_certificate' => false,
+        ]);
+        $edition = CourseEdition::factory()->create([
+            'course_activity_id' => $activity->id,
+            'price_amount' => '100.00',
+        ]);
+
+        DB::table('course_editions')->where('id', $edition->id)->update(['certificate_charge_amount' => '50.00']);
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition->fresh(), [
+            'first_name' => 'Luz', 'last_name' => 'Ramos', 'document_type' => 'dni',
+            'document_number' => '70123458', 'email' => 'luz.talk@example.test', 'mobile' => '+51 999 111 222',
+        ]);
+
+        $this->assertSame('0.00', $enrollment->certificate_charge_amount);
+        $this->assertSame('100.00', $enrollment->subtotal_amount);
+    }
+
+    public function test_a_course_edition_cannot_store_a_certificate_charge(): void
+    {
+        $activity = CourseActivity::factory()->create(['type' => CourseActivityType::Course]);
+
+        // The operator (or a future form, or curl) hands a course delivery a
+        // certificate charge. A course does not issue a talk certificate, so the
+        // domain refuses to keep it — the same invariant the activity already holds.
+        $edition = CourseEdition::factory()->create([
+            'course_activity_id' => $activity->id,
+            'certificate_charge_amount' => '50.00',
+        ]);
+
+        $this->assertSame('0.00', $edition->fresh()->certificate_charge_amount);
+        $this->assertDatabaseHas('course_editions', [
+            'id' => $edition->id,
+            'certificate_charge_amount' => '0.00',
+        ]);
+    }
+
+    public function test_a_talk_edition_keeps_the_certificate_charge_the_operator_declared(): void
+    {
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'talk_includes_certificate' => true,
+        ]);
+
+        $edition = CourseEdition::factory()->create([
+            'course_activity_id' => $activity->id,
+            'certificate_charge_amount' => '25.00',
+        ]);
+
+        // The negative control: the invariant is a rejection of course data, not a
+        // blanket wipe, so a talk keeps exactly what the operator declared.
+        $this->assertSame('25.00', $edition->fresh()->certificate_charge_amount);
+    }
+
+    public function test_the_enrollment_subtotal_is_the_subtotal_the_commercial_document_taxes(): void
+    {
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Talk,
+            'talk_includes_certificate' => true,
+        ]);
+        $edition = CourseEdition::factory()->create([
+            'course_activity_id' => $activity->id,
+            'price_amount' => '100.00',
+            'certificate_charge_amount' => '25.00',
+        ]);
+
+        $enrollment = app(CourseEnrollmentService::class)->enroll($edition, [
+            'first_name' => 'Marco', 'last_name' => 'Diaz', 'document_type' => 'dni',
+            'document_number' => '70123459', 'email' => 'marco@example.test', 'mobile' => '+51 999 333 444',
+        ]);
+
+        // The total the operator sees and the total the invoice uses come from the
+        // SAME service arithmetic applied to the SAME persisted charges, so they
+        // cannot disagree: 100 + 25 - 0 = 125 taxable, +18% IGV = 147.50.
+        $charges = app(CourseCommercialDocumentService::class)->calculateCharges(
+            CommercialDocumentType::Boleta,
+            (string) $enrollment->activity_price_amount,
+            (string) $enrollment->certificate_charge_amount,
+            (string) $enrollment->discount_amount,
+        );
+
+        $this->assertSame('125.00', $enrollment->subtotal_amount);
+        $this->assertSame($enrollment->subtotal_amount, $charges['subtotal_amount']);
+        $this->assertSame('147.50', $charges['total_amount']);
+    }
+
+    public function test_it_refuses_a_negative_enrollment_subtotal_instead_of_persisting_it(): void
+    {
+        $edition = CourseEdition::factory()->create(['price_amount' => '100.00']);
+
+        $this->expectException(InvalidCourseEditionData::class);
+        $this->expectExceptionMessage('no puede ser negativo');
+
+        app(CourseEnrollmentService::class)->enroll($edition, [
+            'first_name' => 'Sara', 'last_name' => 'Paz', 'document_type' => 'dni',
+            'document_number' => '70123460', 'email' => 'sara@example.test', 'mobile' => '+51 999 555 666',
+        ], ['discount_amount' => '200.00']);
+    }
 
     public function test_it_links_an_existing_contact_and_rejects_a_duplicate_edition_enrollment(): void
     {

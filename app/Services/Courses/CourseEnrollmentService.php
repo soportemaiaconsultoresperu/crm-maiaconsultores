@@ -28,17 +28,72 @@ class CourseEnrollmentService
                 throw new InvalidCourseEditionData('This participant is already enrolled in the selected edition.');
             }
 
-            return CourseEnrollment::create(array_merge([
+            $certificateCharge = $edition->certificateCharge();
+
+            $attributes = array_merge([
                 'course_edition_id' => $edition->id,
                 'course_participant_id' => $participant->id,
                 'course_enrollment_group_id' => $group?->id,
                 'activity_price_amount' => $edition->price_amount,
-                'certificate_charge_amount' => '0.00',
+                'certificate_charge_amount' => $certificateCharge,
                 'discount_amount' => '0.00',
-                'subtotal_amount' => $edition->price_amount,
                 'currency' => $edition->currency,
-            ], $enrollmentData))->load('participant');
+            ], $enrollmentData);
+
+            // The certificate charge belongs to the DELIVERY, not to the caller: it
+            // is resolved from the edition (and is '0.00' when the activity is not a
+            // talk that includes a certificate), so no payload can charge a certificate
+            // a course does not issue. The subtotal is then DERIVED from the values this
+            // enrollment actually carries — activity price + certificate charge -
+            // discount — which is the exact arithmetic the commercial document taxes,
+            // so the operator's total and the invoice's total are the same number by
+            // construction instead of by coincidence.
+            $attributes['certificate_charge_amount'] = $certificateCharge;
+            $attributes['subtotal_amount'] = $this->subtotalAmount(
+                (string) $attributes['activity_price_amount'],
+                $certificateCharge,
+                (string) $attributes['discount_amount'],
+            );
+
+            return CourseEnrollment::create($attributes)->load('participant');
         });
+    }
+
+    /**
+     * The enrollment's subtotal, defined exactly as
+     * `CourseCommercialDocumentService::calculateCharges()` defines it: activity
+     * price + certificate charge - discount, computed in integer cents so the
+     * enrollment's stored subtotal and the invoice's subtotal cannot drift by a
+     * float. A negative subtotal is refused here rather than persisted, mirroring
+     * the commercial service's own non-negative rule.
+     */
+    private function subtotalAmount(string $activityPrice, string $certificateCharge, string $discount): string
+    {
+        $cents = $this->cents($activityPrice)
+            + $this->cents($certificateCharge)
+            - $this->cents($discount);
+
+        if ($cents < 0) {
+            throw new InvalidCourseEditionData('El subtotal de la matrícula no puede ser negativo.');
+        }
+
+        return sprintf('%d.%02d', intdiv($cents, 100), $cents % 100);
+    }
+
+    /**
+     * A non-negative amount with up to two decimals, read as integer cents without
+     * going through a float — the same reading `CourseCommercialDocumentService`
+     * uses for the charges it taxes.
+     */
+    private function cents(string $amount): int
+    {
+        if (! preg_match('/^\d+(?:\.\d{1,2})?$/', $amount)) {
+            throw new InvalidCourseEditionData("Monto de matrícula inválido: {$amount}.");
+        }
+
+        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
+
+        return ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
     }
 
     public function changePaymentStatus(
