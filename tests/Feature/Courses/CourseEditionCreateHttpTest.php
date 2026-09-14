@@ -769,4 +769,94 @@ class CourseEditionCreateHttpTest extends TestCase
 
         $this->assertSame('25.00', $edition->fresh()->certificate_charge_amount);
     }
+
+    // --- The delivery syllabus is pre-filled from the activity --------------
+    //
+    // The owner's decision: the course feeds the delivery, and the certificate
+    // reads the delivery. The pre-fill is SERVER-SIDE on purpose — the activity is
+    // already bound when `CourseEditionController::create()` renders the view, so
+    // the form arrives pre-filled without a single line of JavaScript and a user
+    // without scripts gets exactly the same form. `old()` keeps its precedence, so
+    // a rejected submission re-renders what the operator typed instead of the
+    // activity template.
+
+    public function test_the_edition_create_form_prefills_the_delivery_syllabus_from_the_activity_base_syllabus(): void
+    {
+        $user = $this->editionManager();
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Course,
+            'code' => 'CUR-PRE-001',
+            'name' => 'Curso Prellenado',
+            'base_syllabus_json' => ['Tema A', 'Tema B'],
+        ]);
+
+        $this->actingAs($user)->get(route('course-talks.editions.create', $activity))
+            ->assertOk()
+            ->assertSee('name="syllabus_override_json[]" value="Tema A"', false)
+            ->assertSee('name="syllabus_override_json[]" value="Tema B"', false)
+            ->assertSee('Temario del dictado');
+    }
+
+    public function test_the_edition_create_form_keeps_the_operators_own_syllabus_on_a_rejected_submission(): void
+    {
+        $user = $this->editionManager();
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Course,
+            'code' => 'CUR-PRE-002',
+            'name' => 'Curso Prellenado Fallido',
+            'base_syllabus_json' => ['Tema del curso'],
+        ]);
+
+        // The payload omits the required price on purpose, so the submission is
+        // rejected and the form is re-rendered from the operator's own input.
+        $this->actingAs($user)
+            ->from(route('course-talks.editions.create', $activity))
+            ->followingRedirects()
+            ->post(route('course-talks.editions.store', $activity), [
+                'modality' => CourseModality::Virtual->value,
+                'access_url' => 'https://meet.example.test',
+                'syllabus_override_json' => ['Tema editado por el operador'],
+            ])
+            ->assertOk()
+            ->assertSee('name="syllabus_override_json[]" value="Tema editado por el operador"', false)
+            ->assertDontSee('name="syllabus_override_json[]" value="Tema del curso"', false);
+
+        $this->assertDatabaseCount('course_editions', 0);
+    }
+
+    // --- The delivery detail shows the delivery's own syllabus --------------
+    //
+    // The edition HTTP surface is covered by this class in this slice; the detail
+    // screen itself is reached through the read-only route. Before this change a
+    // delivery's edited syllabus was invisible after saving.
+
+    public function test_the_edition_detail_shows_the_deliverys_own_syllabus(): void
+    {
+        $user = $this->editionManager();
+        $edition = CourseEdition::factory()->for($this->activity(), 'activity')->create([
+            'code' => 'ED-SYL-001',
+            'syllabus_override_json' => ['Tema A', 'Tema B'],
+        ]);
+
+        $this->actingAs($user)->get(route('course-talks.editions.show', $edition))
+            ->assertOk()
+            ->assertSee('Temario del dictado')
+            ->assertSee('Tema A')
+            ->assertSee('Tema B');
+    }
+
+    public function test_the_edition_detail_marks_a_delivery_without_its_own_syllabus(): void
+    {
+        $user = $this->editionManager();
+        $edition = CourseEdition::factory()->for($this->activity(), 'activity')->create([
+            'code' => 'ED-SYL-002',
+            'syllabus_override_json' => [],
+        ]);
+
+        $this->actingAs($user)->get(route('course-talks.editions.show', $edition))
+            ->assertOk()
+            ->assertSee('Temario del dictado')
+            ->assertSee('data-testid="course-talks-edition-syllabus"', false)
+            ->assertSee('—');
+    }
 }

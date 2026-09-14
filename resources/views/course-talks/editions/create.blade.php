@@ -6,7 +6,14 @@
 @section('content')
     @php
         $modalityOptions = collect($modalities)->mapWithKeys(fn ($modality) => [$modality->value => $modality->label()])->all();
-        $syllabus = old('syllabus_override_json', []);
+        // The delivery's syllabus starts as the activity's BASE syllabus: the course
+        // feeds the delivery, and the operator then edits it for this delivery.
+        // This is SERVER-SIDE on purpose — the activity is already bound when
+        // CourseEditionController::create() renders this view, so the form arrives
+        // pre-filled with no JavaScript at all and a user without scripts gets the
+        // exact same form. `old()` still wins when it is present, so a rejected
+        // submission re-renders what the operator typed instead of the template.
+        $syllabus = old('syllabus_override_json', $activity->base_syllabus_json ?? []);
         $syllabus = is_array($syllabus) && $syllabus !== [] ? array_values($syllabus) : [''];
         // A nested-array entry survives StoreCourseEditionRequest::prepareForValidation()
         // so the `string` rule can reject it; on the re-rendered form it must still

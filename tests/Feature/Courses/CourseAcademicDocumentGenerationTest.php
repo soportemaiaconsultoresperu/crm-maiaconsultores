@@ -440,6 +440,154 @@ class CourseAcademicDocumentGenerationTest extends TestCase
         $this->assertStringNotContainsString('Título inyectado', $pdf);
     }
 
+    /**
+     * The owner's live scenario, asserted end to end: the activity carries a base
+     * syllabus, the delivery carries a different one, and there are ZERO sessions.
+     * Before this rule the certificate read only the sessions, so it printed no
+     * topics at all — the operator had typed a syllabus in two places and neither
+     * reached the paper.
+     */
+    public function test_the_certificate_prints_the_deliverys_own_syllabus_in_the_owners_zero_session_scenario(): void
+    {
+        Storage::fake('docs');
+        $pdfCalls = [];
+        [$enrollment, $actor] = $this->enrollmentWithSyllabus(
+            baseSyllabus: ['TEMA PRINCIPAL'],
+            deliverySyllabus: ['TEMA 1'],
+        );
+
+        $academic = $this->service(null, $pdfCalls)->generate($enrollment, $actor);
+
+        $this->assertSame(['TEMA 1'], array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic'));
+
+        $pdf = Storage::disk('docs')->get($academic->document->path);
+        $this->assertStringContainsString('TEMA 1', $pdf);
+        $this->assertStringNotContainsString('TEMA PRINCIPAL', $pdf);
+    }
+
+    /**
+     * The second branch of the chain: the delivery has no syllabus of its own
+     * (the case of a delivery created before the pre-fill existed), so the
+     * activity's base syllabus is what the certificate must print.
+     */
+    public function test_the_certificate_falls_back_to_the_activity_base_syllabus_when_the_delivery_has_none_of_its_own(): void
+    {
+        Storage::fake('docs');
+        $pdfCalls = [];
+        [$enrollment, $actor] = $this->enrollmentWithSyllabus(
+            baseSyllabus: ['TEMA PRINCIPAL', 'TEMA SECUNDARIO'],
+            deliverySyllabus: [],
+        );
+
+        $academic = $this->service(null, $pdfCalls)->generate($enrollment, $actor);
+
+        $this->assertSame(['TEMA PRINCIPAL', 'TEMA SECUNDARIO'], array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic'));
+
+            $pdf = Storage::disk('docs')->get($academic->document->path);
+            $this->assertStringContainsString('TEMA PRINCIPAL', $pdf);
+            $this->assertStringContainsString('TEMA SECUNDARIO', $pdf);
+        }
+    
+        /**
+         * The order the branches are tried in is a decision, not an accident: a delivery
+         * that already lists its own sessions holds a more specific record of what it
+         * taught than the activity's reusable template does. So the sessions win and the
+         * template is NOT printed over them.
+         *
+         * This is the case the other order would have broken: a delivery that lists its
+         * sessions AND belongs to an activity with a base syllabus would have started
+         * printing the generic template, silently changing what an already-issued
+         * certificate shows. The test above pins the mirror case, where the delivery has
+         * no sessions of its own and the template is legitimately the only thing left.
+         */
+        public function test_a_delivery_that_lists_its_sessions_is_not_overwritten_by_the_activity_template(): void
+        {
+            Storage::fake('docs');
+            $pdfCalls = [];
+            [$enrollment, $actor] = $this->enrollmentWithSyllabus(
+                baseSyllabus: ['TEMA DEL MOLDE'],
+                deliverySyllabus: [],
+                sessionTopics: ['Marco normativo'],
+            );
+    
+            $this->service(null, $pdfCalls)->generate($enrollment, $actor);
+    
+            $topics = array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic');
+    
+            $this->assertSame(['Marco normativo'], $topics);
+            $this->assertNotContains('TEMA DEL MOLDE', $topics);
+        }
+
+    /**
+     * The third branch is the one that rendered before this rule existed, and it
+     * must keep rendering exactly the same row shape: `class` from the session
+     * order, the session's own topic, its teacher (or the house speaker) and the
+     * session date. This is the lock on "a delivery created before this change
+     * does not regress".
+     */
+    public function test_the_certificate_keeps_todays_session_row_shape_when_neither_the_delivery_nor_the_activity_has_a_syllabus(): void
+    {
+        Storage::fake('docs');
+        $pdfCalls = [];
+        [$enrollment, $actor] = $this->enrollmentWithSyllabus(
+            baseSyllabus: [],
+            deliverySyllabus: [],
+            sessionTopics: ['Marco normativo'],
+        );
+
+        $this->service(null, $pdfCalls)->generate($enrollment, $actor);
+
+        $session = $enrollment->edition->sessions()->orderBy('sort_order')->firstOrFail();
+        $this->assertSame([[
+            'class' => 'Clase '.$session->sort_order,
+            'topic' => 'Marco normativo',
+            'speaker' => (string) $session->teacher_name,
+            'date' => $session->session_date->format('d.m.y'),
+        ]], $pdfCalls[0]['data']['certificate']->syllabus);
+    }
+
+    /**
+     * Builds the fallback scenario by hand, because the factory
+     * `eligibleEnrollment()` seeds BOTH a base syllabus and a session, so through
+     * it the three branches of the chain cannot be told apart.
+     *
+     * @param  list<string>  $baseSyllabus
+     * @param  list<string>  $deliverySyllabus
+     * @param  list<string>  $sessionTopics
+     * @return array{0: CourseEnrollment, 1: User}
+     */
+    private function enrollmentWithSyllabus(array $baseSyllabus, array $deliverySyllabus, array $sessionTopics = []): array
+    {
+        $actor = User::factory()->create();
+        $actor->givePermissionTo(Permission::findOrCreate('course-talks.documents.generate'));
+        $activity = CourseActivity::factory()->create([
+            'type' => CourseActivityType::Course,
+            'name' => 'Curso Avanzado de Saneamiento Ambiental',
+            'official_academic_hours' => '24.00',
+            'base_syllabus_json' => $baseSyllabus,
+        ]);
+        $edition = CourseEdition::factory()->for($activity, 'activity')->create([
+            'starts_on' => '2026-07-01',
+            'ends_on' => '2026-07-04',
+            'validations_completed_at' => now(),
+            'responsible_user_id' => $actor->id,
+            'syllabus_override_json' => $deliverySyllabus,
+        ]);
+        $participant = CourseParticipant::factory()->create(['first_name' => 'Alvaro Segundo', 'last_name' => 'Alama Silva']);
+        $group = CourseEnrollmentGroup::factory()->for($edition, 'edition')->create(['payer_name' => 'Maia Consultores']);
+
+        foreach ($sessionTopics as $index => $topic) {
+            CourseSession::factory()->for($edition, 'edition')->create(['topic' => $topic, 'sort_order' => $index + 1]);
+        }
+
+        return [CourseEnrollment::factory()->for($edition, 'edition')->for($participant, 'participant')->create([
+            'course_enrollment_group_id' => $group->id,
+            'state' => CourseEnrollmentState::Completed,
+            'payment_status' => PaymentStatus::Paid,
+            'final_result' => FinalResult::Approved,
+        ]), $actor];
+    }
+
     private function service(?CertificateQrTokenService $qrTokens = null, ?array &$pdfCalls = null): CourseDocumentGenerationService
     {
         return new CourseDocumentGenerationService(

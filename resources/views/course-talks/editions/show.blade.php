@@ -59,6 +59,24 @@
                     </dd>
                 @endif
 
+                {{-- The delivery's OWN syllabus: what the operator typed, or accepted
+                     from the activity's pre-fill, and what the certificate prints
+                     first. Rendered here so an edited syllabus stops being invisible
+                     after saving; `—` marks the delivery that has none of its own,
+                     exactly like the activity detail marks an empty base syllabus.
+                     Read from the edition's own column, so this view keeps loading
+                     no extra relation. --}}
+                @php
+                    $deliverySyllabus = array_values(array_filter(
+                        (array) ($edition->syllabus_override_json ?? []),
+                        'is_scalar',
+                    ));
+                @endphp
+                <dt class="col-sm-3">Temario del dictado</dt>
+                <dd class="col-sm-9" data-testid="course-talks-edition-syllabus">
+                    {{ $deliverySyllabus === [] ? '—' : implode(', ', $deliverySyllabus) }}
+                </dd>
+
                 {{-- The money the operator typed, read back through the ONE definition
                      the enrollment derives its persisted subtotal from:
                      `CourseEdition::enrollmentMoney()`. A CANCELLED dictado shows its

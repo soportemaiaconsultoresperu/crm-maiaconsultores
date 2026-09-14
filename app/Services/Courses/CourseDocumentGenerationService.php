@@ -296,15 +296,110 @@ class CourseDocumentGenerationService
             'issue_location_date' => 'Lima, '.now()->isoFormat('D [de] MMMM [de] YYYY'),
             'certificate_code' => $academic->code,
             'qr_svg' => $qrSvg,
-            'syllabus' => $enrollment->edition->sessions->map(fn ($session): array => [
-                'class' => 'Clase '.$session->sort_order,
-                'topic' => (string) $session->topic,
-                'speaker' => (string) ($session->teacher_name ?: 'Maia Consultores'),
-                'date' => optional($session->session_date)->format('d.m.y') ?? '',
-            ])->all(),
+            'syllabus' => $this->certificateSyllabus($enrollment),
         ], $settings);
 
         return ($this->pdfRenderer ?? new DomPdfRenderer())->render($view, ['certificate' => $viewModel]);
+    }
+
+    /**
+     * WHICH syllabus the certificate prints.
+     *
+     * This rule lives HERE, in the method that builds the certificate's data,
+     * because this is where the certificate's content is decided. The owner's
+     * decision, in this order:
+     *
+     * 1. the DELIVERY's own syllabus (`course_editions.syllabus_override_json`).
+     *    The create form pre-fills it from the activity's base syllabus and the
+     *    operator may then edit it, so it is the most specific statement of what
+     *    this delivery actually teaches.
+     * 2. the SESSION topics, when the delivery carries none of its own. These
+     *    are what THIS delivery actually taught, down to the date and the
+     *    teacher of each class.
+     * 3. the ACTIVITY's base syllabus (`course_activities.base_syllabus_json`)
+     *    as the last resort, when neither the delivery nor its sessions carry
+     *    anything — the case of a delivery created before the pre-fill existed.
+     *
+     * Sessions outrank the base syllabus on purpose. The base syllabus is a
+     * reusable template; a delivery that already lists its own sessions is
+     * holding a more specific record of what happened, and a template must not
+     * overwrite it. Ordering the template first would have silently changed
+     * what an already-issued certificate prints.
+     *
+     * Branch 2 is the behaviour the certificate had before this rule existed, and
+     * it is preserved exactly: one row per session, `class` from `sort_order`, the
+     * session's own date and its teacher (or the house speaker when it has none).
+     *
+     * A hand-typed syllabus has no class, no speaker and no date, so branches 1
+     * and 3 synthesise the row shape the reference table expects — a sequential
+     * `Clase N`, the house speaker and an em dash — instead of leaving a column
+     * undefined (which the view would render as an empty cell) or reading a key
+     * that is not there.
+     *
+     * @return list<array{class: string, topic: string, speaker: string, date: string}>
+     */
+    private function certificateSyllabus(CourseEnrollment $enrollment): array
+    {
+        $edition = $enrollment->edition;
+        $delivery = $this->textTopicList($edition->syllabus_override_json ?? []);
+
+        $sessions = $edition->sessions->map(fn ($session): array => [
+            'class' => 'Clase '.$session->sort_order,
+            'topic' => (string) $session->topic,
+            'speaker' => (string) ($session->teacher_name ?: 'Maia Consultores'),
+            'date' => optional($session->session_date)->format('d.m.y') ?? '',
+        ])->all();
+
+        if ($delivery === [] && $sessions !== []) {
+            return $sessions;
+        }
+
+        $topics = $delivery !== []
+            ? $delivery
+            : $this->textTopicList($edition->activity?->base_syllabus_json ?? []);
+
+        $rows = [];
+        foreach ($topics as $index => $topic) {
+            $rows[] = [
+                'class' => 'Clase '.($index + 1),
+                'topic' => $topic,
+                'speaker' => 'Maia Consultores',
+                'date' => '—',
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * A stored syllabus column as a clean list of non-empty topic strings.
+     *
+     * The columns are written through their form requests, which already drop
+     * blank and whitespace-only rows, but a direct write, a restore or a legacy
+     * row can still hold a null, a nested array or a blank string; those are
+     * skipped instead of being rendered as an empty topic.
+     *
+     * @return list<string>
+     */
+    private function textTopicList(mixed $topics): array
+    {
+        if (! is_array($topics)) {
+            return [];
+        }
+
+        $clean = [];
+        foreach ($topics as $topic) {
+            if (! is_scalar($topic)) {
+                continue;
+            }
+
+            $text = trim((string) $topic);
+            if ($text !== '') {
+                $clean[] = $text;
+            }
+        }
+
+        return $clean;
     }
 
     private function hasCurrentDocument(CourseEnrollment $enrollment): bool
