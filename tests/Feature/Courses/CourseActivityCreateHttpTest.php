@@ -222,4 +222,87 @@ class CourseActivityCreateHttpTest extends TestCase
             'name' => 'Curso sin horas',
         ]);
     }
+
+    // --- A course cannot carry talk certificate data --------------------------
+    //
+    // The talk-only fields (`talk_includes_certificate`, `talk_certificate_price`)
+    // are meaningless on a course: a course does not issue a per-activity
+    // certificate at its own price. The form now hides them for a course, but a
+    // HIDDEN field is only a presentation detail — the payload is the thing that
+    // reaches the database, and a payload can be built by anything (curl, a
+    // stale browser tab, a future consumer of the service). The invariant
+    // therefore belongs to the service, where every caller passes through.
+
+    public function test_a_course_posted_with_talk_certificate_data_is_persisted_without_it(): void
+    {
+        $user = $this->manager();
+
+        // This payload bypasses the form entirely and passes validation as
+        // declared (`boolean` + `numeric|min:0`), so nothing before the service
+        // has any reason to object to it.
+        $this->actingAs($user)->post(route('course-talks.activities.store'), [
+            'type' => CourseActivityType::Course->value,
+            'code' => 'CUR-TALKFLAGS-001',
+            'name' => 'Curso con datos de charla',
+            'official_academic_hours' => '12.00',
+            'talk_includes_certificate' => '1',
+            'talk_certificate_price' => '999',
+            'is_active' => '1',
+        ])->assertRedirect(route('course-talks.activities.index'))
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('course_activities', [
+            'code' => 'CUR-TALKFLAGS-001',
+            'talk_includes_certificate' => 0,
+            'talk_certificate_price' => '0.00',
+        ]);
+
+        $activity = CourseActivity::query()->where('code', 'CUR-TALKFLAGS-001')->firstOrFail();
+        $this->assertSame(CourseActivityType::Course, $activity->type);
+        $this->assertFalse($activity->talk_includes_certificate);
+        $this->assertSame('0.00', $activity->talk_certificate_price);
+    }
+
+    public function test_the_service_strips_talk_certificate_data_from_a_course_for_callers_that_bypass_http(): void
+    {
+        // Real PHP types here, not the strings an HTML form sends: a caller of
+        // the service hands over `true`/`0.01`, and the invariant has to hold for
+        // the type as well as for the value.
+        $activity = app(CourseActivityService::class)->create([
+            'type' => CourseActivityType::Course->value,
+            'code' => 'CUR-TALKFLAGS-002',
+            'name' => 'Curso con datos de charla (servicio)',
+            'official_academic_hours' => '6.00',
+            'talk_includes_certificate' => true,
+            'talk_certificate_price' => 0.01,
+        ]);
+
+        $this->assertFalse($activity->talk_includes_certificate);
+        $this->assertSame('0.00', $activity->talk_certificate_price);
+
+        $this->assertDatabaseHas('course_activities', [
+            'code' => 'CUR-TALKFLAGS-002',
+            'talk_includes_certificate' => 0,
+            'talk_certificate_price' => '0.00',
+        ]);
+    }
+
+    public function test_a_talk_created_through_the_service_keeps_its_talk_certificate_data(): void
+    {
+        // The negative control: the invariant is a REJECTION of course data, not
+        // a blanket wipe. A talk keeps what the operator declared, so a fix that
+        // simply zeroed both fields everywhere would fail here.
+        $activity = app(CourseActivityService::class)->create([
+            'type' => CourseActivityType::Talk->value,
+            'code' => 'CHA-TALKFLAGS-001',
+            'name' => 'Charla con certificado (servicio)',
+            'official_academic_hours' => '3.00',
+            'talk_includes_certificate' => true,
+            'talk_certificate_price' => 12.50,
+        ]);
+
+        $this->assertSame(CourseActivityType::Talk, $activity->type);
+        $this->assertTrue($activity->talk_includes_certificate);
+        $this->assertSame('12.50', $activity->talk_certificate_price);
+    }
 }
