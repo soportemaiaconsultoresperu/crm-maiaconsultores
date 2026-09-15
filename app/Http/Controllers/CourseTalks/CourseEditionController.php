@@ -15,7 +15,9 @@ use App\Models\Courses\CourseEdition;
 use App\Services\Courses\CourseEditionService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 /**
  * Authenticated edition creation scoped to its parent activity, plus the
@@ -125,30 +127,39 @@ class CourseEditionController extends Controller
     }
 
     /**
-     * Finish the delivery: move it to `finished` and complete its validations.
+     * Move the delivery along its lifecycle.
      *
-     * Completing the validations is the gate that unlocks certificate eligibility for
-     * the edition's enrollments, and until now nothing in the application called it, so
-     * every enrollment stayed permanently ineligible. The two service calls stay separate
-     * because the domain keeps them separate; this action is the operator's single
-     * "we are done" step, so it runs them in that order.
+     * The state machine lives in the service (`allowedTransitions`), so a rendered button
+     * can never offer a step the service would refuse. Reaching `finished` also completes
+     * the edition validations, which is the eligibility condition `CourseEligibilityService`
+     * checks before a certificate may be issued — and which nothing in the application
+     * could previously set, so every enrollment stayed permanently ineligible.
      *
      * Authorized by the same `update` ability the other edition write surfaces use.
      */
-    public function finish(CourseEdition $edition): RedirectResponse
+    public function updateState(Request $request, CourseEdition $edition): RedirectResponse
     {
         Gate::authorize('update', CourseEdition::class);
 
+        $validated = $request->validate([
+            'state' => ['required', Rule::enum(CourseEditionState::class)],
+        ]);
+
+        $target = CourseEditionState::from($validated['state']);
+
         try {
-            $this->editions->transitionState($edition, CourseEditionState::Finished);
-            $this->editions->completeValidations($edition);
+            $this->editions->transitionState($edition, $target);
+
+            if ($target === CourseEditionState::Finished) {
+                $this->editions->completeValidations($edition);
+            }
         } catch (InvalidCourseEditionTransition $exception) {
             return back()->withErrors(['edition' => $exception->getMessage()]);
         }
 
         return redirect()
             ->route('course-talks.editions.show', $edition)
-            ->with('status', 'Dictado finalizado. Las validaciones quedaron completadas.');
+            ->with('status', 'Estado del dictado actualizado a «'.$target->label().'».');
     }
 
     /**

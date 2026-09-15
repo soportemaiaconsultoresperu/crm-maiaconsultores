@@ -308,6 +308,22 @@ class CourseEditionService
         return in_array($target, self::allowedTargets($current), true);
     }
 
+    /**
+     * The states this delivery may move to, from the very table `transitionState()`
+     * enforces. A surface that offers state changes reads it from here instead of
+     * repeating the rules, so a button can never offer something the service refuses.
+     *
+     * @return array<int, CourseEditionState>
+     */
+    public static function allowedTransitions(CourseEdition $edition): array
+    {
+        $current = $edition->state instanceof CourseEditionState
+            ? $edition->state
+            : CourseEditionState::from($edition->state);
+
+        return self::allowedTargets($current);
+    }
+
     /** @return array<int, CourseEditionState> */
     private static function allowedTargets(CourseEditionState $state): array
     {

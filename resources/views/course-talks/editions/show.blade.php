@@ -38,17 +38,19 @@
             <a href="{{ route('course-talks.commercial-documents.index', $edition) }}" class="btn btn-outline-primary">Comprobantes</a>
             @endcan
 
-            {{-- Finishing the delivery is the step that completes its validations and so
-                 unlocks certificate eligibility, which until now nothing could open. The
-                 button renders only while the state machine still allows the transition;
-                 the service refuses anyway, with a message the user can read. --}}
+            {{-- The delivery lifecycle, read from the service's own state machine, so a
+                 button can never offer a step the service would refuse. Reaching
+                 «Finalizada» is what completes the validations and unlocks certificates. --}}
             @can('update', \App\Models\Courses\CourseEdition::class)
-                @if ($edition->state === \App\Enums\Courses\CourseEditionState::InProgress)
-                    <form method="POST" action="{{ route('course-talks.editions.finish', $edition) }}" class="d-inline">
+                @foreach (\App\Services\Courses\CourseEditionService::allowedTransitions($edition) as $target)
+                    <form method="POST" action="{{ route('course-talks.editions.state.update', $edition) }}" class="d-inline">
                         @csrf
-                        <button type="submit" class="btn btn-primary" data-testid="btn-finish-course-edition">Finalizar dictado</button>
+                        <input type="hidden" name="state" value="{{ $target->value }}">
+                        <button type="submit"
+                                class="btn {{ $target === \App\Enums\Courses\CourseEditionState::Finished ? 'btn-primary' : 'btn-outline-secondary' }}"
+                                data-testid="btn-edition-state-{{ $target->value }}">{{ $target->label() }}</button>
                     </form>
-                @endif
+                @endforeach
             @endcan
         </nav>
 
