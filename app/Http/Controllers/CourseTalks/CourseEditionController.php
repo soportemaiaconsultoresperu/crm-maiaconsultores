@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\CourseTalks;
 
+use App\Enums\Courses\CourseEditionState;
 use App\Enums\Courses\CourseModality;
 use App\Exceptions\Courses\InvalidCourseEditionData;
+use App\Exceptions\Courses\InvalidCourseEditionTransition;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CourseTalks\StoreCourseEditionRequest;
 use App\Http\Requests\CourseTalks\SyncEditionSessionsRequest;
@@ -120,6 +122,33 @@ class CourseEditionController extends Controller
         return redirect()
             ->route('course-talks.editions.sessions', $edition)
             ->with('status', 'Sesiones del dictado actualizadas correctamente.');
+    }
+
+    /**
+     * Finish the delivery: move it to `finished` and complete its validations.
+     *
+     * Completing the validations is the gate that unlocks certificate eligibility for
+     * the edition's enrollments, and until now nothing in the application called it, so
+     * every enrollment stayed permanently ineligible. The two service calls stay separate
+     * because the domain keeps them separate; this action is the operator's single
+     * "we are done" step, so it runs them in that order.
+     *
+     * Authorized by the same `update` ability the other edition write surfaces use.
+     */
+    public function finish(CourseEdition $edition): RedirectResponse
+    {
+        Gate::authorize('update', CourseEdition::class);
+
+        try {
+            $this->editions->transitionState($edition, CourseEditionState::Finished);
+            $this->editions->completeValidations($edition);
+        } catch (InvalidCourseEditionTransition $exception) {
+            return back()->withErrors(['edition' => $exception->getMessage()]);
+        }
+
+        return redirect()
+            ->route('course-talks.editions.show', $edition)
+            ->with('status', 'Dictado finalizado. Las validaciones quedaron completadas.');
     }
 
     /**

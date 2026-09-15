@@ -76,6 +76,8 @@ Route::middleware(['auth', 'active'])
             // `course-talks.sessions.manage` permission really gates a surface
             // (the policy also accepts the coarser `editions.manage`, so no
             // existing actor lost access).
+            Route::post('editions/{edition}/finish', 'finish')->name('editions.finish');
+
             Route::get('editions/{edition}/sessions', 'sessions')->name('editions.sessions');
             Route::post('editions/{edition}/sessions', 'syncSessions')->name('editions.sessions.sync');
         });

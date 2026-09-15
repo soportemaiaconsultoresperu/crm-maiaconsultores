@@ -36,8 +36,21 @@
             {{-- The commercial documents list requires the same ability its own
                  route requires, so the link can never answer 403. --}}
             <a href="{{ route('course-talks.commercial-documents.index', $edition) }}" class="btn btn-outline-primary">Comprobantes</a>
-        @endcan
-    </nav>
+            @endcan
+
+            {{-- Finishing the delivery is the step that completes its validations and so
+                 unlocks certificate eligibility, which until now nothing could open. The
+                 button renders only while the state machine still allows the transition;
+                 the service refuses anyway, with a message the user can read. --}}
+            @can('update', \App\Models\Courses\CourseEdition::class)
+                @if ($edition->state === \App\Enums\Courses\CourseEditionState::InProgress)
+                    <form method="POST" action="{{ route('course-talks.editions.finish', $edition) }}" class="d-inline">
+                        @csrf
+                        <button type="submit" class="btn btn-primary" data-testid="btn-finish-course-edition">Finalizar dictado</button>
+                    </form>
+                @endif
+            @endcan
+        </nav>
 
     <div class="card" data-testid="course-talks-edition-detail">
         <div class="card-header"><h3 class="card-title mb-0">{{ $edition->activity->name }}</h3></div>
