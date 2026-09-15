@@ -51,21 +51,38 @@
             'mail' => ['Correo', 'text-bg-info'],
             'whatsapp' => ['WhatsApp', 'text-bg-success'],
         ];
-        $attemptStatusMeta = [
-            'queued' => ['En cola', 'text-bg-secondary'],
-            'sending' => ['Enviando', 'text-bg-info'],
-            'sent' => ['Enviado', 'text-bg-success'],
-            'delivered' => ['Entregado', 'text-bg-success'],
-            'failed' => ['Intento fallido', 'text-bg-danger'],
-            'skipped' => ['Omitido', 'text-bg-light'],
-        ];
+            $attemptStatusMeta = [
+                'queued' => ['En cola', 'text-bg-secondary'],
+                'sending' => ['Enviando', 'text-bg-info'],
+                'sent' => ['Enviado', 'text-bg-success'],
+                'delivered' => ['Entregado', 'text-bg-success'],
+                'failed' => ['Intento fallido', 'text-bg-danger'],
+                'skipped' => ['Omitido', 'text-bg-light'],
+            ];
+
+            // A WhatsApp `queued` row is not waiting on a queue: it waits on the operator,
+            // who sends the message by hand from WhatsApp. "En cola" promised something
+            // that would never happen on its own. Mail keeps that name because its own
+            // `queued` row really is mid-flight.
+            $attemptStatus = static function ($delivery) use ($attemptStatusMeta): array {
+                if ($delivery->status === 'queued' && $delivery->channel === 'whatsapp') {
+                    return ['Pendiente de confirmar', 'text-bg-warning'];
+                }
+
+                return $attemptStatusMeta[$delivery->status] ?? [$delivery->status, 'text-bg-secondary'];
+            };
 
         // A handoff stays pending until the user confirms it: the confirmation
         // control is offered only while an opened WhatsApp handoff is unresolved.
-        $pendingHandoffOf = static fn ($documentDeliveries) => $documentDeliveries->first(
-            static fn ($delivery): bool => $delivery->channel === 'whatsapp'
-                && in_array($delivery->status, ['queued', 'sending'], true),
-        );
+            $pendingHandoffOf = static fn ($documentDeliveries) => $documentDeliveries->first(
+                static fn ($delivery): bool => $delivery->channel === 'whatsapp'
+                    && in_array($delivery->status, ['queued', 'sending'], true)
+                    && ! $documentDeliveries->contains(
+                        static fn ($other): bool => $other->channel === 'whatsapp'
+                            && $other->status === 'sent'
+                            && $other->recipient_ref === $delivery->recipient_ref,
+                    ),
+            );
 
         // The recipient prefill comes from the real data the domain already holds
         // for the comprobante's only target: the participant of its enrollment, or
@@ -204,7 +221,7 @@
                             @forelse ($documentDeliveries as $delivery)
                                 <div class="small" data-testid="course-talks-commercial-delivery-{{ $commercial->id }}-{{ $delivery->id }}">
                                     <span class="badge {{ $channelMeta[$delivery->channel][1] ?? 'text-bg-secondary' }}">{{ $channelMeta[$delivery->channel][0] ?? $delivery->channel }}</span>
-                                    <span class="badge {{ $attemptStatusMeta[$delivery->status][1] ?? 'text-bg-secondary' }}">{{ $attemptStatusMeta[$delivery->status][0] ?? $delivery->status }}</span>
+                                    <span class="badge {{ $attemptStatus($delivery)[1] }}">{{ $attemptStatus($delivery)[0] }}</span>
                                     <span class="text-secondary">{{ $delivery->recipient_ref }}</span>
                                     <span class="text-secondary">· Intentos: {{ $delivery->attempts }}</span>
                                     <span class="text-secondary">· {{ $delivery->updated_at?->format('d/m/Y H:i') ?? '—' }}</span>
@@ -265,8 +282,17 @@
                                         <label class="visually-hidden" for="commercial-whatsapp-confirm-phone-{{ $commercial->id }}">Teléfono confirmado de {{ $deliveryLabel }}</label>
                                         <input type="tel" class="form-control form-control-sm w-auto" id="commercial-whatsapp-confirm-phone-{{ $commercial->id }}" name="recipient_phone" maxlength="30" required value="{{ old('recipient_phone', $pendingHandoff->recipient_ref) }}">
                                         <button type="submit" class="btn btn-sm btn-success">Marcar como enviado</button>
-                                    </form>
-                                    <p class="small text-secondary mb-0 mt-1" data-testid="course-talks-commercial-whatsapp-pending-{{ $commercial->id }}">WhatsApp pendiente de confirmación: use «Marcar como enviado» cuando haya enviado el mensaje.</p>
+                                        </form>
+
+                                        {{-- An opened handoff had no way out before this: it stayed pending
+                                             for good and left a number nobody would use sitting in the
+                                             history. Discarding skips it instead of deleting it. --}}
+                                        <form method="POST" action="{{ route('course-talks.commercial-documents.whatsapp.discard', $commercial) }}" class="d-flex flex-wrap gap-1 mt-1" data-testid="course-talks-commercial-whatsapp-discard-form-{{ $commercial->id }}">
+                                            @csrf
+                                            <input type="hidden" name="handoff" value="{{ $pendingHandoff->id }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Descartar intento</button>
+                                        </form>
+                                        <p class="small text-secondary mb-0 mt-1" data-testid="course-talks-commercial-whatsapp-pending-{{ $commercial->id }}">WhatsApp pendiente de confirmación: use «Marcar como enviado» cuando haya enviado el mensaje.</p>
                                 @endif
                             </div>
                         @endif

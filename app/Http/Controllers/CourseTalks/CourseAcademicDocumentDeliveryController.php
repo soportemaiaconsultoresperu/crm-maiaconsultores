@@ -12,6 +12,7 @@ use App\Models\Notification\OutboundDelivery;
 use App\Services\Courses\CourseDocumentDeliveryService;
 use App\Services\Email\EmailService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use InvalidArgumentException;
 
@@ -46,6 +47,12 @@ class CourseAcademicDocumentDeliveryController extends Controller
      * stays pending instead of being marked sent on an unmatched attempt.
      */
     private const CONFIRMATION_REJECTION = 'No se pudo confirmar el envío: el teléfono no coincide con el handoff de WhatsApp registrado.';
+
+    /**
+     * The handoff is not an open WhatsApp attempt for this document, so there is nothing
+     * to discard and no delivery may be rewritten.
+     */
+    private const DISCARD_REJECTION = 'Solo un intento de WhatsApp sin enviar puede descartarse.';
 
     private readonly CourseDocumentDeliveryService $deliveries;
 
@@ -131,6 +138,36 @@ class CourseAcademicDocumentDeliveryController extends Controller
 
         return $this->backToIndex($edition)
             ->with('status', 'Entrega por WhatsApp confirmada y registrada en el historial de entregas.');
+    }
+
+    /**
+     * Discard an opened handoff that was never sent. Until this existed an opened
+     * handoff had no way out: it stayed `queued` for good, kept the confirmation control
+     * offering a number the operator had already decided not to use, and left an
+     * unresolved entry in the history with nothing to do about it.
+     *
+     * The ledger is append-only, so the attempt is skipped rather than deleted.
+     */
+    public function discardWhatsApp(Request $request, CourseAcademicDocument $academicDocument): RedirectResponse
+    {
+        Gate::authorize('send', CourseAcademicDocument::class);
+
+        $validated = $request->validate([
+            'handoff' => ['required', 'integer', 'exists:outbound_deliveries,id'],
+        ]);
+
+        $edition = $this->editionOf($academicDocument);
+        $handoff = OutboundDelivery::query()->findOrFail((int) $validated['handoff']);
+
+        try {
+            $this->deliveries->discardAcademicWhatsAppHandoff($academicDocument, $handoff, $request->user());
+        } catch (InvalidArgumentException) {
+            return $this->backToIndex($edition)
+                ->withErrors(['documents' => self::DISCARD_REJECTION]);
+        }
+
+        return $this->backToIndex($edition)
+            ->with('status', 'Intento descartado. No se envió nada y el documento queda como estaba.');
     }
 
     private function editionOf(CourseAcademicDocument $document): CourseEdition

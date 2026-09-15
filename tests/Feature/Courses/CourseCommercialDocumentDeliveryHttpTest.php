@@ -691,9 +691,75 @@ class CourseCommercialDocumentDeliveryHttpTest extends TestCase
         $this->assertStringContainsString('course-talks-commercial-delivery-'.$commercial->id.'-'.$handoff->id, $html);
         $this->assertStringContainsString('course-talks-commercial-delivery-'.$commercial->id.'-'.$confirmation->id, $html);
         $this->assertStringNotContainsString('course-talks-commercial-delivery-none-'.$commercial->id, $html);
-        $this->assertStringContainsString('En cola', $html);
-        $this->assertStringContainsString('Enviado', $html);
-    }
+        // A WhatsApp handoff that was opened and not confirmed yet. It used to read "En cola",
+        // which promised the queue would move on its own: it never did, because the message is
+        // sent by hand and only the confirmation marks it sent. Mail keeps "En cola" because
+        // its own queued row really is mid-flight.
+        $this->assertStringContainsString('Pendiente de confirmar', $html);
+            $this->assertStringContainsString('Enviado', $html);
+        }
+
+        /**
+         * Confirming does NOT mutate the handoff — it appends a `sent` row — so the handoff
+         * stayed `queued` forever and the confirmation control kept offering a number that
+         * had already been sent. An opened-then-confirmed handoff counts as resolved.
+         */
+        public function test_a_confirmed_handoff_stops_asking_for_confirmation(): void
+        {
+            $commercial = $this->commercialDocument($this->enrollment());
+
+            $this->openWhatsApp($commercial, self::PARTICIPANT_MOBILE, $this->renderedKey($commercial, 'whatsapp'))
+                ->assertStatus(302);
+            $handoff = OutboundDelivery::query()->sole();
+
+            // While the handoff is open, the control is offered.
+            $this->assertStringContainsString(
+                'course-talks-commercial-whatsapp-confirm-form-'.$commercial->id,
+                $this->listingHtml(),
+            );
+
+            $this->confirmWhatsApp($commercial, (int) $handoff->id, self::PARTICIPANT_MOBILE, $this->renderedKey($commercial, 'whatsapp-confirm'))
+                ->assertRedirect($this->indexUrl());
+
+            $html = $this->listingHtml();
+
+            $this->assertStringNotContainsString('course-talks-commercial-whatsapp-confirm-form-'.$commercial->id, $html);
+            $this->assertStringNotContainsString('course-talks-commercial-whatsapp-discard-form-'.$commercial->id, $html);
+            // The history still shows both attempts: the handoff is skipped, not erased.
+            $this->assertStringContainsString('course-talks-commercial-delivery-'.$commercial->id.'-'.$handoff->id, $html);
+        }
+
+        /**
+         * The discard control is the way out an opened handoff never had. It must be
+         * reachable while a handoff is pending, and must skip the attempt rather than
+         * delete it from the append-only history.
+         */
+        public function test_an_open_handoff_can_be_discarded_from_the_listing(): void
+        {
+            $commercial = $this->commercialDocument($this->enrollment());
+
+            $this->openWhatsApp($commercial, self::PARTICIPANT_MOBILE, $this->renderedKey($commercial, 'whatsapp'))
+                ->assertStatus(302);
+            $handoff = OutboundDelivery::query()->sole();
+
+            $this->assertStringContainsString(
+                'course-talks-commercial-whatsapp-discard-form-'.$commercial->id,
+                $this->listingHtml(),
+            );
+
+            $this->actingAs($this->manager)
+                ->from($this->indexUrl())
+                ->post(route('course-talks.commercial-documents.whatsapp.discard', $commercial), ['handoff' => $handoff->id])
+                ->assertRedirect($this->indexUrl());
+
+            $this->assertSame(OutboundDelivery::STATUS_SKIPPED, $handoff->fresh()->status);
+            $this->assertDatabaseCount('outbound_deliveries', 1);
+
+            $html = $this->listingHtml();
+
+            $this->assertStringContainsString('Omitido', $html);
+            $this->assertStringNotContainsString('course-talks-commercial-whatsapp-confirm-form-'.$commercial->id, $html);
+        }
 
     public function test_the_delivery_history_never_shows_another_edition_comprobante_attempts(): void
     {

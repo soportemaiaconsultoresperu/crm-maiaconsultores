@@ -197,6 +197,46 @@ class CourseDocumentWhatsAppDeliveryTest extends TestCase
         $this->assertSame(now()->addMinutes(60)->timestamp, (int) $query['expires']);
     }
 
+    /**
+     * An opened handoff had no way out before this: it stayed pending for good and left a
+     * number nobody would use sitting in the history. Discarding must SKIP it rather than
+     * delete it, because the ledger is append-only.
+     */
+    public function test_discarding_an_open_handoff_skips_it_without_deleting_the_row(): void
+    {
+        Storage::fake('docs');
+        $academic = $this->academicDocumentWithPdf();
+        $service = new CourseDocumentDeliveryService(static fn (): bool => true);
+
+        $handoff = $service->openAcademicWhatsAppHandoff($academic, '+51 999 123 456', $this->actor, 'discard-001')['delivery'];
+
+        $discarded = $service->discardAcademicWhatsAppHandoff($academic, $handoff, $this->actor);
+
+        $this->assertSame(OutboundDelivery::STATUS_SKIPPED, $discarded->status);
+        $this->assertSame(OutboundDelivery::STATUS_SKIPPED, $handoff->fresh()->status);
+        // Skipped, not erased: the attempt is still part of the history.
+        $this->assertDatabaseCount('outbound_deliveries', 1);
+        // Nothing was delivered by discarding it.
+        $this->assertSame(DeliveryStatus::Pending, $academic->fresh()->delivery_status);
+        $this->assertNull($academic->fresh()->last_sent_at);
+    }
+
+    public function test_only_an_open_handoff_may_be_discarded(): void
+    {
+        Storage::fake('docs');
+        $academic = $this->academicDocumentWithPdf();
+        $service = new CourseDocumentDeliveryService(static fn (): bool => true);
+
+        $handoff = $service->openAcademicWhatsAppHandoff($academic, '+51 999 123 456', $this->actor, 'discard-002')['delivery'];
+        $service->confirmAcademicWhatsAppSent($academic, $handoff, '+51 999 123 456', $this->actor, 'confirm-002');
+
+        $sent = OutboundDelivery::query()->where('status', OutboundDelivery::STATUS_SENT)->sole();
+
+        // A sent delivery is history: it must not be rewritten.
+        $this->expectException(InvalidArgumentException::class);
+        $service->discardAcademicWhatsAppHandoff($academic, $sent, $this->actor);
+    }
+
     private function academicDocument(): CourseAcademicDocument
     {
         return CourseAcademicDocument::query()->create([

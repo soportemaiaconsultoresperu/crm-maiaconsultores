@@ -139,6 +139,7 @@ Route::middleware(['auth', 'active'])
             Route::post('documents/{academicDocument}/email', 'email')->name('documents.email');
             Route::post('documents/{academicDocument}/whatsapp', 'whatsapp')->name('documents.whatsapp');
             Route::post('documents/{academicDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('documents.whatsapp.confirm');
+            Route::post('documents/{academicDocument}/whatsapp/discard', 'discardWhatsApp')->name('documents.whatsapp.discard');
         });
 
         // Slice 6.f-1 — commercial documents of one edition (register an
@@ -168,6 +169,7 @@ Route::middleware(['auth', 'active'])
             Route::post('commercial-documents/{commercialDocument}/email', 'email')->name('commercial-documents.email');
             Route::post('commercial-documents/{commercialDocument}/whatsapp', 'whatsapp')->name('commercial-documents.whatsapp');
             Route::post('commercial-documents/{commercialDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('commercial-documents.whatsapp.confirm');
+            Route::post('commercial-documents/{commercialDocument}/whatsapp/discard', 'discardWhatsApp')->name('commercial-documents.whatsapp.discard');
         });
 
         // Slice 6.t2 — certificate template management (list, create, edit,

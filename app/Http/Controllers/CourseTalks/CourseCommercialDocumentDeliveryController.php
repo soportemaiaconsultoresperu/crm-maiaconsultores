@@ -12,6 +12,7 @@ use App\Models\Notification\OutboundDelivery;
 use App\Services\Courses\CourseDocumentDeliveryService;
 use App\Services\Email\EmailService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use InvalidArgumentException;
 
@@ -50,6 +51,12 @@ class CourseCommercialDocumentDeliveryController extends Controller
      * attempt.
      */
     private const CONFIRMATION_REJECTION = 'No se pudo confirmar el envío: el teléfono no coincide con el handoff de WhatsApp registrado.';
+
+    /**
+     * The handoff is not an open WhatsApp attempt for this comprobante, so there is
+     * nothing to discard and no delivery may be rewritten.
+     */
+    private const DISCARD_REJECTION = 'Solo un intento de WhatsApp sin enviar puede descartarse.';
 
     private readonly CourseDocumentDeliveryService $deliveries;
 
@@ -136,6 +143,36 @@ class CourseCommercialDocumentDeliveryController extends Controller
 
         return $this->backToListing($edition)
             ->with('status', 'Entrega por WhatsApp confirmada y registrada en el historial de entregas.');
+    }
+
+    /**
+     * Discard an opened handoff that was never sent. See the academic controller's twin:
+     * without this, an opened handoff stayed `queued` for good, kept the confirmation
+     * control offering a number the operator had already decided not to use, and left an
+     * unresolved entry in the history with nothing to do about it.
+     *
+     * The ledger is append-only, so the attempt is skipped rather than deleted.
+     */
+    public function discardWhatsApp(Request $request, CourseCommercialDocument $commercialDocument): RedirectResponse
+    {
+        Gate::authorize('send', CourseCommercialDocument::class);
+
+        $validated = $request->validate([
+            'handoff' => ['required', 'integer', 'exists:outbound_deliveries,id'],
+        ]);
+
+        $edition = $this->editionOf($commercialDocument);
+        $handoff = OutboundDelivery::query()->findOrFail((int) $validated['handoff']);
+
+        try {
+            $this->deliveries->discardCommercialWhatsAppHandoff($commercialDocument, $handoff, $request->user());
+        } catch (InvalidArgumentException) {
+            return $this->backToListing($edition)
+                ->withErrors(['commercial_document' => self::DISCARD_REJECTION]);
+        }
+
+        return $this->backToListing($edition)
+            ->with('status', 'Intento descartado. No se envió nada y el comprobante queda como estaba.');
     }
 
     /**
