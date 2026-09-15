@@ -49,8 +49,10 @@ class SyncEditionSessionsRequest extends FormRequest
     {
         $sessions = $this->input('sessions');
 
-        // Leave a non-array payload untouched so the `array` rule reports it.
-        if (! is_array($sessions)) {
+        // A MISSING list means "this delivery has no sessions yet", which must still
+        // let the optional "new session" slot create the first one. Only a PRESENT
+        // non-array payload is left untouched so the `array` rule reports it.
+        if ($sessions !== null && ! is_array($sessions)) {
             return;
         }
 
@@ -62,7 +64,7 @@ class SyncEditionSessionsRequest extends FormRequest
             }
 
             return $session;
-        }, array_values($sessions));
+        }, array_values($sessions ?? []));
 
         $newSession = $this->input('new_session');
 

@@ -351,7 +351,26 @@ class CourseEditionSessionsHttpTest extends TestCase
         $this->assertDatabaseCount('course_sessions', 2);
     }
 
-    public function test_optional_new_session_slot_only_appends_a_session_when_filled(): void
+        /**
+         * A delivery with no sessions yet posts only the "new session" slot, so the
+         * payload carries no `sessions` key at all. Dropping it there persisted nothing
+         * while the screen still reported the sessions as updated, because the success
+         * redirect does not depend on anything having been written.
+         */
+        public function test_first_session_can_be_created_from_the_new_session_slot_with_no_existing_list(): void
+        {
+            $this->sync([
+                'new_session' => $this->sessionRow('Primera sesión', ['session_date' => '2026-10-01']),
+            ])->assertRedirect($this->sessionsUrl());
+
+            $this->assertDatabaseHas('course_sessions', [
+                'course_edition_id' => $this->edition->id,
+                'sort_order' => 1,
+                'topic' => 'Primera sesión',
+            ]);
+        }
+
+        public function test_optional_new_session_slot_only_appends_a_session_when_filled(): void
     {
         // The optional "new session" slot is appended when filled...
         $this->sync([
