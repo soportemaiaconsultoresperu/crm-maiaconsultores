@@ -113,7 +113,6 @@
                     <div data-testid="course-talks-edition-teacher">
                         {{ $teacher->display_name }}
                         @if ($teacher->email)<span class="text-secondary ms-2">{{ $teacher->email }}</span>@endif
-                        @if ($teacher->user_id)<span class="badge text-bg-light ms-2">Usuario interno</span>@endif
                     </div>
                 @empty
                     <p class="text-secondary mb-0" data-testid="course-talks-edition-teachers-empty">Este dictado todavía no tiene docentes registrados.</p>
@@ -123,6 +122,7 @@
 
         @php
             $rows = old('teachers', $teachers->map(fn ($teacher) => [
+                'id' => $teacher->id,
                 'display_name' => $teacher->display_name,
                 'email' => $teacher->email,
                 'user_id' => $teacher->user_id,
@@ -137,7 +137,7 @@
             <div class="card mt-3">
                 <div class="card-header"><h3 class="card-title mb-0">Actualizar docentes</h3></div>
                 <div class="card-body">
-                    <x-alert type="warning">Guardar reemplaza toda la lista de docentes de este dictado: los docentes que no aparezcan en el formulario quedarán sin asignar.</x-alert>
+                <x-alert type="info">Guardar actualiza docentes por identidad: cada fila existente conserva su ID, los docentes omitidos permanecen activos y quitar un docente requiere marcar «Quitar» explícitamente.</x-alert>
 
                     @if ($errors->any())
                         <x-alert type="error" data-testid="course-talks-teachers-errors">
@@ -151,13 +151,20 @@
 
                     @forelse ($rows as $index => $row)
                         <div class="row g-2 align-items-center mb-2" data-testid="course-talks-edition-teacher-row">
+                            <input type="hidden" name="teachers[{{ $index }}][id]" value="{{ $rowValue($row, 'id') }}">
                             <div class="col-md-1 form-check ms-3">
                                 <input type="checkbox" class="form-check-input" id="teacher-remove-{{ $index }}" name="teachers[{{ $index }}][remove]" value="1">
                                 <label class="form-check-label" for="teacher-remove-{{ $index }}">Quitar</label>
                             </div>
                             <div class="col-md-5"><input type="text" class="form-control" name="teachers[{{ $index }}][display_name]" value="{{ $rowValue($row, 'display_name') }}" maxlength="255" placeholder="Nombre del docente"></div>
                             <div class="col-md-3"><input type="text" class="form-control" name="teachers[{{ $index }}][email]" value="{{ $rowValue($row, 'email') }}" maxlength="255" placeholder="Correo (opcional)"></div>
-                            <div class="col-md-3"><input type="number" class="form-control" name="teachers[{{ $index }}][user_id]" value="{{ $rowValue($row, 'user_id') }}" placeholder="Usuario interno (opcional)"></div>
+                                {{-- `user_id` is kept out of sight on purpose. Nothing reads it yet — its
+                                     meaning is deliberately deferred to a later increment — and as a bare
+                                     number input it asked the operator for an internal user id with no
+                                     lookup, which is unusable in practice. It is still submitted as a
+                                     hidden field so an existing link round-trips untouched instead of
+                                     being nulled on every save. --}}
+                                <input type="hidden" name="teachers[{{ $index }}][user_id]" value="{{ $rowValue($row, 'user_id') }}">
                         </div>
                     @empty
                         <p class="text-secondary" data-testid="course-talks-edition-teachers-none">La lista está vacía. Agregue el primer docente abajo.</p>
@@ -168,8 +175,7 @@
                     <div class="row g-2 align-items-center">
                         <div class="col-md-1 form-text ms-3">Nuevo</div>
                         <div class="col-md-5"><input type="text" class="form-control" name="new_teacher[display_name]" value="{{ old('new_teacher.display_name') }}" maxlength="255" placeholder="Nombre del docente"></div>
-                        <div class="col-md-3"><input type="text" class="form-control" name="new_teacher[email]" value="{{ old('new_teacher.email') }}" maxlength="255" placeholder="Correo (opcional)"></div>
-                        <div class="col-md-3"><input type="number" class="form-control" name="new_teacher[user_id]" value="{{ old('new_teacher.user_id') }}" placeholder="Usuario interno (opcional)"></div>
+                        <div class="col-md-6"><input type="text" class="form-control" name="new_teacher[email]" value="{{ old('new_teacher.email') }}" maxlength="255" placeholder="Correo (opcional)"></div>
                     </div>
                     <div class="form-text">Deje la fila «Nuevo» vacía para no agregar ningún docente.</div>
                 </div>
@@ -184,8 +190,13 @@
     {{-- Rendered only by CourseEditionController::sessions(). The read-only
          detail route and the teachers route render this view without passing
          `$sessions`, so they keep working (and query nothing extra). --}}
-    @isset($sessions)
-        <div class="card mt-3" data-testid="course-talks-edition-sessions">
+        @isset($sessions)
+            @php
+                $sessionTeachers = $edition->teachers()->orderBy('sort_order')->get();
+                $sessions->loadMissing('teacher');
+            @endphp
+            <div class="card mt-3" data-testid="course-talks-edition-sessions">
+
             <div class="card-header"><h3 class="card-title mb-0">Sesiones del dictado</h3></div>
             <div class="card-body">
                 @forelse ($sessions as $session)
@@ -196,7 +207,7 @@
                         @if ($session->starts_at || $session->ends_at)
                             <span class="text-secondary ms-2">{{ $session->starts_at ? substr($session->starts_at, 0, 5) : '—' }} — {{ $session->ends_at ? substr($session->ends_at, 0, 5) : '—' }}</span>
                         @endif
-                        @if ($session->teacher_name)<span class="ms-2">{{ $session->teacher_name }}</span>@endif
+                        @if ($session->teacher?->display_name || $session->teacher_name)<span class="ms-2">{{ $session->teacher?->display_name ?: $session->teacher_name }}</span>@endif
                     </div>
                 @empty
                     <p class="text-secondary mb-0" data-testid="course-talks-edition-sessions-empty">Este dictado todavía no tiene sesiones registradas.</p>
@@ -210,6 +221,7 @@
                 'session_date' => $session->session_date?->format('Y-m-d'),
                 'starts_at' => $session->starts_at ? substr($session->starts_at, 0, 5) : null,
                 'ends_at' => $session->ends_at ? substr($session->ends_at, 0, 5) : null,
+                'teacher_id' => $session->teacher_id,
                 'teacher_name' => $session->teacher_name,
             ])->all());
             $sessionRows = is_array($sessionRows) ? array_values(array_filter($sessionRows, 'is_array')) : [];
@@ -225,7 +237,7 @@
                     {{-- syncSessions() upserts by array position instead of wiping the
                          list, so the copy must not claim the teachers surface's full
                          replacement. --}}
-                    <x-alert type="info">Guardar actualiza las sesiones por posición: la fila 1 actualiza la sesión 1, la fila 2 la sesión 2, y así sucesivamente. Use la fila «Nueva» para agregar una sesión. Este formulario no elimina sesiones existentes.</x-alert>
+                    <x-alert type="info">Guardar actualiza las sesiones por posición: la fila 1 actualiza la sesión 1, la fila 2 la sesión 2, y así sucesivamente. Use la fila «Nueva» para agregar una sesión. Este formulario no elimina sesiones existentes. Para el docente de una clase use la lista «Docente asignado»: el «Nombre alternativo» se usa solo cuando no asigna ninguno, y si completa los dos el certificado toma el de la lista.</x-alert>
 
                     @if ($errors->any())
                         <x-alert type="error" data-testid="course-talks-sessions-errors">
@@ -253,10 +265,19 @@
                                 <input type="time" class="form-control" id="session-end-{{ $index }}" name="sessions[{{ $index }}][ends_at]" value="{{ $sessionValue($row, 'ends_at') }}">
                             </div>
                             <div class="col-md-2">
-                                <label class="form-label mb-1" for="session-teacher-{{ $index }}">Docente</label>
+                                <label class="form-label mb-1" for="session-teacher-id-{{ $index }}">Docente asignado</label>
+                                <select class="form-select" id="session-teacher-id-{{ $index }}" name="sessions[{{ $index }}][teacher_id]">
+                                    <option value="">Sin docente asignado</option>
+                                    @foreach ($sessionTeachers as $teacher)
+                                        <option value="{{ $teacher->id }}" @selected($sessionValue($row, 'teacher_id') === (string) $teacher->id)>{{ $teacher->display_name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label mb-1" for="session-teacher-{{ $index }}">Nombre alternativo</label>
                                 <input type="text" class="form-control" id="session-teacher-{{ $index }}" name="sessions[{{ $index }}][teacher_name]" value="{{ $sessionValue($row, 'teacher_name') }}" maxlength="255">
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-1">
                                 <label class="form-label mb-1" for="session-topic-{{ $index }}">Tema</label>
                                 <input type="text" class="form-control" id="session-topic-{{ $index }}" name="sessions[{{ $index }}][topic]" value="{{ $sessionValue($row, 'topic') }}" maxlength="255">
                             </div>
@@ -281,11 +302,21 @@
                             <label class="form-label mb-1" for="new-session-end">Fin</label>
                             <input type="time" class="form-control" id="new-session-end" name="new_session[ends_at]" value="{{ old('new_session.ends_at') }}">
                         </div>
-                        <div class="col-md-2">
-                            <label class="form-label mb-1" for="new-session-teacher">Docente</label>
-                            <input type="text" class="form-control" id="new-session-teacher" name="new_session[teacher_name]" value="{{ old('new_session.teacher_name') }}" maxlength="255">
-                        </div>
-                        <div class="col-md-3">
+                            <div class="col-md-2">
+                                <label class="form-label mb-1" for="new-session-teacher-id">Docente asignado</label>
+                                <select class="form-select" id="new-session-teacher-id" name="new_session[teacher_id]">
+                                    <option value="">Sin docente asignado</option>
+                                    @foreach ($sessionTeachers as $teacher)
+                                        <option value="{{ $teacher->id }}" @selected(old('new_session.teacher_id') == $teacher->id)>{{ $teacher->display_name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label mb-1" for="new-session-teacher">Nombre alternativo</label>
+                                <input type="text" class="form-control" id="new-session-teacher" name="new_session[teacher_name]" value="{{ old('new_session.teacher_name') }}" maxlength="255">
+                            </div>
+                            <div class="col-md-1">
+
                             <label class="form-label mb-1" for="new-session-topic">Tema</label>
                             <input type="text" class="form-control" id="new-session-topic" name="new_session[topic]" value="{{ old('new_session.topic') }}" maxlength="255">
                         </div>

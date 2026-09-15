@@ -20,6 +20,7 @@ use App\Models\Courses\CourseAttendance;
 use App\Models\Courses\CourseCertificateTemplate;
 use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Courses\CourseEdition;
+use App\Models\Courses\CourseEditionTeacher;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\Courses\CourseEnrollmentGroup;
 use App\Models\Courses\CourseGrade;
@@ -135,6 +136,38 @@ class CourseAuditTest extends TestCase
 
         $this->assertSame('partial', $properties['old']['payment_status']);
         $this->assertSame('paid', $properties['attributes']['payment_status']);
+    }
+
+    public function test_an_edition_teacher_create_update_and_remove_follow_course_audit_conventions(): void
+    {
+        $this->actingAs($actor = $this->userWith('course-talks.editions.manage'));
+        $edition = $this->courseEdition();
+        $service = new CourseEditionService();
+
+        $service->syncTeachers($edition, [
+            ['display_name' => 'Ana Docente', 'email' => 'ana@example.test'],
+        ]);
+        $teacher = CourseEditionTeacher::query()->sole();
+
+        $created = $this->properties($this->auditEntry(CourseEditionTeacher::class, $teacher->id, 'course-created', $actor->id));
+        $this->assertSame($edition->id, (int) $created['attributes']['course_edition_id']);
+        $this->assertSame($actor->id, (int) $teacher->created_by);
+
+        $service->syncTeachers($edition, [
+            ['id' => $teacher->id, 'display_name' => 'Ana Actualizada', 'email' => 'ana.nueva@example.test'],
+        ]);
+
+        $updated = $this->properties($this->auditEntry(CourseEditionTeacher::class, $teacher->id, 'course-updated', $actor->id));
+        $this->assertSame('Ana Docente', $updated['old']['display_name']);
+        $this->assertSame('Ana Actualizada', $updated['attributes']['display_name']);
+
+        $service->syncTeachers($edition, [
+            ['id' => $teacher->id, 'remove' => true],
+        ]);
+
+        $deleted = $this->properties($this->auditEntry(CourseEditionTeacher::class, $teacher->id, 'course-deleted', $actor->id));
+        $this->assertSame('Ana Actualizada', $deleted['old']['display_name']);
+        $this->assertSoftDeleted('course_edition_teachers', ['id' => $teacher->id]);
     }
 
     // ---------------------------------------------------------------------

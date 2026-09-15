@@ -6,7 +6,9 @@ use App\Enums\Courses\CourseActivityType;
 use App\Exceptions\Courses\InvalidCourseEditionData;
 use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
+use App\Models\Courses\CourseEditionTeacher;
 use App\Models\Courses\CourseSession;
+use Illuminate\Support\Facades\Schema;
 use App\Models\User;
 use App\Services\Courses\CourseEditionService;
 use Database\Seeders\CoursePermissionsSeeder;
@@ -138,6 +140,85 @@ class CourseEditionSessionsHttpTest extends TestCase
         $this->actingAs($this->manager)->get(route('course-talks.editions.show', $this->edition))
             ->assertOk()
             ->assertSee('ED-SES-001');
+    }
+
+    public function test_course_sessions_have_nullable_teacher_assignment_schema(): void
+    {
+        $this->assertTrue(Schema::hasColumn('course_sessions', 'teacher_id'));
+
+        $session = CourseSession::factory()->for($this->edition, 'edition')->create([
+            'teacher_id' => null,
+            'teacher_name' => 'Docente legado',
+        ]);
+
+        $this->assertNull($session->fresh()->teacher_id);
+    }
+
+    public function test_authorized_sync_assigns_same_edition_teacher_and_renders_teacher_select(): void
+    {
+        $teacher = CourseEditionTeacher::query()->create([
+            'course_edition_id' => $this->edition->id,
+            'display_name' => 'Ana Identidad',
+            'sort_order' => 1,
+        ]);
+
+        $this->sync(['sessions' => [
+            $this->sessionRow('Introducción', [
+                'teacher_id' => $teacher->id,
+                'teacher_name' => 'Texto legado',
+            ]),
+        ]])->assertRedirect($this->sessionsUrl());
+
+        $this->assertDatabaseHas('course_sessions', [
+            'course_edition_id' => $this->edition->id,
+            'sort_order' => 1,
+            'topic' => 'Introducción',
+            'teacher_id' => $teacher->id,
+            'teacher_name' => 'Texto legado',
+        ]);
+
+        $this->actingAs($this->manager)->get($this->sessionsUrl())
+            ->assertOk()
+            ->assertSee('Ana Identidad')
+            ->assertSee('value="'.$teacher->id.'" selected', false);
+    }
+
+    public function test_cross_edition_teacher_id_is_rejected_and_not_persisted(): void
+    {
+        $foreignEdition = CourseEdition::factory()->create();
+        $foreignTeacher = CourseEditionTeacher::query()->create([
+            'course_edition_id' => $foreignEdition->id,
+            'display_name' => 'Docente Externo',
+            'sort_order' => 1,
+        ]);
+
+        $this->sync(['sessions' => [
+            $this->sessionRow('Intrusa', ['teacher_id' => $foreignTeacher->id]),
+        ]])->assertRedirect($this->sessionsUrl())
+            ->assertSessionHasErrors('sessions.0.teacher_id');
+
+        $this->assertDatabaseCount('course_sessions', 0);
+    }
+
+    public function test_clearing_teacher_assignment_keeps_legacy_teacher_name(): void
+    {
+        $teacher = CourseEditionTeacher::query()->create([
+            'course_edition_id' => $this->edition->id,
+            'display_name' => 'Ana Identidad',
+            'sort_order' => 1,
+        ]);
+
+        app(CourseEditionService::class)->syncSessions($this->edition, [
+            $this->sessionRow('Introducción', ['teacher_id' => $teacher->id, 'teacher_name' => 'Texto legado']),
+        ]);
+
+        $this->sync(['sessions' => [
+            $this->sessionRow('Introducción', ['teacher_id' => '', 'teacher_name' => 'Texto legado']),
+        ]])->assertRedirect($this->sessionsUrl());
+
+        $session = CourseSession::query()->where('course_edition_id', $this->edition->id)->sole();
+        $this->assertNull($session->teacher_id);
+        $this->assertSame('Texto legado', $session->teacher_name);
     }
 
     public function test_authorized_sync_persists_sessions_by_array_position(): void

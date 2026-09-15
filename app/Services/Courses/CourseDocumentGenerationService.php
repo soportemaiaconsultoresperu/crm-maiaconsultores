@@ -138,7 +138,7 @@ class CourseDocumentGenerationService
     {
         Gate::forUser($actor)->authorize('generate', CourseAcademicDocument::class);
 
-        $enrollment->loadMissing('edition.activity', 'edition.sessions', 'participant', 'group');
+        $enrollment->loadMissing('edition.activity', 'edition.sessions.teacher', 'participant', 'group');
         $eligibility = ($this->eligibility ?? new CourseEligibilityService())->evaluate($enrollment);
         if (! $eligibility->eligible || ! $eligibility->documentType instanceof AcademicDocumentType) {
             throw InvalidCourseDocumentState::notEligible('La matrícula todavía no es elegible para generar documento académico.');
@@ -346,7 +346,7 @@ class CourseDocumentGenerationService
         $sessions = $edition->sessions->map(fn ($session): array => [
             'class' => 'Clase '.$session->sort_order,
             'topic' => (string) $session->topic,
-            'speaker' => (string) ($session->teacher_name ?: 'Maia Consultores'),
+            'speaker' => (string) ($session->teacher?->display_name ?: (trim((string) $session->teacher_name) ?: 'Maia Consultores')),
             'date' => optional($session->session_date)->format('d.m.y') ?? '',
         ])->all();
 

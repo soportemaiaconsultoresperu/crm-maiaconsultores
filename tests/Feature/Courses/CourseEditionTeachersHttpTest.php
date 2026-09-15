@@ -7,6 +7,8 @@ use App\Enums\Courses\CourseModality;
 use App\Exceptions\Courses\InvalidCourseEditionData;
 use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
+use App\Models\Courses\CourseEditionTeacher;
+use App\Models\Courses\CourseSession;
 use App\Models\User;
 use App\Services\Courses\CourseEditionService;
 use Database\Seeders\CoursePermissionsSeeder;
@@ -80,6 +82,13 @@ class CourseEditionTeachersHttpTest extends TestCase
         ]);
     }
 
+    private function seededTeacherModels(): array
+    {
+        $this->seedTeachers();
+
+        return $this->edition->teachers()->orderBy('sort_order')->get()->all();
+    }
+
     public function test_guests_are_redirected_to_login_from_teacher_management_routes(): void
     {
         $this->get($this->teachersUrl())->assertRedirect(route('login'));
@@ -107,7 +116,7 @@ class CourseEditionTeachersHttpTest extends TestCase
         $this->assertDatabaseMissing('course_edition_teachers', ['display_name' => 'Intruso']);
     }
 
-    public function test_view_shows_the_current_teachers_and_the_full_replacement_warning(): void
+    public function test_view_shows_the_current_teachers_and_identity_preserving_copy(): void
     {
         $this->seedTeachers();
 
@@ -117,7 +126,8 @@ class CourseEditionTeachersHttpTest extends TestCase
             ->assertSee('Ana Docente')
             ->assertSee('ana@example.test')
             ->assertSee('Luis Docente')
-            ->assertSee('Guardar reemplaza toda la lista');
+            ->assertSee('Guardar actualiza docentes por identidad')
+            ->assertSee('name="teachers[0][id]"', false);
 
         // The teachers routes must not shadow the edition detail binding.
         $this->actingAs($this->manager)->get(route('course-talks.editions.show', $this->edition))
@@ -153,16 +163,40 @@ class CourseEditionTeachersHttpTest extends TestCase
         ]);
     }
 
-    public function test_sync_replaces_the_list_and_removes_the_teachers_left_out(): void
+    public function test_sync_omits_without_removing_and_updates_existing_teacher_in_place(): void
     {
-        $this->seedTeachers();
+        [$ana, $luis] = $this->seededTeacherModels();
 
-        $this->sync(['teachers' => [$this->teacher('Ana Docente', ['email' => 'ana@example.test'])]])
-            ->assertRedirect($this->teachersUrl());
+        $this->sync(['teachers' => [
+            $this->teacher('Ana Actualizada', ['id' => $ana->id, 'email' => 'ana.nueva@example.test']),
+        ]])->assertRedirect($this->teachersUrl());
 
-        $this->assertDatabaseCount('course_edition_teachers', 1);
-        $this->assertDatabaseMissing('course_edition_teachers', ['display_name' => 'Luis Docente']);
-        $this->assertDatabaseHas('course_edition_teachers', ['display_name' => 'Ana Docente', 'sort_order' => 1]);
+        $this->assertDatabaseCount('course_edition_teachers', 2);
+        $this->assertDatabaseHas('course_edition_teachers', [
+            'id' => $ana->id,
+            'display_name' => 'Ana Actualizada',
+            'email' => 'ana.nueva@example.test',
+            'sort_order' => 1,
+        ]);
+        $this->assertDatabaseHas('course_edition_teachers', [
+            'id' => $luis->id,
+            'display_name' => 'Luis Docente',
+            'sort_order' => 2,
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_reordering_preserves_teacher_ids(): void
+    {
+        [$ana, $luis] = $this->seededTeacherModels();
+
+        $this->sync(['teachers' => [
+            $this->teacher('Luis Docente', ['id' => $luis->id]),
+            $this->teacher('Ana Docente', ['id' => $ana->id, 'email' => 'ana@example.test']),
+        ]])->assertRedirect($this->teachersUrl());
+
+        $this->assertDatabaseHas('course_edition_teachers', ['id' => $luis->id, 'sort_order' => 1]);
+        $this->assertDatabaseHas('course_edition_teachers', ['id' => $ana->id, 'sort_order' => 2]);
     }
 
     public function test_teacher_payloads_are_validated_per_entry(): void
@@ -197,7 +231,42 @@ class CourseEditionTeachersHttpTest extends TestCase
         $this->assertDatabaseCount('course_edition_teachers', 2);
     }
 
-    public function test_client_supplied_sort_order_is_ignored_and_the_array_position_wins(): void
+        /**
+         * The `user_id` link has no meaning yet, so it must not be offered as a
+         * visible field — as a bare number input it asked the operator for an
+         * internal user id with no lookup. It must still round-trip, or every
+         * save would silently null an existing link (both the request and the
+         * service read it as `$teacher['user_id'] ?? null`).
+         */
+        public function test_user_id_is_hidden_from_the_form_but_survives_a_save(): void
+        {
+            $internal = User::factory()->create(['is_active' => true]);
+
+            $this->sync(['teachers' => [$this->teacher('Ana Docente', ['user_id' => $internal->id])]])
+                ->assertRedirect($this->teachersUrl());
+
+            $ana = $this->edition->teachers()->sole();
+
+            $this->assertSame($internal->id, $ana->user_id);
+
+            $this->actingAs($this->manager)
+                ->get($this->teachersUrl())
+                ->assertOk()
+                ->assertDontSee('Usuario interno')
+                ->assertSee('type="hidden" name="teachers[0][user_id]" value="'.$internal->id.'"', false);
+
+            // Re-submitting the row exactly as the form renders it keeps the link.
+            $this->sync(['teachers' => [[
+                'id' => $ana->id,
+                'display_name' => 'Ana Docente',
+                'email' => null,
+                'user_id' => $internal->id,
+            ]]])->assertRedirect($this->teachersUrl());
+
+            $this->assertSame($internal->id, $ana->fresh()->user_id);
+        }
+
+        public function test_client_supplied_sort_order_is_ignored_and_the_array_position_wins(): void
     {
         $this->sync(['teachers' => [
             $this->teacher('Ana Docente', ['sort_order' => 99]),
@@ -211,42 +280,113 @@ class CourseEditionTeachersHttpTest extends TestCase
 
     public function test_form_affordances_add_and_remove_teachers_without_adding_blank_rows(): void
     {
-        // The optional "new teacher" slot is appended when filled...
         $this->sync([
-            'teachers' => [$this->teacher('Ana Docente')],
             'new_teacher' => $this->teacher('Pedro Docente', ['email' => 'pedro@example.test']),
         ])->assertRedirect($this->teachersUrl());
 
-        $this->assertDatabaseHas('course_edition_teachers', ['display_name' => 'Pedro Docente', 'sort_order' => 2]);
+        $this->assertDatabaseHas('course_edition_teachers', ['display_name' => 'Pedro Docente', 'sort_order' => 1]);
+        [$pedro] = $this->edition->teachers()->orderBy('sort_order')->get()->all();
 
         // ...and ignored when the form is re-submitted untouched.
         $this->sync([
-            'teachers' => [$this->teacher('Ana Docente'), $this->teacher('Pedro Docente')],
+            'teachers' => [$this->teacher('Pedro Docente', ['id' => $pedro->id])],
             'new_teacher' => ['display_name' => '', 'email' => '', 'user_id' => ''],
         ])->assertRedirect($this->teachersUrl());
-
-        $this->assertDatabaseCount('course_edition_teachers', 2);
 
         // `remove` drops the row while preparing the input, so a removed
         // teacher's name never has to be filled in.
         $this->sync(['teachers' => [
-            $this->teacher('Ana Docente', ['remove' => '1']),
-            $this->teacher('Pedro Docente'),
+            $this->teacher('Pedro Docente', ['id' => $pedro->id, 'remove' => '1']),
         ]])->assertRedirect($this->teachersUrl());
 
-        $this->assertDatabaseCount('course_edition_teachers', 1);
-        $this->assertDatabaseMissing('course_edition_teachers', ['display_name' => 'Ana Docente']);
-        $this->assertDatabaseHas('course_edition_teachers', ['display_name' => 'Pedro Docente', 'sort_order' => 1]);
+        $this->assertSame(0, CourseEditionTeacher::query()->count());
+        $this->assertSoftDeleted('course_edition_teachers', ['id' => $pedro->id]);
+    }
+
+    public function test_removing_teacher_assigned_to_active_session_is_blocked_without_mutating_rows(): void
+    {
+        [$ana, $luis] = $this->seededTeacherModels();
+        CourseSession::factory()->for($this->edition, 'edition')->create([
+            'teacher_id' => $ana->id,
+            'teacher_name' => 'Texto legado',
+            'topic' => 'Sesión con docente',
+            'sort_order' => 1,
+        ]);
+
+        $this->sync(['teachers' => [
+            $this->teacher('Ana Docente', ['id' => $ana->id, 'remove' => '1']),
+            $this->teacher('Luis Docente', ['id' => $luis->id]),
+        ]])->assertRedirect($this->teachersUrl())
+            ->assertSessionHasErrors('teachers');
+
+        $this->assertDatabaseHas('course_edition_teachers', [
+            'id' => $ana->id,
+            'display_name' => 'Ana Docente',
+            'sort_order' => 1,
+            'deleted_at' => null,
+        ]);
+        $this->assertDatabaseHas('course_sessions', [
+            'course_edition_id' => $this->edition->id,
+            'teacher_id' => $ana->id,
+            'teacher_name' => 'Texto legado',
+        ]);
+    }
+
+    public function test_removing_teacher_succeeds_after_session_assignment_is_cleared(): void
+    {
+        [$ana] = $this->seededTeacherModels();
+        CourseSession::factory()->for($this->edition, 'edition')->create([
+            'teacher_id' => null,
+            'teacher_name' => 'Texto legado',
+            'topic' => 'Sesión liberada',
+            'sort_order' => 1,
+        ]);
+
+        $this->sync(['teachers' => [
+            $this->teacher('Ana Docente', ['id' => $ana->id, 'remove' => '1']),
+        ]])->assertRedirect($this->teachersUrl());
+
+        $this->assertSoftDeleted('course_edition_teachers', ['id' => $ana->id]);
     }
 
     public function test_removing_every_teacher_leaves_the_edition_without_teachers(): void
     {
-        $this->seedTeachers();
+        [$ana, $luis] = $this->seededTeacherModels();
 
-        $this->sync(['teachers' => [$this->teacher('Ana Docente', ['remove' => 'true'])]])
-            ->assertRedirect($this->teachersUrl());
+        $this->sync(['teachers' => [
+            $this->teacher('Ana Docente', ['id' => $ana->id, 'remove' => '1']),
+            $this->teacher('Luis Docente', ['id' => $luis->id, 'remove' => '1']),
+        ]])->assertRedirect($this->teachersUrl());
 
-        $this->assertDatabaseCount('course_edition_teachers', 0);
+        $this->assertSame(0, CourseEditionTeacher::query()->count());
+        $this->assertSame(2, CourseEditionTeacher::withTrashed()->count());
+    }
+
+    public function test_foreign_hidden_teacher_id_is_rejected_without_mutating_that_teacher(): void
+    {
+        $otherEdition = CourseEdition::factory()->create();
+        $foreign = CourseEditionTeacher::query()->create([
+            'course_edition_id' => $otherEdition->id,
+            'display_name' => 'Docente de otro dictado',
+            'sort_order' => 1,
+        ]);
+
+        $this->sync(['teachers' => [
+            $this->teacher('Intruso Editado', ['id' => $foreign->id]),
+        ]])->assertRedirect($this->teachersUrl())
+            ->assertSessionHasErrors('teachers.0.id');
+
+        $this->assertDatabaseMissing('course_edition_teachers', [
+            'id' => $foreign->id,
+            'display_name' => 'Intruso Editado',
+        ]);
+        $this->assertDatabaseHas('course_edition_teachers', [
+            'id' => $foreign->id,
+            'course_edition_id' => $otherEdition->id,
+            'display_name' => 'Docente de otro dictado',
+            'sort_order' => 1,
+            'deleted_at' => null,
+        ]);
     }
 
     public function test_field_less_service_failure_is_visible_on_the_show_view(): void

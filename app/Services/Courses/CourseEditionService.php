@@ -78,25 +78,85 @@ class CourseEditionService
     public function syncTeachers(CourseEdition $edition, array $teachers): void
     {
         DB::transaction(function () use ($edition, $teachers): void {
-            $edition->teachers()->delete();
+            $submittedActiveIds = [];
+            $position = 1;
 
-            foreach (array_values($teachers) as $index => $teacher) {
+            $originalOrder = $edition->teachers()->orderBy('sort_order')->pluck('id')->values()->all();
+
+            DB::table('course_edition_teachers')
+                ->where('course_edition_id', $edition->id)
+                ->whereNull('deleted_at')
+                ->update(['sort_order' => null]);
+
+            foreach (array_values($teachers) as $teacher) {
+                $id = $teacher['id'] ?? null;
+                $remove = filter_var($teacher['remove'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+                if ($remove) {
+                    if ($id === null) {
+                        continue;
+                    }
+
+                    $record = $this->editionTeacherForUpdate($edition, (int) $id);
+                    if (CourseSession::query()
+                        ->where('course_edition_id', $edition->id)
+                        ->where('teacher_id', $record->id)
+                        ->exists()) {
+                        throw InvalidCourseEditionData::forField('teachers', 'No se puede quitar el docente porque está asignado a una o más sesiones. Reasigne las sesiones antes de quitarlo.');
+                    }
+                    $record->forceFill(['sort_order' => null])->save();
+                    $record->delete();
+
+                    continue;
+                }
+
                 $name = trim((string) ($teacher['display_name'] ?? ''));
                 if ($name === '') {
                     throw new InvalidCourseEditionData('Edition teachers require a display name.');
                 }
 
-                CourseEditionTeacher::create([
-                    'course_edition_id' => $edition->id,
+                $record = $id === null
+                    ? new CourseEditionTeacher(['course_edition_id' => $edition->id])
+                    : $this->editionTeacherForUpdate($edition, (int) $id);
+
+                $record->fill([
                     'user_id' => $teacher['user_id'] ?? null,
                     'display_name' => $name,
                     'email' => ($email = trim((string) ($teacher['email'] ?? ''))) === '' ? null : $email,
-                    'sort_order' => $index + 1,
+                    'sort_order' => $position++,
                 ]);
+                $record->save();
+                $submittedActiveIds[] = (int) $record->id;
+            }
+
+            $orderIndex = array_flip($originalOrder);
+            $omitted = $edition->teachers()
+                ->when($submittedActiveIds !== [], fn ($query) => $query->whereNotIn('id', $submittedActiveIds))
+                ->lockForUpdate()
+                ->get()
+                ->sortBy(fn (CourseEditionTeacher $teacher): int => $orderIndex[$teacher->id] ?? PHP_INT_MAX);
+
+            foreach ($omitted as $teacher) {
+                $teacher->forceFill(['sort_order' => $position++])->save();
             }
 
             CourseEditionChanged::dispatch($edition->id, 'course-edition-teachers-changed');
         });
+    }
+
+    private function editionTeacherForUpdate(CourseEdition $edition, int $teacherId): CourseEditionTeacher
+    {
+        $teacher = CourseEditionTeacher::query()
+            ->whereKey($teacherId)
+            ->where('course_edition_id', $edition->id)
+            ->lockForUpdate()
+            ->first();
+
+        if ($teacher === null) {
+            throw InvalidCourseEditionData::forField('teachers', 'El docente seleccionado no pertenece a este dictado.');
+        }
+
+        return $teacher;
     }
 
     /**
@@ -111,6 +171,20 @@ class CourseEditionService
                     throw new InvalidCourseEditionData('Course sessions require a topic.');
                 }
 
+                $teacherId = $session['teacher_id'] ?? null;
+                $teacherId = $teacherId === '' ? null : $teacherId;
+                if ($teacherId !== null) {
+                    $teacherId = CourseEditionTeacher::query()
+                        ->whereKey((int) $teacherId)
+                        ->where('course_edition_id', $edition->id)
+                        ->lockForUpdate()
+                        ->value('id');
+
+                    if ($teacherId === null) {
+                        throw InvalidCourseEditionData::forField('sessions.'.$index.'.teacher_id', 'El docente seleccionado no pertenece a este dictado.');
+                    }
+                }
+
                 $record = CourseSession::withTrashed()->firstOrNew([
                     'course_edition_id' => $edition->id,
                     'sort_order' => $index + 1,
@@ -119,6 +193,7 @@ class CourseEditionService
                     'session_date' => $session['session_date'] ?? null,
                     'starts_at' => $session['starts_at'] ?? null,
                     'ends_at' => $session['ends_at'] ?? null,
+                    'teacher_id' => $teacherId,
                     'teacher_name' => $session['teacher_name'] ?? null,
                     'topic' => $topic,
                 ]);

@@ -5,7 +5,7 @@ namespace Tests\Feature\Courses;
 use App\Contracts\Courses\{PdfRenderer, QrRenderer};
 use App\Enums\Courses\{AcademicDocumentStatus,AcademicDocumentType,CourseActivityType,CourseEnrollmentState,FinalResult,PaymentStatus};
 use App\Exceptions\Courses\InvalidCourseDocumentState;
-use App\Models\Courses\{CourseActivity,CourseAcademicDocument,CourseCertificateTemplate,CourseEdition,CourseEnrollment,CourseEnrollmentGroup,CourseParticipant,CourseSession};
+use App\Models\Courses\{CourseActivity,CourseAcademicDocument,CourseCertificateTemplate,CourseEdition,CourseEditionTeacher,CourseEnrollment,CourseEnrollmentGroup,CourseParticipant,CourseSession};
 use App\Models\User;
 use App\Services\Courses\CertificateQrTokenService;
 use App\Services\Courses\CourseDocumentGenerationService;
@@ -274,10 +274,9 @@ class CourseAcademicDocumentGenerationTest extends TestCase
         try {
             $service->regenerate($first->fresh(), $actor, 'Corrección');
             $this->fail('Un documento que no está vigente no debe regenerarse.');
-        } catch (\InvalidArgumentException $exception) {
-            $this->assertSame(InvalidCourseDocumentState::class, $exception::class);
-            $this->assertSame(InvalidCourseDocumentState::NOT_CURRENT, $exception->reason());
-        }
+        } catch (InvalidCourseDocumentState $exception) {
+                $this->assertSame(InvalidCourseDocumentState::NOT_CURRENT, $exception->reason());
+            }
 
         // 2. Not eligible: the enrollment lost its payment condition, and the tag
         // says so instead of sharing a tag with the currency rule.
@@ -285,11 +284,10 @@ class CourseAcademicDocumentGenerationTest extends TestCase
         try {
             $service->generate($enrollment->fresh(), $actor);
             $this->fail('Una matrícula no elegible no debe generar documento.');
-        } catch (\InvalidArgumentException $exception) {
-            $this->assertSame(InvalidCourseDocumentState::class, $exception::class);
-            $this->assertSame(InvalidCourseDocumentState::NOT_ELIGIBLE, $exception->reason());
-            $this->assertStringContainsString('no es elegible', $exception->getMessage());
-        }
+        } catch (InvalidCourseDocumentState $exception) {
+                $this->assertSame(InvalidCourseDocumentState::NOT_ELIGIBLE, $exception->reason());
+                $this->assertStringContainsString('no es elegible', $exception->getMessage());
+            }
 
         // 3. A second current document: the duplicate guard has its own tag too.
         $enrollment->forceFill(['payment_status' => PaymentStatus::Paid])->save();
@@ -297,10 +295,9 @@ class CourseAcademicDocumentGenerationTest extends TestCase
         try {
             $service->generate($enrollment->fresh(), $actor);
             $this->fail('No debe crearse un segundo documento académico vigente.');
-        } catch (\InvalidArgumentException $exception) {
-            $this->assertSame(InvalidCourseDocumentState::class, $exception::class);
-            $this->assertSame(InvalidCourseDocumentState::CURRENT_ALREADY_EXISTS, $exception->reason());
-        }
+        } catch (InvalidCourseDocumentState $exception) {
+                $this->assertSame(InvalidCourseDocumentState::CURRENT_ALREADY_EXISTS, $exception->reason());
+            }
 
         $this->assertSame($current->id, CourseAcademicDocument::query()->where('status', AcademicDocumentStatus::Current)->sole()->id);
         $this->assertSame(1, CourseAcademicDocument::query()->where('status', AcademicDocumentStatus::Current)->count());
@@ -525,6 +522,33 @@ class CourseAcademicDocumentGenerationTest extends TestCase
      * session date. This is the lock on "a delivery created before this change
      * does not regress".
      */
+    public function test_certificate_session_speaker_prefers_fk_teacher_then_legacy_text_then_company(): void
+    {
+        Storage::fake('docs');
+        $pdfCalls = [];
+        [$enrollment, $actor] = $this->enrollmentWithSyllabus(
+            baseSyllabus: [],
+            deliverySyllabus: [],
+            sessionTopics: ['Asignada', 'Legado', 'Casa'],
+        );
+        $teacher = CourseEditionTeacher::query()->create([
+            'course_edition_id' => $enrollment->edition->id,
+            'display_name' => 'Docente FK',
+            'sort_order' => 1,
+        ]);
+        $sessions = $enrollment->edition->sessions()->orderBy('sort_order')->get();
+        $sessions[0]->forceFill(['teacher_id' => $teacher->id, 'teacher_name' => 'Texto ignorado'])->save();
+        $sessions[1]->forceFill(['teacher_id' => null, 'teacher_name' => 'Docente legado'])->save();
+        $sessions[2]->forceFill(['teacher_id' => null, 'teacher_name' => '   '])->save();
+
+        $this->service(null, $pdfCalls)->generate($enrollment->fresh(), $actor);
+
+        $this->assertSame(
+            ['Docente FK', 'Docente legado', 'Maia Consultores'],
+            array_column($pdfCalls[0]['data']['certificate']->syllabus, 'speaker'),
+        );
+    }
+
     public function test_the_certificate_keeps_todays_session_row_shape_when_neither_the_delivery_nor_the_activity_has_a_syllabus(): void
     {
         Storage::fake('docs');
