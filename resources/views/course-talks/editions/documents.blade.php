@@ -128,7 +128,9 @@
                 <tr data-testid="course-talks-documents-row-{{ $enrollment->id }}">
                     <td>
                         <strong>{{ $enrollment->participant->last_name }}, {{ $enrollment->participant->first_name }}</strong>
-                        <div class="text-secondary small">{{ $enrollment->participant->document_type }} {{ $enrollment->participant->document_number }}</div>
+                        @if ($document = $enrollment->participant->displayDocument())
+                            <div class="text-secondary small">{{ $document }}</div>
+                        @endif
                     </td>
                     <td data-testid="course-talks-documents-expected-{{ $enrollment->id }}">
                         @if ($result->documentType)

@@ -96,7 +96,9 @@
                     <tr data-testid="course-talks-attendance-row-{{ $enrollment->id }}">
                         <td>
                             <strong>{{ $enrollment->participant->last_name }}, {{ $enrollment->participant->first_name }}</strong>
-                            <div class="text-secondary small">{{ $enrollment->participant->document_type }} {{ $enrollment->participant->document_number }}</div>
+                            @if ($document = $enrollment->participant->displayDocument())
+                                <div class="text-secondary small">{{ $document }}</div>
+                            @endif
                         </td>
                         @if ($isTalk)
                             @php $confirmed = $enrollment->participation_confirmed_at !== null; @endphp

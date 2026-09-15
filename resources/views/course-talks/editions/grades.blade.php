@@ -72,7 +72,9 @@
                     <tr data-testid="course-talks-grades-participation-row-{{ $enrollment->id }}">
                         <td>
                             <strong>{{ $enrollment->participant->last_name }}, {{ $enrollment->participant->first_name }}</strong>
-                            <div class="text-secondary small">{{ $enrollment->participant->document_type }} {{ $enrollment->participant->document_number }}</div>
+                            @if ($document = $enrollment->participant->displayDocument())
+                                <div class="text-secondary small">{{ $document }}</div>
+                            @endif
                         </td>
                         <td data-testid="course-talks-grades-participation-{{ $enrollment->id }}">
                             @if ($enrollment->participation_confirmed_at !== null)
@@ -132,7 +134,9 @@
                         <tr data-testid="course-talks-grades-row-{{ $enrollment->id }}">
                             <td>
                                 <strong>{{ $enrollment->participant->last_name }}, {{ $enrollment->participant->first_name }}</strong>
-                                <div class="text-secondary small">{{ $enrollment->participant->document_type }} {{ $enrollment->participant->document_number }}</div>
+                                @if ($document = $enrollment->participant->displayDocument())
+                                    <div class="text-secondary small">{{ $document }}</div>
+                                @endif
                             </td>
                             @foreach ($sessions as $session)
                                 @php $value = (string) ($grades[$enrollment->id][$session->id] ?? ''); @endphp
