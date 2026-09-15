@@ -700,6 +700,26 @@ class CourseCommercialDocumentDeliveryHttpTest extends TestCase
         }
 
         /**
+         * The pending handoff has to be visible where the operator lands, not only inside
+         * one comprobante's delivery history.
+         */
+        public function test_a_pending_whatsapp_handoff_is_announced_at_the_top_of_the_listing(): void
+        {
+            $commercial = $this->commercialDocument($this->enrollment());
+
+            $this->openWhatsApp($commercial, self::PARTICIPANT_MOBILE, $this->renderedKey($commercial, 'whatsapp'))
+                ->assertStatus(302);
+
+            $handoff = OutboundDelivery::query()->sole();
+            $html = $this->listingHtml();
+
+            $this->assertStringContainsString('course-talks-commercial-documents-whatsapp-pending-'.$handoff->id, $html);
+            $this->assertStringContainsString(self::PARTICIPANT_MOBILE, $html);
+            $this->assertStringContainsString('Marcar como enviado', $html);
+            $this->assertStringContainsString('Descartar intento', $html);
+        }
+
+        /**
          * Confirming does NOT mutate the handoff — it appends a `sent` row — so the handoff
          * stayed `queued` forever and the confirmation control kept offering a number that
          * had already been sent. An opened-then-confirmed handoff counts as resolved.

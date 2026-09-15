@@ -84,6 +84,18 @@
                     ),
             );
 
+            // Pending WhatsApp handoffs for the whole listing, read from the SAME resolver the
+            // row uses so the two can never disagree. They used to be visible only inside one
+            // comprobante's delivery history: an operator who had just sent a message from
+            // WhatsApp had nowhere obvious to confirm it from.
+            $pendingHandoffs = [];
+            foreach ($commercialDocuments as $commercial) {
+                $pending = $pendingHandoffOf($deliveries[$commercial->id] ?? collect());
+                if ($pending !== null) {
+                    $pendingHandoffs[] = ['document' => $commercial, 'handoff' => $pending];
+                }
+            }
+
         // The recipient prefill comes from the real data the domain already holds
         // for the comprobante's only target: the participant of its enrollment, or
         // the payer customer of its enrollment group. Nothing is invented here.
@@ -107,6 +119,39 @@
     @endphp
 
     <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver al dictado</a>
+
+    @if ($pendingHandoffs !== [])
+        <x-alert type="warning" data-testid="course-talks-commercial-documents-whatsapp-pending">
+            <p class="mb-1 fw-semibold">
+                {{ count($pendingHandoffs) === 1
+                    ? 'Tenés un envío por WhatsApp pendiente de confirmar.'
+                    : 'Tenés '.count($pendingHandoffs).' envíos por WhatsApp pendientes de confirmar.' }}
+            </p>
+            <p class="small mb-0">Marcá cada uno como enviado cuando lo hayas mandado desde WhatsApp, o descartalo si no lo vas a usar.</p>
+
+            @foreach ($pendingHandoffs as $entry)
+                <div class="d-flex flex-wrap align-items-center gap-2 border-top pt-2 mt-2" data-testid="course-talks-commercial-documents-whatsapp-pending-{{ $entry['handoff']->id }}">
+                    <span class="small"><strong>{{ $entry['document']->type->value ?? 'Comprobante' }}</strong> · {{ $entry['handoff']->recipient_ref }}</span>
+
+                    {{-- The number travels hidden and comes from the handoff itself, so the
+                         confirmation cannot be refused for a phone the operator retyped. --}}
+                    <form method="POST" action="{{ route('course-talks.commercial-documents.whatsapp.confirm', $entry['document']) }}" class="d-flex flex-wrap gap-1">
+                        @csrf
+                        <input type="hidden" name="operation_key" value="{{ \Illuminate\Support\Str::uuid() }}">
+                        <input type="hidden" name="handoff" value="{{ $entry['handoff']->id }}">
+                        <input type="hidden" name="recipient_phone" value="{{ $entry['handoff']->recipient_ref }}">
+                        <button type="submit" class="btn btn-sm btn-success">Marcar como enviado</button>
+                    </form>
+
+                    <form method="POST" action="{{ route('course-talks.commercial-documents.whatsapp.discard', $entry['document']) }}" class="d-flex flex-wrap gap-1">
+                        @csrf
+                        <input type="hidden" name="handoff" value="{{ $entry['handoff']->id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Descartar intento</button>
+                    </form>
+                </div>
+            @endforeach
+        </x-alert>
+    @endif
 
     <div class="card mb-3" data-testid="course-talks-commercial-edition">
         <div class="card-body">
