@@ -72,7 +72,9 @@
                 <tr data-testid="course-talks-enrollment-{{ $enrollment->id }}">
                     <td>
                         <strong>{{ $enrollment->participant->last_name }}, {{ $enrollment->participant->first_name }}</strong>
-                        <div class="text-secondary small">{{ $enrollment->participant->document_type }} {{ $enrollment->participant->document_number }}</div>
+                            @if ($document = $enrollment->participant->displayDocument())
+                                <div class="text-secondary small">{{ $document }}</div>
+                            @endif
                         <div class="text-secondary small">{{ $enrollment->participant->email }}</div>
                     </td>
                     <td>

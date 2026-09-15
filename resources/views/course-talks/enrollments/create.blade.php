@@ -9,10 +9,15 @@
             $contact->id => trim($contact->last_name.' '.$contact->first_name).($contact->email ? ' — '.$contact->email : ''),
         ])->all();
 
-        $participantOptions = $participants->mapWithKeys(fn ($participant): array => [
-            $participant->id => trim($participant->last_name.' '.$participant->first_name)
-                .' — '.trim($participant->document_type.' '.$participant->document_number),
-        ])->all();
+        // The label shows the person, and their document only when it is a real one:
+        // a participant built from a CRM contact carries a fabricated document that
+        // would read as "contact contact-12" to the operator.
+        $participantOptions = $participants->mapWithKeys(function ($participant): array {
+            $name = trim($participant->last_name.' '.$participant->first_name);
+            $document = $participant->displayDocument();
+
+            return [$participant->id => $document === null ? $name : $name.' — '.$document];
+        })->all();
 
         $customerOptions = $customers->mapWithKeys(fn ($customer): array => [
             $customer->id => trim(($customer->code ? $customer->code.' · ' : '').($customer->legal_name ?: $customer->trade_name)),

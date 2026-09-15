@@ -183,7 +183,7 @@ class CourseEnrollmentService
             'contact_id' => $contact->id,
             'first_name' => $contact->first_name,
             'last_name' => $contact->last_name,
-            'document_type' => 'contact',
+            'document_type' => CourseParticipant::SYNTHETIC_DOCUMENT_TYPE,
             'document_number' => 'contact-'.$contact->id,
             'email' => $contact->email,
             'mobile' => $contact->phone ?? $contact->whatsapp,

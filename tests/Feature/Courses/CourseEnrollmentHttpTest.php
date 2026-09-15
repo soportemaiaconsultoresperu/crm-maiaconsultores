@@ -121,6 +121,77 @@ class CourseEnrollmentHttpTest extends TestCase
             ->patch(route('course-talks.enrollments.payment-status.update', $enrollment), $payload);
     }
 
+    /**
+     * KNOWN DEFECT, documented on purpose — invert this test when it is fixed.
+     *
+     * Deduplication runs per SOURCE, so the same human can end up enrolled twice.
+     *
+     * A participant built from a CRM contact is matched by `contact_id` and carries a
+     * fabricated document. The same person entered by hand is matched by
+     * `(document_type, document_number_norm)`. Those two keys cannot collide, and the
+     * duplicate guard compares `course_participant_id`, so nothing stops one person from
+     * holding two participants — and therefore two enrollments — in a single delivery.
+     *
+     * The assertions below describe the CURRENT, WRONG behaviour. When the defect is
+     * fixed they must be changed to expect one participant and one enrollment; a failure
+     * here then means progress, not a regression.
+     */
+    public function test_known_defect_the_same_person_can_be_enrolled_twice_through_different_sources(): void
+    {
+        $contact = $this->contact();
+
+        // Enrolled from the CRM contact, with no document of her own.
+        $this->storeIndividual([
+            'participant_source' => 'contact',
+            'contact_id' => $contact->id,
+        ])->assertRedirect($this->indexUrl());
+
+        // The same woman, entered by hand with her real document.
+        $this->storeIndividual(array_merge(
+            ['participant_source' => 'new'],
+            $this->minimumParticipant([
+                'first_name' => 'Ana',
+                'last_name' => 'Torres',
+                'document_type' => 'dni',
+                'document_number' => '87654321',
+                'email' => 'ana@example.test',
+                'mobile' => '+51 999 111 222',
+            ]),
+        ))->assertRedirect($this->indexUrl());
+
+        $this->assertSame(2, CourseParticipant::count(), 'One person became two participants.');
+        $this->assertSame(2, CourseEnrollment::count(), 'One person holds two enrollments in one delivery.');
+    }
+
+    /**
+     * The document fabricated for a contact-derived participant is an internal key. It
+     * must not be rendered as though the person carried that number, on either surface
+     * that lists participants.
+     */
+    public function test_a_contact_participant_does_not_show_the_fabricated_document(): void
+    {
+        $contact = $this->contact();
+
+        $this->storeIndividual([
+            'participant_source' => 'contact',
+            'contact_id' => $contact->id,
+        ])->assertRedirect($this->indexUrl());
+
+        $participant = CourseParticipant::sole();
+        $this->assertSame(CourseParticipant::SYNTHETIC_DOCUMENT_TYPE, $participant->document_type);
+        $this->assertNull($participant->displayDocument());
+
+        $this->actingAs($this->manager)->get($this->indexUrl())
+            ->assertOk()
+            ->assertSee('Torres')
+            ->assertDontSee('contact-'.$contact->id);
+
+        $this->actingAs($this->manager)->get($this->createUrl())
+            ->assertOk()
+            ->assertSee('Torres')
+            ->assertDontSee('contact-'.$contact->id);
+    }
+
     public function test_guests_are_redirected_to_login_from_enrollment_routes(): void
     {
         $enrollment = CourseEnrollment::factory()->for($this->edition, 'edition')->create();
