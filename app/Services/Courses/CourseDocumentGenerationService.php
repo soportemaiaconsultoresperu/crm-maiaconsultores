@@ -440,10 +440,45 @@ class CourseDocumentGenerationService
         return (string) ($enrollment->group?->payer_name ?: 'Maia Consultores');
     }
 
+    /**
+     * Spanish month names, so the printed date never depends on the machine's locale.
+     *
+     * @var array<int, string>
+     */
+    private const MONTHS = [1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril', 5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto', 9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre'];
+
+    /**
+     * The date range AS PRINTED on the certificate: "01 al 04 de julio de 2026".
+     *
+     * It used to be cut out of the generated FILENAME, which is why it read "14-16.09.26":
+     * a file name wants a compact, sortable form and a certificate does not. The two are now
+     * built separately, and the file name keeps its own shape.
+     */
     private function certificateDateRange(CourseEnrollment $enrollment): string
     {
-        $filename = ($this->filenames ?? new CourseCertificateFilenameService())->build('', '', $enrollment->edition->starts_on, $enrollment->edition->ends_on, '');
+        $starts = $enrollment->edition->starts_on;
+        $ends = $enrollment->edition->ends_on;
 
-        return explode('_', $filename)[3];
+        if ($starts === null) {
+            return $ends === null ? '' : $this->longDate($ends);
+        }
+
+        if ($ends === null || $starts->isSameDay($ends)) {
+            return $this->longDate($starts);
+        }
+
+        if ($starts->isSameMonth($ends)) {
+            return $starts->format('d').' al '.$this->longDate($ends);
+        }
+
+        return $starts->isSameYear($ends)
+            ? $starts->format('d').' de '.self::MONTHS[$starts->month].' al '.$this->longDate($ends)
+            : $this->longDate($starts).' al '.$this->longDate($ends);
+    }
+
+    /** A single date in the certificate's own voice: "04 de julio de 2026". */
+    private function longDate(\Carbon\CarbonInterface $date): string
+    {
+        return $date->format('d').' de '.self::MONTHS[$date->month].' de '.$date->format('Y');
     }
 }
