@@ -69,6 +69,13 @@
                                 </a>
                             </li>
                         @endcan
+                        @can('viewAny', \App\Models\Content\ContentProject::class)
+                            <li class="nav-item">
+                                <a href="{{ route('content.projects.index') }}" class="nav-link {{ request()->routeIs('content.*') ? 'active' : '' }}" aria-current="{{ request()->routeIs('content.*') ? 'page' : 'false' }}" data-testid="sidebar-content-projects">
+                                    <i class="nav-icon bi bi-calendar2-week" aria-hidden="true"></i><p>Cronograma de contenidos</p>
+                                </a>
+                            </li>
+                        @endcan
 <li class="nav-item">
                     <a href="{{ route('products.index') }}" class="nav-link {{ request()->routeIs('products.*') ? 'active' : '' }}"><i class="nav-icon bi bi-box-seam" aria-hidden="true"></i><p>Productos</p></a>
                 </li>

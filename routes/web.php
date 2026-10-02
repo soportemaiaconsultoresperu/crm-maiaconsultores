@@ -5,6 +5,7 @@ use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\Content\ContentProjectController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
@@ -886,3 +887,31 @@ Route::middleware(['auth', 'active'])->controller(\App\Http\Controllers\ReportCo
                     ->whereNumber('template');
             });
         });
+
+/*
+ * Content scheduling module — project administration UI (T3).
+ *
+ * Additive module group: the same `auth,active` middleware, a named group
+ * (`content.`) and the static `projects/create` segment registered before the
+ * `projects/{contentProject}` binding so it is never swallowed by it. Every
+ * record-level action resolves the project through
+ * ContentProjectScopeService and reports a project the user may not reach as
+ * 404, never 403, so a foreign project's existence is not disclosed.
+ */
+Route::middleware(['auth', 'active'])
+    ->prefix('content')
+    ->name('content.')
+    ->group(function (): void {
+        Route::controller(ContentProjectController::class)->group(function (): void {
+            Route::get('projects', 'index')->name('projects.index');
+            // Static segment first so `projects/{contentProject}` never shadows it.
+            Route::get('projects/create', 'create')->name('projects.create');
+            Route::post('projects', 'store')->name('projects.store');
+            Route::get('projects/{contentProject}', 'show')->name('projects.show');
+            Route::get('projects/{contentProject}/edit', 'edit')->name('projects.edit');
+            Route::put('projects/{contentProject}', 'update')->name('projects.update');
+            Route::post('projects/{contentProject}/archive', 'archive')->name('projects.archive');
+            Route::post('projects/{contentProject}/reactivate', 'reactivate')->name('projects.reactivate');
+            Route::post('projects/{contentProject}/members', 'syncMembers')->name('projects.members.sync');
+        });
+    });
