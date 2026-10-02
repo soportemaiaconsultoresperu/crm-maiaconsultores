@@ -51,6 +51,17 @@ class DatabaseSeeder extends Seeder
             // product decision (drop the role or the bypass), not a permission-only
             // rollback.
             CoursePermissionsSeeder::class,
+            // Content scheduling module permission vocabulary (task T2). Like the
+            // course-talks seeder above it MUST run after `RolesAndPermissionsSeeder`
+            // (whose `syncPermissions($all)` would otherwise wipe these grants) and it
+            // is idempotent on re-seed (firstOrCreate + merge-then-sync), so it never
+            // detaches another module's permissions.
+            //
+            // ROLLBACK is non-destructive: remove this call (or revoke the
+            // `content_projects.*` permissions) and the module's routes and sidebar
+            // entry stop being reachable. No content project, content, media file or
+            // audit row is deleted by that rollback.
+            ContentPermissionsSeeder::class,
             AdminUserSeeder::class,
             // The SYSTEM author of automatic document generation. It runs after
             // `CoursePermissionsSeeder` (which creates the single permission it
