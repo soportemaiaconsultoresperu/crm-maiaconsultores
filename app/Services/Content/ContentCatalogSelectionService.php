@@ -1,0 +1,59 @@
+<?php
+
+namespace App\Services\Content;
+
+use App\Models\Content\ContentPillar;
+use App\Models\Content\ContentProject;
+use App\Models\Content\ContentTopic;
+use Illuminate\Validation\ValidationException;
+
+/** Server-side dependency guard for future content and custom-field writers. */
+class ContentCatalogSelectionService
+{
+    /**
+     * Validate persisted ownership, never caller-supplied model attributes.
+     * New selections require active options. Historical validation may opt out
+     * of activity checks, but never of project/pillar ownership checks.
+     * This guard does not replace project authorization.
+     *
+     * @throws ValidationException
+     */
+    public function assertValidSelection(
+        ContentProject $project,
+        int $pillarId,
+        ?int $topicId = null,
+        bool $requireActive = true,
+    ): void {
+        $pillar = ContentPillar::query()
+            ->where('content_project_id', $project->getKey())
+            ->whereKey($pillarId);
+
+        if ($requireActive) {
+            $pillar->where('is_active', true);
+        }
+
+        if (! $project->exists || ! $pillar->exists()) {
+            throw ValidationException::withMessages([
+                'content_pillar_id' => 'El pilar no pertenece al proyecto o no está disponible.',
+            ]);
+        }
+
+        if ($topicId === null) {
+            return;
+        }
+
+        $topic = ContentTopic::query()
+            ->where('content_pillar_id', $pillarId)
+            ->whereKey($topicId);
+
+        if ($requireActive) {
+            $topic->where('is_active', true);
+        }
+
+        if (! $topic->exists()) {
+            throw ValidationException::withMessages([
+                'content_topic_id' => 'El tema no pertenece al pilar o no está disponible.',
+            ]);
+        }
+    }
+}
