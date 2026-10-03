@@ -17,6 +17,14 @@
       data-testid="content-item-form">
     @csrf
 
+    {{-- Optimistic-concurrency token (T8a): the revision this form loaded. It
+         is ALWAYS the row's current revision, never the flashed old input: a
+         refused save is exactly the case where the submitted revision is stale,
+         so re-injecting it would trap the user in a permanent conflict. --}}
+    @if ($isEdit)
+        <input type="hidden" name="revision" value="{{ $item?->revision }}" data-testid="content-item-revision">
+    @endif
+
     <div class="card mb-3">
         <div class="card-header"><h3 class="card-title mb-0">{{ $isEdit ? 'Editar contenido' : 'Nuevo contenido' }}</h3></div>
         <div class="card-body">

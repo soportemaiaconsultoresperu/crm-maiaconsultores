@@ -39,8 +39,10 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * ones.
  *
  * There is deliberately no purge path. Retiring an attachment only soft-deletes
- * its row; the physical file stays on disk so the content can recover it. No
- * method here deletes a file.
+ * its row; the physical file stays on disk so the content can recover it. The
+ * only file deletion here is `discardStoredFile()`, and it exists solely to
+ * remove a file this service copied for a duplication that then rolled back, so
+ * a failed duplication leaves no orphan.
  *
  * The size ceilings are read from `config('content.attachments.*')` so a test
  * can prove the boundary with a tiny controlled override while production keeps
@@ -250,6 +252,79 @@ class ContentAttachmentService
         }
 
         return $disk->download($path, $attachment->original_name ?: basename($path));
+    }
+
+    /**
+     * Copy one attachment onto another content, giving the copy its OWN stored
+     * file so removing one never affects the other (T8a duplication).
+     *
+     * An upload's bytes are copied to a fresh generated path inside the target
+     * content's own directory and a new row points at that path; a link is
+     * copied row-only, because it owns no local file. The source row and file
+     * are never modified.
+     *
+     * @throws ValidationException when the source file is missing or cannot be
+     *                             copied
+     */
+    public function copyOnto(ContentItem $target, ContentAttachment $source): ContentAttachment
+    {
+        if (! $source->isUpload()) {
+            return ContentAttachment::query()->create([
+                'content_item_id' => $target->getKey(),
+                'kind' => $source->kind,
+                'path' => null,
+                'url' => $source->url,
+                'original_name' => $source->original_name,
+                'mime_type' => $source->mime_type,
+                'size_bytes' => null,
+                'sort' => $this->nextSort($target),
+            ]);
+        }
+
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
+        $disk = Storage::disk(self::DISK);
+        $from = (string) $source->path;
+
+        if (! $disk->exists($from)) {
+            throw ValidationException::withMessages([
+                'file' => 'No se pudo duplicar el adjunto "'.($source->original_name ?: 'archivo').'": el archivo ya no está disponible.',
+            ]);
+        }
+
+        $extension = pathinfo($from, PATHINFO_EXTENSION);
+        $to = $this->directoryFor($target).'/'.Str::uuid()->toString().($extension !== '' ? '.'.$extension : '');
+
+        if (! $disk->copy($from, $to)) {
+            throw ValidationException::withMessages([
+                'file' => 'No se pudo copiar el archivo adjunto al duplicar el contenido.',
+            ]);
+        }
+
+        return ContentAttachment::query()->create([
+            'content_item_id' => $target->getKey(),
+            'kind' => $source->kind,
+            'path' => $to,
+            'url' => null,
+            'original_name' => $source->original_name,
+            'mime_type' => $source->mime_type,
+            'size_bytes' => $source->size_bytes,
+            'sort' => $this->nextSort($target),
+        ]);
+    }
+
+    /**
+     * Delete a file this service copied for a duplication that then failed, so
+     * a rolled-back duplication leaves no orphan file on the private disk. This
+     * is the only file deletion in the service, and it is never called on a
+     * committed copy: retirement still keeps every file.
+     */
+    public function discardStoredFile(?string $path): void
+    {
+        if ($path === null || $path === '') {
+            return;
+        }
+
+        Storage::disk(self::DISK)->delete($path);
     }
 
     /**

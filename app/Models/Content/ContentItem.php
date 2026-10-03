@@ -24,6 +24,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * `isOverdue()` never flags a published row, and a dateless idea is never
  * overdue.
  *
+ * `revision` is the optimistic-concurrency counter (T8a): it starts at 1 and
+ * every successful save increments it. It is deliberately not mass-assignable,
+ * so only the service's transactional update path can move it.
+ *
  * @use HasFactory<\Database\Factories\Content\ContentItemFactory>
  */
 class ContentItem extends Model
@@ -66,6 +70,7 @@ class ContentItem extends Model
             'kind' => ContentItemKind::class,
             'planned_at' => 'datetime',
             'status' => ContentItemStatus::class,
+            'revision' => 'integer',
         ];
     }
 

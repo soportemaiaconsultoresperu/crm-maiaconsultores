@@ -976,6 +976,12 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('contentItem')->name('projects.contents.edit');
             Route::put('projects/{contentProject}/contents/{contentItem}', 'update')
                 ->whereNumber('contentItem')->name('projects.contents.update');
+            // Lifecycle actions (T8a). Static extra segments, so they never
+            // collide with the bare `contents/{contentItem}` routes above.
+            Route::post('projects/{contentProject}/contents/{contentItem}/duplicate', 'duplicate')
+                ->whereNumber('contentItem')->name('projects.contents.duplicate');
+            Route::put('projects/{contentProject}/contents/{contentItem}/reschedule', 'reschedule')
+                ->whereNumber('contentItem')->name('projects.contents.reschedule');
         });
 
         // Attachments and links for a content (T7). Additive block: the same

@@ -39,6 +39,7 @@ class ContentItemService
 {
     public function __construct(
         private readonly ContentFieldValueService $values = new ContentFieldValueService,
+        private readonly ContentAttachmentService $attachments = new ContentAttachmentService,
     ) {
     }
 
@@ -212,7 +213,9 @@ class ContentItemService
 
     /**
      * Update an existing content, selections and custom values included. The
-     * whole write is transactional for the same reason as create().
+     * whole write is transactional for the same reason as create(). The caller
+     * submits the revision the form loaded; a stale revision refuses the write
+     * (T8a) and a successful save increments it.
      *
      * @param  array<string, mixed>  $data
      *
@@ -221,7 +224,10 @@ class ContentItemService
     public function update(ContentItem $item, array $data): ContentItem
     {
         return DB::transaction(function () use ($item, $data): ContentItem {
-            $item->fill([
+            $locked = ContentItem::query()->lockForUpdate()->findOrFail($item->getKey());
+            $this->assertCurrentRevision($locked, $data['revision'] ?? null);
+
+            $locked->fill([
                 'planned_at' => $this->plannedAt($data),
                 'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
                 'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
@@ -231,13 +237,134 @@ class ContentItemService
                 'hashtags' => $this->nullableString($data['hashtags'] ?? null),
                 'notes' => $this->nullableString($data['notes'] ?? null),
             ]);
-            $item->save();
+            $locked->revision = ((int) $locked->revision) + 1;
+            $locked->save();
 
-            $this->syncSelections($item, $data);
-            $this->saveCustomValues($item, $data['fields'] ?? []);
+            $this->syncSelections($locked, $data);
+            $this->saveCustomValues($locked, $data['fields'] ?? []);
 
-            return $item;
+            return $locked;
         });
+    }
+
+    /**
+     * Duplicate a content into a new, independent row (T8a).
+     *
+     * The copy carries the source's text, pillar, topic, multi-select
+     * selections, typed custom values and attachments, but it deliberately gets
+     * no planned instant, is reset to the `Incompleto` status and keeps the
+     * `content` kind rather than becoming an idea; its title is suffixed so an
+     * operator can tell the two rows apart. The source is never modified.
+     *
+     * Every uploaded attachment is physically copied to its own path on the
+     * private disk, so retiring or removing one content's file never touches
+     * the other's. The whole operation runs in one transaction, and if anything
+     * fails after a file was already copied, that file is removed before the
+     * failure propagates: the result is neither a half-copied content nor an
+     * orphan file.
+     *
+     * @throws ValidationException
+     */
+    public function duplicate(ContentItem $source): ContentItem
+    {
+        /** @var list<string> $copiedFiles */
+        $copiedFiles = [];
+
+        try {
+            return DB::transaction(function () use ($source, &$copiedFiles): ContentItem {
+                $original = ContentItem::query()
+                    ->lockForUpdate()
+                    ->findOrFail($source->getKey())
+                    ->load(['objectives', 'formats', 'channels', 'attachments']);
+
+                $copy = ContentItem::query()->create([
+                    'content_project_id' => $original->content_project_id,
+                    'kind' => ContentItemKind::Content,
+                    'planned_at' => null,
+                    'content_pillar_id' => $original->content_pillar_id,
+                    'content_topic_id' => $original->content_topic_id,
+                    'status' => ContentItemStatus::Incomplete,
+                    'title' => $this->duplicateTitle((string) $original->title),
+                    'body' => $original->body,
+                    'hashtags' => $original->hashtags,
+                    'notes' => $original->notes,
+                ]);
+
+                $copy->objectives()->sync($original->objectives->pluck('id')->all());
+                $copy->formats()->sync($original->formats->pluck('id')->all());
+                $copy->channels()->sync($original->channels->pluck('id')->all());
+
+                $this->saveCustomValues($copy, $this->values->values($original));
+
+                foreach ($original->attachments as $attachment) {
+                    $created = $this->attachments->copyOnto($copy, $attachment);
+
+                    if ($created->path !== null && $created->path !== '') {
+                        $copiedFiles[] = $created->path;
+                    }
+                }
+
+                return $copy;
+            });
+        } catch (\Throwable $exception) {
+            foreach ($copiedFiles as $path) {
+                $this->attachments->discardStoredFile($path);
+            }
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * Change a content's planned instant to another Peru wall-clock date and
+     * time, storing the matching UTC instant (T8a). The submitted revision must
+     * still be the stored one, so a reschedule cannot silently undo a
+     * concurrent edit; a successful reschedule increments it.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws ValidationException
+     */
+    public function reschedule(ContentItem $item, array $data): ContentItem
+    {
+        return DB::transaction(function () use ($item, $data): ContentItem {
+            $locked = ContentItem::query()->lockForUpdate()->findOrFail($item->getKey());
+            $this->assertCurrentRevision($locked, $data['revision'] ?? null);
+
+            $locked->planned_at = $this->plannedAt($data);
+            $locked->revision = ((int) $locked->revision) + 1;
+            $locked->save();
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Refuse a save whose revision no longer matches the stored one, with a
+     * Spanish message telling the user the record changed since they opened it.
+     * Running inside the write transaction after `lockForUpdate` is what makes
+     * this race-free: the losing writer never overwrites the winner's row.
+     *
+     * @throws ValidationException
+     */
+    private function assertCurrentRevision(ContentItem $item, mixed $expected): void
+    {
+        if ($expected === null || (int) $expected !== (int) $item->revision) {
+            throw ValidationException::withMessages([
+                'revision' => 'El contenido cambió desde que lo abrió. No se guardaron sus cambios para no sobrescribir el trabajo de otra persona. Vuelva a abrirlo para ver la versión más reciente.',
+            ]);
+        }
+    }
+
+    /**
+     * Mark the copy so an operator can tell it apart from the source, keeping
+     * the 200-character column limit.
+     */
+    private function duplicateTitle(string $title): string
+    {
+        $suffix = ' (copia)';
+
+        return mb_substr($title, 0, 200 - mb_strlen($suffix)).$suffix;
     }
 
     /**

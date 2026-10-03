@@ -39,8 +39,43 @@
             <a href="{{ route('content.projects.contents.edit', [$project, $item]) }}" class="btn btn-primary" data-testid="btn-edit-content-item">
                 <i class="bi bi-pencil me-1" aria-hidden="true"></i> Editar
             </a>
+            <form method="POST" action="{{ route('content.projects.contents.duplicate', [$project, $item]) }}" class="d-inline">
+                @csrf
+                <button type="submit" class="btn btn-outline-secondary" data-testid="btn-duplicate-content-item">
+                    <i class="bi bi-files me-1" aria-hidden="true"></i> Duplicar
+                </button>
+            </form>
         @endcan
     </div>
+
+    @can('update', $project)
+        <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title mb-0">Reprogramar contenido</h3></div>
+            <div class="card-body">
+                <form method="POST"
+                      action="{{ route('content.projects.contents.reschedule', [$project, $item]) }}"
+                      class="row g-2 align-items-end"
+                      data-testid="content-item-reschedule-form">
+                    @csrf
+                    @method('PUT')
+                    <input type="hidden" name="revision" value="{{ $item->revision }}">
+                    <div class="col-md-4">
+                        <x-text-input name="planned_date" type="date" label="Nueva fecha" :value="old('planned_date', $item->plannedDate())" :required="true"
+                                      help="Fecha de publicación en hora de Perú."/>
+                    </div>
+                    <div class="col-md-4">
+                        <x-text-input name="planned_time" type="time" label="Horario en Perú"
+                                      :value="old('planned_time', $item->planned_at ? \App\Support\Content\PeruTime::toPeru($item->planned_at)->format('H:i') : null)" :required="true"/>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-outline-primary" data-testid="btn-reschedule-content-item">
+                            <i class="bi bi-calendar-event me-1" aria-hidden="true"></i> Reprogramar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endcan
 
     <div class="card mb-3">
         <div class="card-header d-flex justify-content-between align-items-center">

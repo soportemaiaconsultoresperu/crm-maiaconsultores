@@ -137,7 +137,7 @@ class ContentItemHttpTest extends TestCase
         // never readable, editable or writable through this URL.
         $this->get(route('content.projects.contents.show', ['contentProject' => $this->project, 'contentItem' => $theirs->id]))->assertNotFound();
         $this->get(route('content.projects.contents.edit', ['contentProject' => $this->project, 'contentItem' => $theirs->id]))->assertNotFound();
-        $this->putJson(route('content.projects.contents.update', ['contentProject' => $this->project, 'contentItem' => $theirs->id]), $this->payload(['title' => 'Robado']))
+        $this->putJson(route('content.projects.contents.update', ['contentProject' => $this->project, 'contentItem' => $theirs->id]), $this->payload(['title' => 'Robado', 'revision' => $theirs->fresh()->revision]))
             ->assertNotFound();
 
         $this->assertSame('Ajeno oculto', $theirs->fresh()->title);
@@ -328,6 +328,7 @@ class ContentItemHttpTest extends TestCase
             'title' => 'Después',
             'status' => ContentItemStatus::Published->value,
             'fields' => ['texto' => 'Valor nuevo'],
+            'revision' => $item->fresh()->revision,
         ]))->assertRedirect(route('content.projects.contents.show', ['contentProject' => $this->project, 'contentItem' => $item->id]));
 
         $item->refresh();
@@ -367,6 +368,7 @@ class ContentItemHttpTest extends TestCase
             'objectives' => [$objective->id],
             'formats' => [$format->id],
             'channels' => [$channel->id],
+            'revision' => $item->fresh()->revision,
         ]))->assertRedirect(route('content.projects.contents.show', ['contentProject' => $this->project, 'contentItem' => $item->id]));
 
         $item->refresh();
@@ -392,14 +394,15 @@ class ContentItemHttpTest extends TestCase
         $retiredChannel->deactivate();
 
         $url = route('content.projects.contents.update', ['contentProject' => $this->project, 'contentItem' => $item->id]);
+        $revision = $item->fresh()->revision;
 
-        $this->putJson($url, $this->payload(['content_pillar_id' => $retiredPillar->id]))
+        $this->putJson($url, $this->payload(['content_pillar_id' => $retiredPillar->id, 'revision' => $revision]))
             ->assertUnprocessable()->assertJsonValidationErrors('content_pillar_id');
-        $this->putJson($url, $this->payload(['objectives' => [$retiredObjective->id]]))
+        $this->putJson($url, $this->payload(['objectives' => [$retiredObjective->id], 'revision' => $revision]))
             ->assertUnprocessable()->assertJsonValidationErrors('objectives');
-        $this->putJson($url, $this->payload(['formats' => [$retiredFormat->id]]))
+        $this->putJson($url, $this->payload(['formats' => [$retiredFormat->id], 'revision' => $revision]))
             ->assertUnprocessable()->assertJsonValidationErrors('formats');
-        $this->putJson($url, $this->payload(['channels' => [$retiredChannel->id]]))
+        $this->putJson($url, $this->payload(['channels' => [$retiredChannel->id], 'revision' => $revision]))
             ->assertUnprocessable()->assertJsonValidationErrors('channels');
     }
 

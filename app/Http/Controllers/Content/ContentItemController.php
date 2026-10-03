@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Content;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Content\RescheduleContentItemRequest;
 use App\Http\Requests\Content\StoreContentItemRequest;
 use App\Http\Requests\Content\UpdateContentItemRequest;
 use App\Models\Content\ContentItem;
@@ -114,11 +115,45 @@ class ContentItemController extends Controller
         Gate::authorize('update', $contentProject);
 
         $item = $this->resolveItem($contentProject, $contentItem);
-        $this->items->update($item, $request->validated());
+        $item = $this->items->update($item, $request->validated());
 
         return redirect()
             ->route('content.projects.contents.show', [$contentProject, $item])
             ->with('status', 'Contenido "'.$item->title.'" actualizado correctamente.');
+    }
+
+    /**
+     * Duplicate a content into a new row: same text, selections, custom values
+     * and attachments, but no planned instant, the Incompleto status and its own
+     * copy of every uploaded file. The source is left untouched (T8a).
+     */
+    public function duplicate(ContentProject $contentProject, string $contentItem): RedirectResponse
+    {
+        Gate::authorize('update', $contentProject);
+
+        $source = $this->resolveItem($contentProject, $contentItem);
+        $copy = $this->items->duplicate($source);
+
+        return redirect()
+            ->route('content.projects.contents.show', [$contentProject, $copy])
+            ->with('status', 'Contenido "'.$source->title.'" duplicado. La copia quedó sin fecha y en estado Incompleto, con sus propios adjuntos.');
+    }
+
+    /**
+     * Move a content to another Peru date and time, storing the matching UTC
+     * instant so it appears under the correct month in the grid (T8a). The
+     * submitted revision must still be current; a stale one is refused.
+     */
+    public function reschedule(RescheduleContentItemRequest $request, ContentProject $contentProject, string $contentItem): RedirectResponse
+    {
+        Gate::authorize('update', $contentProject);
+
+        $item = $this->resolveItem($contentProject, $contentItem);
+        $item = $this->items->reschedule($item, $request->validated());
+
+        return redirect()
+            ->route('content.projects.contents.show', [$contentProject, $item])
+            ->with('status', 'Contenido reprogramado para el '.\App\Support\Content\PeruTime::date($item->planned_at).' a las '.\App\Support\Content\PeruTime::toPeru($item->planned_at)->format('H:i').' (hora de Perú).');
     }
 
     /**
