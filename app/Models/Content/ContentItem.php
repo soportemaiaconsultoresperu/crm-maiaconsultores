@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -125,6 +126,16 @@ class ContentItem extends Model
             'content_item_id',
             'content_channel_id',
         );
+    }
+
+    /**
+     * Typed custom-field values stored against this item.
+     *
+     * @return HasMany<ContentFieldValue, $this>
+     */
+    public function fieldValues(): HasMany
+    {
+        return $this->hasMany(ContentFieldValue::class, 'content_item_id');
     }
 
     /**

@@ -63,6 +63,16 @@ class ContentFieldDefinition extends ContentCatalog
     }
 
     /**
+     * Stored values that reference this definition, one per content item.
+     *
+     * @return HasMany<ContentFieldValue, $this>
+     */
+    public function values(): HasMany
+    {
+        return $this->hasMany(ContentFieldValue::class, 'content_field_definition_id');
+    }
+
+    /**
      * Whether the field type carries a list of options.
      */
     public function acceptsOptions(): bool
