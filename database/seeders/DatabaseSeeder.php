@@ -71,6 +71,8 @@ class DatabaseSeeder extends Seeder
             CourseSystemAuthorSeeder::class,
             CatalogSeeder::class,
             SupportCatalogSeeder::class,
+            // Specification catalogs only; removing this call never deletes data.
+            ContentCatalogSeeder::class,
             UbigeoSeeder::class,
             SettingsSeeder::class,
             CodeSequencesSeeder::class,
