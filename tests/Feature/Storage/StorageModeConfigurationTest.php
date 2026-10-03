@@ -137,6 +137,39 @@ class StorageModeConfigurationTest extends TestCase
         ], $disks['public']);
     }
 
+    public function test_cloud_mode_makes_the_public_disk_s3_backed_with_public_visibility_and_a_direct_url(): void
+    {
+        $this->bootWith([
+            'AWS_BUCKET' => 'crm-files',
+            'AWS_ACCESS_KEY_ID' => 'AKIAEXAMPLE',
+            'AWS_SECRET_ACCESS_KEY' => 'secret',
+            'AWS_DEFAULT_REGION' => 'us-east-2',
+            'AWS_URL' => 'https://cdn.example.com',
+        ]);
+
+        $public = config('filesystems.disks.public');
+
+        $this->assertSame('s3', $public['driver']);
+        $this->assertSame('public', $public['root']);
+        $this->assertSame('public', $public['visibility']);
+        $this->assertSame('https://cdn.example.com', $public['url']);
+        $this->assertArrayNotHasKey('serve', $public);
+    }
+
+    public function test_local_mode_keeps_todays_public_disk_definition(): void
+    {
+        $this->bootWith([]);
+
+        $this->assertSame([
+            'driver' => 'local',
+            'root' => storage_path('app/public'),
+            'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
+            'visibility' => 'public',
+            'throw' => false,
+            'report' => false,
+        ], config('filesystems.disks.public'));
+    }
+
     /**
      * Set the AWS environment variables, then boot a fresh application that
      * reads them while loading its configuration.

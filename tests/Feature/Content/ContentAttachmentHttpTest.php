@@ -311,16 +311,14 @@ class ContentAttachmentHttpTest extends TestCase
 
     public function test_no_public_url_exposes_the_stored_file(): void
     {
-        // The private disk is what makes the file unreachable: private
-        // visibility, no public `url` and no `serve` handler. These assertions
-        // run before faking the disk, which would replace the configured root.
-        $this->assertSame('private', config('filesystems.disks.docs.visibility'));
-        $this->assertArrayNotHasKey('url', config('filesystems.disks.docs'));
-        $this->assertFalse((bool) (config('filesystems.disks.docs.serve') ?? false));
-        $this->assertStringContainsString(
-            'app/private',
-            str_replace('\\', '/', (string) config('filesystems.disks.docs.root')),
-        );
+        // The private disk is what makes the file unreachable. These are
+        // invariants, not the local layout: private visibility, no public
+        // `url`, no `serve` handler, and a root that resolves to the same
+        // `private/docs` object path in either storage mode. They read the live
+        // configuration, so a regression that made the disk public, publicly
+        // served or pointed it at a public prefix turns them red.
+        $violations = $this->privateDiskInvariantViolations();
+        $this->assertSame([], $violations, implode('; ', $violations));
 
         Storage::fake(ContentAttachmentService::DISK);
         $item = $this->contentItem();
@@ -340,6 +338,36 @@ class ContentAttachmentHttpTest extends TestCase
         $show->assertOk();
         $this->assertStringNotContainsString('/storage/'.$path, $show->getContent());
         $show->assertSee(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]));
+    }
+
+    public function test_the_private_disk_invariants_reject_a_public_or_misplaced_disk(): void
+    {
+        // Non-tautology guard. Each shape is what a regression would look
+        // like: public visibility, a public URL, a public serve handler, or a
+        // public root prefix. The checker must flag every one of them instead
+        // of hardcoding a pass, so the mode-aware test above keeps its teeth.
+        $disk = ContentAttachmentService::DISK;
+        $original = config("filesystems.disks.{$disk}");
+
+        $regressions = [
+            'public visibility' => ['visibility' => 'public'],
+            'a public URL' => ['url' => 'https://cdn.example.com/docs/foto.jpg'],
+            'a public serve handler' => ['serve' => true],
+            'a public root prefix' => ['root' => 'public/docs'],
+        ];
+
+        foreach ($regressions as $label => $override) {
+            config(["filesystems.disks.{$disk}" => $override + $original]);
+
+            $this->assertNotSame(
+                [],
+                $this->privateDiskInvariantViolations(),
+                "The invariants must reject {$label}.",
+            );
+        }
+
+        config(["filesystems.disks.{$disk}" => $original]);
+        $this->assertSame([], $this->privateDiskInvariantViolations());
     }
 
     public function test_mutation_requires_the_project_update_ability(): void
@@ -369,6 +397,54 @@ class ContentAttachmentHttpTest extends TestCase
             ->assertForbidden();
 
         $this->assertSame(0, ContentAttachment::query()->count());
+    }
+
+    /**
+     * The invariants the private attachment disk must satisfy in either storage
+     * mode. Returning the violations (an empty list means safe) lets the
+     * non-tautology guard assert the checker itself rejects a bad config.
+     *
+     * @return list<string>
+     */
+    private function privateDiskInvariantViolations(): array
+    {
+        $disk = ContentAttachmentService::DISK;
+        $config = (array) config("filesystems.disks.{$disk}");
+        $violations = [];
+
+        if (in_array($config['visibility'] ?? null, ['public', 'public-read'], true)) {
+            $violations[] = 'visibility must not be public';
+        }
+
+        if (! empty($config['url'])) {
+            $violations[] = 'the disk must not expose a public URL';
+        }
+
+        if (! empty($config['serve'])) {
+            $violations[] = 'the disk must not be publicly served';
+        }
+
+        if ($this->relativeObjectRoot($disk) !== 'private/docs') {
+            $violations[] = 'the root must resolve to private/docs';
+        }
+
+        return $violations;
+    }
+
+    /**
+     * The object path a disk root stores, stripped of the local storage prefix
+     * so local and cloud modes resolve to the same value.
+     */
+    private function relativeObjectRoot(string $disk): string
+    {
+        $root = str_replace('\\', '/', (string) config("filesystems.disks.{$disk}.root"));
+        $localPrefix = str_replace('\\', '/', storage_path('app'));
+
+        if (str_starts_with($root, $localPrefix.'/')) {
+            $root = substr($root, strlen($localPrefix) + 1);
+        }
+
+        return trim($root, '/');
     }
 
     /**
