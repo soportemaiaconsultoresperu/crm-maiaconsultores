@@ -67,6 +67,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Private file signed-URL lifetime
+    |--------------------------------------------------------------------------
+    |
+    | How long, in seconds, a temporary URL handed to the browser stays valid.
+    | Authorization is always decided before a URL is issued; this only bounds
+    | how long the issued URL can outlive that decision. Keep it short.
+    |
+    */
+
+    'temporary_url_ttl' => (int) env('FILESYSTEM_TEMPORARY_URL_TTL', 300),
+
+    /*
+    |--------------------------------------------------------------------------
     | Filesystem Disks
     |--------------------------------------------------------------------------
     |

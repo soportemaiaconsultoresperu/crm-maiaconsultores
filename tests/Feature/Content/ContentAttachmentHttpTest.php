@@ -9,10 +9,12 @@ use App\Models\User;
 use App\Services\Content\ContentAttachmentService;
 use Database\Seeders\ContentPermissionsSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -256,6 +258,40 @@ class ContentAttachmentHttpTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_download_redirects_to_a_signed_url_when_the_docs_disk_is_cloud_backed(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        Storage::set(ContentAttachmentService::DISK, $this->signedUrlDisk());
+
+        $response = $this->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]));
+
+        $response->assertRedirect();
+        $this->assertStringContainsString('X-Amz-Signature=', (string) $response->headers->get('Location'));
+    }
+
+    public function test_a_refused_download_never_receives_a_signed_url(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        $disk = $this->signedUrlDisk();
+        Storage::set(ContentAttachmentService::DISK, $disk);
+
+        // A user who cannot reach the project is refused before the service
+        // runs, so the disk is never asked for a URL.
+        $stranger = User::factory()->create(['is_active' => true]);
+
+        $this->actingAs($stranger)
+            ->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]))
+            ->assertNotFound();
+
+        $disk->shouldNotHaveReceived('temporaryUrl');
+    }
+
     public function test_reordering_is_persisted(): void
     {
         Storage::fake(ContentAttachmentService::DISK);
@@ -333,6 +369,22 @@ class ContentAttachmentHttpTest extends TestCase
             ->assertForbidden();
 
         $this->assertSame(0, ContentAttachment::query()->count());
+    }
+
+    /**
+     * A cloud-backed private disk. The adapter is mocked so `exists()` never
+     * reaches the network, while the temporary-URL contract is the real one.
+     */
+    private function signedUrlDisk(): FilesystemAdapter
+    {
+        $disk = Mockery::mock(FilesystemAdapter::class);
+        $disk->shouldReceive('exists')->andReturn(true);
+        $disk->shouldReceive('providesTemporaryUrls')->andReturn(true);
+        $disk->shouldReceive('temporaryUrl')->andReturn(
+            'https://crm-files.s3.amazonaws.com/private/docs/foto.jpg?X-Amz-Signature=abc&X-Amz-Expires=299'
+        );
+
+        return $disk;
     }
 
     private function contentItem(): ContentItem

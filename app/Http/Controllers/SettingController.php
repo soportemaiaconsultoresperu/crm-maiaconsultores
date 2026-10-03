@@ -6,6 +6,7 @@ use App\Http\Requests\SettingsUpdateRequest;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\SettingsService;
+use App\Services\Storage\PrivateFileResponder;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,7 @@ class SettingController extends Controller
 {
     public function __construct(
         private readonly SettingsService $settings,
+        private readonly PrivateFileResponder $responder,
     ) {}
 
     /**
@@ -197,7 +199,7 @@ class SettingController extends Controller
          * Stream the current company logo inline so the <img> preview can
          * render it without exposing a public URL. Authorised users only.
          */
-        public function previewLogo(Request $request): Response
+        public function previewLogo(Request $request): Response|RedirectResponse
         {
             if (! $request->user()->can('settings.view') && ! $request->user()->can('settings.manage')) {
                 abort(403);
@@ -207,6 +209,14 @@ class SettingController extends Controller
             $path = (string) $this->settings->get('company.logo_path', '');
             if ($path === '' || ! Storage::disk($disk)->exists($path)) {
                 abort(404);
+            }
+
+            // The permission check above already passed, so a signed URL is
+            // only ever issued for a logo this user may see. A local disk
+            // keeps streaming; a cloud-backed logo disk redirects instead.
+            $redirect = $this->responder->signedUrlRedirect($disk, $path);
+            if ($redirect !== null) {
+                return $redirect;
             }
 
             // Read the stored bytes instead of resolving a filesystem path:

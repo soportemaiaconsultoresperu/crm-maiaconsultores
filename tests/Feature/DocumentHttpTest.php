@@ -120,6 +120,56 @@ class DocumentHttpTest extends TestCase
         $response->assertHeader('Content-Type', 'application/pdf');
     }
 
+    public function test_download_redirects_to_a_short_lived_signed_url_when_the_docs_disk_is_cloud_backed(): void
+    {
+        Storage::fake('docs');
+        $lead = Lead::factory()->forOwner($this->salespersonOne)->create();
+
+        $this->actingAs($this->salespersonOne)
+            ->post(route('leads.documents.store', $lead), [
+                'file' => UploadedFile::fake()->create('cotizacion.pdf', 1, 'application/pdf'),
+            ])
+            ->assertRedirect();
+
+        $document = Document::query()->firstOrFail();
+
+        $this->useCloudDocsDisk();
+
+        $response = $this->actingAs($this->salespersonOne)
+            ->get(route('documents.download', $document));
+
+        // The bytes no longer pass through the application: the authorized
+        // download is a redirect to a short-lived signed URL.
+        $response->assertRedirect();
+        $location = (string) $response->headers->get('Location');
+        $this->assertStringContainsString('X-Amz-Signature=', $location);
+        $this->assertStringContainsString($document->path, $location);
+    }
+
+    public function test_a_refused_download_never_receives_a_signed_url(): void
+    {
+        Storage::fake('docs');
+        $lead = Lead::factory()->forOwner($this->salespersonOne)->create();
+
+        $this->actingAs($this->salespersonOne)
+            ->post(route('leads.documents.store', $lead), [
+                'file' => UploadedFile::fake()->create('cotizacion.pdf', 1, 'application/pdf'),
+            ])
+            ->assertRedirect();
+
+        $document = Document::query()->firstOrFail();
+
+        $this->useCloudDocsDisk();
+
+        // A vendedor who does not own the subject is refused before any URL
+        // could be built.
+        $response = $this->actingAs($this->salespersonTwo)
+            ->get(route('documents.download', $document));
+
+        $response->assertForbidden();
+        $this->assertNull($response->headers->get('Location'));
+    }
+
     public function test_delete_succeeds_for_uploader_and_returns_redirect(): void
     {
         Storage::fake('docs');
@@ -179,6 +229,23 @@ class DocumentHttpTest extends TestCase
             ->get('/documents/999999/download');
 
         $response->assertNotFound();
+    }
+
+    /**
+     * Swap the `docs` disk for a real S3 adapter. The adapter signs URLs
+     * locally, so no network and no real credentials are involved.
+     */
+    private function useCloudDocsDisk(): void
+    {
+        Storage::set('docs', Storage::createS3Driver([
+            'driver' => 's3',
+            'key' => 'AKIAEXAMPLE',
+            'secret' => 'secret',
+            'region' => 'us-east-1',
+            'bucket' => 'crm-files',
+            'root' => 'private/docs',
+            'throw' => false,
+        ]));
     }
 
     /**

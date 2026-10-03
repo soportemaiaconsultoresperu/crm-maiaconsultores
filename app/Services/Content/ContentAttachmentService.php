@@ -4,6 +4,8 @@ namespace App\Services\Content;
 
 use App\Models\Content\ContentAttachment;
 use App\Models\Content\ContentItem;
+use App\Services\Storage\PrivateFileResponder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -81,6 +83,11 @@ class ContentAttachmentService
         'mp4' => ['kind' => ContentAttachment::KIND_VIDEO, 'extension' => 'mp4', 'mime' => 'video/mp4'],
         'mov' => ['kind' => ContentAttachment::KIND_VIDEO, 'extension' => 'mov', 'mime' => 'video/quicktime'],
     ];
+
+    public function __construct(
+        private readonly ?PrivateFileResponder $responder = null,
+    ) {
+    }
 
     public function imageMaxBytes(): int
     {
@@ -240,7 +247,7 @@ class ContentAttachmentService
      *
      * @throws NotFoundHttpException when the row is a link or the file is gone
      */
-    public function download(ContentAttachment $attachment): StreamedResponse
+    public function download(ContentAttachment $attachment): StreamedResponse|RedirectResponse
     {
         if (! $attachment->isUpload()) {
             throw new NotFoundHttpException('El adjunto es un enlace, no un archivo descargable.');
@@ -254,7 +261,24 @@ class ContentAttachmentService
             throw new NotFoundHttpException('El archivo adjunto no está disponible.');
         }
 
+        // The controller authorized the request before calling this method, so
+        // a signed URL is only ever issued for a file this user may read.
+        $redirect = $this->responder()->signedUrlRedirect(self::DISK, $path);
+
+        if ($redirect !== null) {
+            return $redirect;
+        }
+
         return $disk->download($path, $attachment->original_name ?: basename($path));
+    }
+
+    /**
+     * The shared delivery strategy, resolved lazily so `new
+     * ContentAttachmentService` keeps working without the container.
+     */
+    private function responder(): PrivateFileResponder
+    {
+        return $this->responder ?? app(PrivateFileResponder::class);
     }
 
     /**
