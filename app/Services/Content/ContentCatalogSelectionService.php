@@ -10,6 +10,29 @@ use Illuminate\Validation\ValidationException;
 /** Server-side dependency guard for future content and custom-field writers. */
 class ContentCatalogSelectionService
 {
+    /** Validate a project-owned option, including retired historical options. */
+    public function assertProjectOption(ContentProject $project, string $group, int $optionId): void
+    {
+        $model = app(ContentCatalogAdministrationService::class)->model($group);
+
+        if ($group === 'pillars') {
+            $this->assertValidSelection($project, $optionId, requireActive: false);
+
+            return;
+        }
+
+        if ($group === 'topics') {
+            throw new \InvalidArgumentException('Topics require a pillar selection.');
+        }
+
+        if (! $project->exists || ! $model::query()
+            ->where('content_project_id', $project->getKey())->whereKey($optionId)->exists()) {
+            throw ValidationException::withMessages([
+                'option_id' => 'La opción no pertenece al proyecto.',
+            ]);
+        }
+    }
+
     /**
      * Validate persisted ownership, never caller-supplied model attributes.
      * New selections require active options. Historical validation may opt out

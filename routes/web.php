@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Content\ContentProjectController;
+use App\Http\Controllers\Content\ContentCatalogController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
@@ -915,6 +916,18 @@ Route::middleware(['auth', 'active'])
     ->prefix('content')
     ->name('content.')
     ->group(function (): void {
+        // Catalog static segments precede the project detail binding.
+        Route::controller(ContentCatalogController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/catalogs', 'index')->name('catalogs.index');
+            Route::post('projects/{contentProject}/catalogs/{catalogGroup}', 'store')->name('catalogs.store');
+            Route::post('projects/{contentProject}/catalogs/{catalogGroup}/{catalogOption}/state', 'state')
+                ->whereNumber('catalogOption')->name('catalogs.state');
+            Route::post('projects/{contentProject}/catalogs/{catalogGroup}/{catalogOption}/reorder', 'reorder')
+                ->whereNumber('catalogOption')->name('catalogs.reorder');
+            Route::put('projects/{contentProject}/catalogs/{catalogGroup}/{catalogOption}', 'update')
+                ->whereNumber('catalogOption')->name('catalogs.update');
+        });
+
         Route::controller(ContentProjectController::class)->group(function (): void {
             Route::get('projects', 'index')->name('projects.index');
             // Static segment first so `projects/{contentProject}` never shadows it.
