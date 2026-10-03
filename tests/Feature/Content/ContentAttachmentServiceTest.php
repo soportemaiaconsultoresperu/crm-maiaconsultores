@@ -154,7 +154,7 @@ class ContentAttachmentServiceTest extends TestCase
         $this->assertSame(3, ContentAttachment::query()->count());
     }
 
-    public function test_link_is_inferred_as_media_and_rejects_non_media_urls(): void
+    public function test_link_to_an_accepted_media_file_keeps_the_image_or_video_kind(): void
     {
         $image = $this->service->attachLink($this->item, 'https://cdn.example.com/media/foto.PNG?token=abc');
 
@@ -164,19 +164,82 @@ class ContentAttachmentServiceTest extends TestCase
         $this->assertSame('foto.PNG', $image->original_name);
         $this->assertNull($image->path);
         $this->assertNull($image->size_bytes);
+        $this->assertTrue($image->isImage());
+        $this->assertFalse($image->isGenericLink());
 
         $video = $this->service->attachLink($this->item, 'https://cdn.example.com/media/clip.mov');
 
         $this->assertSame(ContentAttachment::KIND_VIDEO, $video->kind);
         $this->assertSame('video/quicktime', $video->mime_type);
+        $this->assertTrue($video->isVideo());
 
-        // A URL that does not point to an accepted media format is refused.
+        $this->assertSame(2, ContentAttachment::query()->count());
+    }
+
+    public function test_any_absolute_http_link_is_accepted_as_a_generic_link(): void
+    {
+        // The corrected rule: a YouTube watch link, a share link with query
+        // parameters and a link with no file extension are ordinary, legitimate
+        // attachments. Their path does not name an accepted image or video file,
+        // so they are stored as a generic link instead of being refused.
+        $youtube = $this->service->attachLink($this->item, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+        $this->assertSame(ContentAttachment::KIND_LINK, $youtube->kind);
+        $this->assertSame('https://www.youtube.com/watch?v=dQw4w9WgXcQ', $youtube->url);
+        $this->assertNull($youtube->mime_type);
+        $this->assertNull($youtube->original_name);
+        $this->assertNull($youtube->path);
+        $this->assertNull($youtube->size_bytes);
+        $this->assertFalse($youtube->isImage());
+        $this->assertFalse($youtube->isVideo());
+        $this->assertTrue($youtube->isGenericLink());
+
+        $share = $this->service->attachLink($this->item, 'https://drive.google.com/file/d/1AbC/view?usp=sharing');
+        $this->assertSame(ContentAttachment::KIND_LINK, $share->kind);
+
+        $noExtension = $this->service->attachLink($this->item, 'https://example.com/promo');
+        $this->assertSame(ContentAttachment::KIND_LINK, $noExtension->kind);
+
+        // A URL that names a file whose format is not accepted still stores as a
+        // generic link rather than a previewable media item.
+        $pdf = $this->service->attachLink($this->item, 'https://cdn.example.com/media/documento.pdf');
+        $this->assertSame(ContentAttachment::KIND_LINK, $pdf->kind);
+        $this->assertNull($pdf->mime_type);
+
+        $this->assertSame(4, ContentAttachment::query()->count());
+    }
+
+    public function test_invalid_links_are_still_refused(): void
+    {
+        // Only genuinely invalid input is refused: a non-http scheme, an empty
+        // value and a malformed URL.
+        $this->assertRejected(fn () => $this->service->attachLink($this->item, 'javascript:alert(1)'), 'url');
+        $this->assertRejected(fn () => $this->service->attachLink($this->item, 'mailto:equipo@example.com'), 'url');
+        $this->assertRejected(fn () => $this->service->attachLink($this->item, ''), 'url');
+        $this->assertRejected(fn () => $this->service->attachLink($this->item, '   '), 'url');
+        $this->assertRejected(fn () => $this->service->attachLink($this->item, 'no-es-una-url'), 'url');
+        $this->assertRejected(fn () => $this->service->attachLink($this->item, 'https://'), 'url');
+
+        $this->assertSame(0, ContentAttachment::query()->count());
+    }
+
+    public function test_generic_link_still_consumes_an_attachment_slot(): void
+    {
+        config(['content.attachments.max_per_content' => 1]);
+
+        $link = $this->service->attachLink($this->item, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+        $this->assertSame(ContentAttachment::KIND_LINK, $link->kind);
+        $this->assertSame(1, ContentAttachment::query()->count());
+
+        // The single slot is spent: neither an upload nor another generic link
+        // fits.
+        $this->assertRejected(fn () => $this->upload('foto.jpg', $this->jpeg()), 'file');
         $this->assertRejected(
-            fn () => $this->service->attachLink($this->item, 'https://cdn.example.com/media/documento.pdf'),
+            fn () => $this->service->attachLink($this->item, 'https://example.com/promo'),
             'url',
         );
 
-        $this->assertSame(2, ContentAttachment::query()->count());
+        $this->assertSame(1, ContentAttachment::query()->count());
     }
 
     public function test_limits_expose_the_agreed_defaults(): void

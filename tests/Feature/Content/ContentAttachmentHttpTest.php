@@ -123,7 +123,7 @@ class ContentAttachmentHttpTest extends TestCase
         $this->assertSame(0, ContentAttachment::query()->count());
     }
 
-    public function test_link_is_stored_and_must_be_a_valid_media_url(): void
+    public function test_link_is_classified_when_it_names_media_and_generic_otherwise(): void
     {
         $item = $this->contentItem();
 
@@ -131,22 +131,62 @@ class ContentAttachmentHttpTest extends TestCase
             'url' => 'https://cdn.example.com/media/foto.jpg',
         ])->assertRedirect();
 
-        $link = ContentAttachment::query()->firstOrFail();
-        $this->assertSame(ContentAttachment::KIND_IMAGE, $link->kind);
-        $this->assertSame('https://cdn.example.com/media/foto.jpg', $link->url);
-        $this->assertNull($link->path);
+        $classified = ContentAttachment::query()->where('url', 'https://cdn.example.com/media/foto.jpg')->firstOrFail();
+        $this->assertSame(ContentAttachment::KIND_IMAGE, $classified->kind);
+        $this->assertNull($classified->path);
 
-        // Not a URL at all.
-        $this->postJson(route('content.projects.contents.attachments.link', [$this->project, $item]), [
-            'url' => 'no-es-una-url',
-        ])->assertStatus(422)->assertJsonValidationErrors('url');
+        // A YouTube watch link, a share link with query parameters and a link
+        // with no file extension are ordinary attachments now.
+        foreach ([
+            'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+            'https://drive.google.com/file/d/1AbC/view?usp=sharing',
+            'https://example.com/promo',
+        ] as $generic) {
+            $this->post(route('content.projects.contents.attachments.link', [$this->project, $item]), ['url' => $generic])
+                ->assertRedirect();
 
-        // A valid URL that does not point to an accepted media format.
-        $this->postJson(route('content.projects.contents.attachments.link', [$this->project, $item]), [
-            'url' => 'https://cdn.example.com/documento.pdf',
-        ])->assertStatus(422)->assertJsonValidationErrors('url');
+            $row = ContentAttachment::query()->where('url', $generic)->firstOrFail();
+            $this->assertSame(ContentAttachment::KIND_LINK, $row->kind);
+        }
 
-        $this->assertSame(1, ContentAttachment::query()->count());
+        $this->assertSame(4, ContentAttachment::query()->count());
+    }
+
+    public function test_link_route_refuses_non_http_empty_and_malformed_values(): void
+    {
+        $item = $this->contentItem();
+        $route = route('content.projects.contents.attachments.link', [$this->project, $item]);
+
+        $this->postJson($route, ['url' => 'javascript:alert(1)'])->assertStatus(422)->assertJsonValidationErrors('url');
+        $this->postJson($route, ['url' => 'ftp://example.com/media/foto.jpg'])->assertStatus(422)->assertJsonValidationErrors('url');
+        $this->postJson($route, ['url' => ''])->assertStatus(422)->assertJsonValidationErrors('url');
+        $this->postJson($route, ['url' => 'no-es-una-url'])->assertStatus(422)->assertJsonValidationErrors('url');
+
+        $this->assertSame(0, ContentAttachment::query()->count());
+    }
+
+    public function test_generic_link_is_labelled_as_a_link_while_classified_keeps_the_media_label(): void
+    {
+        $item = $this->contentItem();
+
+        $this->post(route('content.projects.contents.attachments.link', [$this->project, $item]), [
+            'url' => 'https://cdn.example.com/media/foto.jpg',
+        ])->assertRedirect();
+
+        $this->get(route('content.projects.contents.show', [$this->project, $item]))
+            ->assertOk()
+            ->assertSee('content-attachment-type-image', false)
+            ->assertDontSee('Se abre fuera del CRM');
+
+        $this->post(route('content.projects.contents.attachments.link', [$this->project, $item]), [
+            'url' => 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        ])->assertRedirect();
+
+        $this->get(route('content.projects.contents.show', [$this->project, $item]))
+            ->assertOk()
+            ->assertSee('content-attachment-type-link', false)
+            ->assertSee('Se abre fuera del CRM')
+            ->assertSee('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     }
 
     public function test_more_than_the_per_content_ceiling_is_refused_links_included(): void

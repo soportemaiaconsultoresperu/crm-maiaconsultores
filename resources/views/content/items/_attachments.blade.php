@@ -23,6 +23,7 @@
             (máximo {{ $megabytes($attachmentLimits['video_max_bytes']) }} MB cada uno).
             Máximo {{ $attachmentLimits['max_per_content'] }} adjuntos por contenido; los enlaces también cuentan.
             Los archivos se guardan de forma privada y sólo se descargan desde aquí.
+            También se acepta cualquier enlace http o https: si el enlace apunta a una imagen o un video se identifica como tal y, si no, se guarda como enlace y se abre fuera del CRM.
         </p>
 
         @if ($errors->any())
@@ -67,19 +68,28 @@
                                     @endif
                                 </td>
                                 <td>
-                                    <span class="fw-semibold">{{ $attachment->original_name ?? $attachment->url }}</span>
+                                    @if ($attachment->original_name)
+                                        <span class="fw-semibold">{{ $attachment->original_name }}</span>
+                                    @endif
                                     @if ($attachment->isLink())
                                         <div class="small text-break"><a href="{{ $attachment->url }}" target="_blank" rel="noopener noreferrer">{{ $attachment->url }}</a></div>
                                     @endif
                                 </td>
                                 <td>
-                                    <span class="badge {{ $attachment->isVideo() ? 'text-bg-dark' : 'text-bg-info' }}">
-                                        {{ $attachment->isVideo() ? 'Video' : 'Imagen' }}
-                                    </span>
-                                    @if ($attachment->isLink())
-                                        <span class="badge text-bg-secondary">Enlace</span>
+                                    @if ($attachment->isVideo())
+                                        <span class="badge text-bg-dark" data-testid="content-attachment-type-video">Video</span>
+                                    @elseif ($attachment->isImage())
+                                        <span class="badge text-bg-info" data-testid="content-attachment-type-image">Imagen</span>
                                     @else
+                                        <span class="badge text-bg-secondary" data-testid="content-attachment-type-link">Enlace</span>
+                                    @endif
+                                    @if ($attachment->isUpload())
                                         <span class="badge text-bg-secondary">Archivo</span>
+                                    @elseif ($attachment->isImage() || $attachment->isVideo())
+                                        <span class="badge text-bg-secondary">Enlace</span>
+                                    @endif
+                                    @if ($attachment->isGenericLink())
+                                        <div class="small text-muted">Se abre fuera del CRM.</div>
                                     @endif
                                 </td>
                                 <td>
@@ -137,10 +147,11 @@
                           data-testid="content-attachment-link-form">
                         @csrf
                         <h4 class="h6">Adjuntar enlace</h4>
-                        <label for="attachment-url" class="form-label">Enlace a imagen o video</label>
+                        <label for="attachment-url" class="form-label">Enlace a imagen, video o recurso externo</label>
                         <input type="url" name="url" id="attachment-url" value="{{ old('url') }}"
                                class="form-control @error('url') is-invalid @enderror"
-                               placeholder="https://ejemplo.com/imagen.jpg" maxlength="2048">
+                               placeholder="https://ejemplo.com/recurso" maxlength="2048">
+                        <div class="form-text">Se acepta cualquier enlace http o https. Si no apunta a una imagen o un video, se guarda como enlace y se abre fuera del CRM.</div>
                         <x-validation-error name="url"/>
                         <button type="submit" class="btn btn-outline-primary mt-2">Adjuntar enlace</button>
                     </form>

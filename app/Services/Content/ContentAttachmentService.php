@@ -25,6 +25,13 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *   - the fact that a link counts toward the per-content ceiling but has no
  *     size and consumes no upload capacity.
  *
+ * An external link accepts any absolute http or https URL. When the URL path
+ * clearly names an accepted image or video file the link keeps that media kind
+ * so the interface can label it; otherwise it is stored as a generic link
+ * (ContentAttachment::KIND_LINK) that the interface shows as a link opening
+ * outside the CRM. Only genuinely invalid links — a non-http scheme, a
+ * malformed or empty value — are refused.
+ *
  * The real content is sniffed from the file's first bytes, never trusted from
  * the extension or the client-declared MIME type: a text file renamed to
  * `foto.jpg` is rejected because its bytes match no accepted media signature.
@@ -174,34 +181,37 @@ class ContentAttachmentService
     }
 
     /**
-     * Attach an external link instead of uploading a file. The kind is inferred
-     * from the link's extension and the link still counts toward the per-content
-     * ceiling, even though it has no size and consumes no upload capacity.
+     * Attach an external link to a content. Any absolute http or https URL is
+     * accepted: when its path clearly names an accepted image or video file the
+     * link is classified as that media kind so the interface can label it,
+     * otherwise it is stored as a generic link. Either way it still counts
+     * toward the per-content ceiling, even though it has no size and consumes
+     * no upload capacity.
      *
-     * @throws ValidationException when the URL does not point to an accepted
-     *                             media format or the content is full
+     * @throws ValidationException when the URL is empty, not an absolute
+     *                             http/https URL or the content is full
      */
     public function attachLink(ContentItem $item, string $url): ContentAttachment
     {
+        if (! $this->isAcceptableLink($url)) {
+            throw ValidationException::withMessages([
+                'url' => 'El enlace no es válido. Indique una dirección completa que empiece con http:// o https://.',
+            ]);
+        }
+
         $urlPath = (string) parse_url($url, PHP_URL_PATH);
         $extension = strtolower(pathinfo($urlPath, PATHINFO_EXTENSION));
         $format = $this->formatForExtension($extension);
-
-        if ($format === null) {
-            throw ValidationException::withMessages([
-                'url' => 'El enlace debe apuntar a un archivo permitido: imágenes JPG, PNG o WEBP, o videos MP4 o MOV.',
-            ]);
-        }
 
         $this->assertCapacity($item, 'url');
 
         return ContentAttachment::query()->create([
             'content_item_id' => $item->getKey(),
-            'kind' => $format['kind'],
+            'kind' => $format['kind'] ?? ContentAttachment::KIND_LINK,
             'path' => null,
             'url' => $url,
-            'original_name' => basename($urlPath) !== '' ? basename($urlPath) : null,
-            'mime_type' => $format['mime'],
+            'original_name' => $format !== null && basename($urlPath) !== '' ? basename($urlPath) : null,
+            'mime_type' => $format['mime'] ?? null,
             'size_bytes' => null,
             'sort' => $this->nextSort($item),
         ]);
@@ -263,6 +273,17 @@ class ContentAttachmentService
                 ),
             ]);
         }
+    }
+
+    /**
+     * An attachment link must be an absolute http or https URL. Everything else
+     * — a non-http scheme, a malformed value or an empty string — is refused.
+     * This mirrors the `url:http,https` request rule so the HTTP layer and the
+     * service never disagree about what a valid link is.
+     */
+    private function isAcceptableLink(string $url): bool
+    {
+        return trim($url) !== '' && Str::isUrl($url, ['http', 'https']);
     }
 
     /**
