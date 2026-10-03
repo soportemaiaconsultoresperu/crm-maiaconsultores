@@ -8,6 +8,7 @@ use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Content\ContentProjectController;
 use App\Http\Controllers\Content\ContentCatalogController;
 use App\Http\Controllers\Content\ContentFieldSchemaController;
+use App\Http\Controllers\Content\ContentIdeaController;
 use App\Http\Controllers\Content\ContentItemController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
@@ -974,6 +975,24 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('contentItem')->name('projects.contents.edit');
             Route::put('projects/{contentProject}/contents/{contentItem}', 'update')
                 ->whereNumber('contentItem')->name('projects.contents.update');
+        });
+
+        // Ideas section (T6d). Additive block: the same `contentProject`
+        // binding resolves reachability (404 before validation), and a child id
+        // is resolved inside the project as an idea, so a converted row is 404.
+        Route::controller(ContentIdeaController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/ideas', 'index')->name('projects.ideas.index');
+            // Static segment first so `ideas/{contentIdea}` never shadows it.
+            Route::get('projects/{contentProject}/ideas/create', 'create')->name('projects.ideas.create');
+            Route::post('projects/{contentProject}/ideas', 'store')->name('projects.ideas.store');
+            Route::get('projects/{contentProject}/ideas/{contentIdea}', 'show')
+                ->whereNumber('contentIdea')->name('projects.ideas.show');
+            Route::get('projects/{contentProject}/ideas/{contentIdea}/edit', 'edit')
+                ->whereNumber('contentIdea')->name('projects.ideas.edit');
+            Route::put('projects/{contentProject}/ideas/{contentIdea}', 'update')
+                ->whereNumber('contentIdea')->name('projects.ideas.update');
+            Route::post('projects/{contentProject}/ideas/{contentIdea}/convert', 'convert')
+                ->whereNumber('contentIdea')->name('projects.ideas.convert');
         });
 
         Route::controller(ContentProjectController::class)->group(function (): void {

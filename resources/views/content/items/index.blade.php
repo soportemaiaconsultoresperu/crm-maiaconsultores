@@ -20,6 +20,9 @@
         <a href="{{ route('content.projects.show', $project) }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1" aria-hidden="true"></i> Volver al proyecto
         </a>
+        <a href="{{ route('content.projects.ideas.index', $project) }}" class="btn btn-outline-secondary" data-testid="btn-content-idea-section">
+            <i class="bi bi-lightbulb me-1" aria-hidden="true"></i> Ver ideas
+        </a>
         @if ($canManage)
             <a href="{{ route('content.projects.contents.create', $project) }}" class="btn btn-primary" data-testid="btn-create-content-item">
                 <i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Nuevo contenido

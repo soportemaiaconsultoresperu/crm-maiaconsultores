@@ -13,6 +13,10 @@
             <i class="bi bi-calendar3 me-1" aria-hidden="true"></i> Ver cronograma
         </a>
 
+        <a href="{{ route('content.projects.ideas.index', $project) }}" class="btn btn-outline-primary" data-testid="btn-content-project-ideas">
+            <i class="bi bi-lightbulb me-1" aria-hidden="true"></i> Ideas
+        </a>
+
         @can('update', $project)
             <a href="{{ route('content.catalogs.index', $project) }}" class="btn btn-outline-primary">Administrar catálogos</a>
             <a href="{{ route('content.fields.index', $project) }}" class="btn btn-outline-primary">Campos personalizados</a>

@@ -241,6 +241,133 @@ class ContentItemService
     }
 
     /**
+     * The addressed project's undated ideas, newest first. Same pinning as the
+     * grid query: only this project's `idea` rows, never a foreign one.
+     *
+     * @return Builder<ContentItem>
+     */
+    public function ideasQuery(ContentProject $project): Builder
+    {
+        return ContentItem::query()
+            ->ideas()
+            ->where('content_project_id', $project->getKey())
+            ->with(['pillar', 'topic', 'objectives', 'formats', 'channels']);
+    }
+
+    /**
+     * Register a bare idea: no planned instant and the default editorial status,
+     * with its selections and custom values stored in one transaction.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws ValidationException
+     */
+    public function createIdea(ContentProject $project, array $data): ContentItem
+    {
+        return DB::transaction(function () use ($project, $data): ContentItem {
+            $idea = ContentItem::query()->create([
+                'content_project_id' => $project->getKey(),
+                'kind' => ContentItemKind::Idea,
+                'planned_at' => null,
+                'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
+                'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
+                'status' => ContentItemStatus::Incomplete,
+                'title' => $data['title'],
+                'body' => $data['body'],
+                'hashtags' => $this->nullableString($data['hashtags'] ?? null),
+                'notes' => $this->nullableString($data['notes'] ?? null),
+            ]);
+
+            $this->syncSelections($idea, $data);
+            $this->saveCustomValues($idea, $data['fields'] ?? []);
+
+            return $idea;
+        });
+    }
+
+    /**
+     * Edit an idea. `kind`, `planned_at` and `status` are deliberately not
+     * touched: an idea stays dateless and its editorial status only ever changes
+     * through conversion, which preserves it.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws ValidationException
+     */
+    public function updateIdea(ContentItem $idea, array $data): ContentItem
+    {
+        return DB::transaction(function () use ($idea, $data): ContentItem {
+            $idea->fill([
+                'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
+                'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
+                'title' => $data['title'],
+                'body' => $data['body'],
+                'hashtags' => $this->nullableString($data['hashtags'] ?? null),
+                'notes' => $this->nullableString($data['notes'] ?? null),
+            ]);
+            $idea->save();
+
+            $this->syncSelections($idea, $data);
+            $this->saveCustomValues($idea, $data['fields'] ?? []);
+
+            return $idea;
+        });
+    }
+
+    /**
+     * Convert an idea into a planned content, atomically and without
+     * duplicating it.
+     *
+     * The conversion is an in-place update of the SAME row: `kind` becomes
+     * `content` and `planned_at` becomes the submitted Peruvian instant. Every
+     * other column, the selections pivots and the custom-field rows are already
+     * on that row, so nothing has to be copied and no second content can be
+     * created. The whole operation runs in one transaction with `lockForUpdate`,
+     * so two concurrent requests cannot both convert the row: the loser reads a
+     * `content` and is refused.
+     *
+     * The row's status is intentionally not changed. The specification defines
+     * no status transition for conversion and the confirmed decisions only list
+     * text, notes, hashtags, pillar, topic, selections and custom values as data
+     * that must survive; inventing a status change would be an invented
+     * transition. A new idea is stored `Incompleto`, which is also the sensible
+     * state for a freshly converted, not yet produced content.
+     *
+     * A required custom field that lost its value blocks the conversion before
+     * anything is written, and any failure inside the transaction rolls the row
+     * back, so a rejected conversion leaves the idea exactly as it was.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @throws ValidationException
+     */
+    public function convertIdea(ContentItem $idea, array $data): ContentItem
+    {
+        return DB::transaction(function () use ($idea, $data): ContentItem {
+            $locked = ContentItem::query()->lockForUpdate()->findOrFail($idea->getKey());
+
+            if (! $locked->isIdea()) {
+                throw ValidationException::withMessages([
+                    'planned_date' => 'La idea ya fue convertida en contenido.',
+                ]);
+            }
+
+            // Re-assert the content contract before mutating: a required custom
+            // field with no stored value refuses the conversion, so the idea is
+            // left untouched and unchanged.
+            $this->saveCustomValues($locked, []);
+
+            $locked->fill([
+                'kind' => ContentItemKind::Content,
+                'planned_at' => PeruTime::toUtc($data['planned_date'].' '.$data['planned_time']),
+            ]);
+            $locked->save();
+
+            return $locked;
+        });
+    }
+
+    /**
      * Persist the multi-select relations. Ownership and active-state checks are
      * the FormRequest's job through ContentItemSelectionService.
      *

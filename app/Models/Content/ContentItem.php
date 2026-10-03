@@ -6,6 +6,7 @@ use App\Enums\Content\ContentItemKind;
 use App\Enums\Content\ContentItemStatus;
 use App\Support\Content\PeruTime;
 use App\Traits\HasAuditColumns;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -151,14 +152,51 @@ class ContentItem extends Model
     }
 
     /**
-     * Overdue criterion: a planned instant already in the past that has not
-     * been published. Dateless ideas are excluded by the `planned_at` filter.
+     * Overdue boundary (T6d), kept in one place.
+     *
+     * A planned row is overdue once the instant it was planned for has passed,
+     * EXCEPT a date-only row (stored at Peru midnight), which only becomes
+     * overdue after its Peruvian day has ended. A dateless idea and a published
+     * row are never overdue.
+     *
+     * Both boundaries come from the Peru time helper, never from a hardcoded
+     * offset: `$now` is the current UTC instant and `$startOfToday` is the start
+     * of today's Peruvian calendar day, also expressed as a UTC instant. The
+     * rule reduces to `planned_at <= now AND planned_at != startOfToday`:
+     *
+     * - a row before today's Peru midnight belongs to an earlier Peru day, so
+     *   both its date-only and its timed form are overdue;
+     * - a row strictly between today's Peru midnight and now is an explicit time
+     *   already reached, so it is overdue;
+     * - today's exact Peru midnight is the date-only row for today, which is not
+     *   overdue until that day ends.
+     *
+     * A timed row therefore behaves exactly as before; only the date-only row
+     * gains the Peru-midnight grace period.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    private static function overdueBoundaries(): array
+    {
+        $now = CarbonImmutable::now();
+        $startOfToday = PeruTime::toUtc(PeruTime::date($now).' 00:00:00');
+
+        return [$now, $startOfToday];
+    }
+
+    /**
+     * Overdue criterion: a planned instant already reached, excluding a
+     * date-only row still inside its Peruvian day and every published row.
+     * Dateless ideas are excluded by the `planned_at` filter.
      */
     public function scopeOverdue(Builder $query): Builder
     {
+        [$now, $startOfToday] = self::overdueBoundaries();
+
         return $query
             ->whereNotNull('planned_at')
-            ->where('planned_at', '<', now())
+            ->where('planned_at', '<=', $now)
+            ->where('planned_at', '!=', $startOfToday)
             ->where('status', '!=', ContentItemStatus::Published->value);
     }
 
@@ -187,11 +225,20 @@ class ContentItem extends Model
         return $this->status === ContentItemStatus::Published;
     }
 
+    /**
+     * Same rule as scopeOverdue(), evaluated on the loaded row so the grid
+     * marker and the query never disagree.
+     */
     public function isOverdue(): bool
     {
-        return $this->planned_at !== null
-            && $this->planned_at->isPast()
-            && ! $this->isPublished();
+        if ($this->planned_at === null || $this->isPublished()) {
+            return false;
+        }
+
+        [$now, $startOfToday] = self::overdueBoundaries();
+
+        return $this->planned_at->lessThanOrEqualTo($now)
+            && ! $this->planned_at->equalTo($startOfToday);
     }
 
     /**
