@@ -46,6 +46,19 @@
                 </button>
             </form>
         @endcan
+        @can('archive', $project)
+            <x-swal-confirm
+                :action="route('content.projects.contents.destroy', [$project, $item])"
+                method="DELETE"
+                title="¿Mover a la papelera?"
+                text="El contenido dejará de aparecer en el cronograma y en las ideas, pero conservará sus valores y sus archivos hasta que un administrador vacíe la papelera."
+                type="warning"
+                confirm-text="Sí, mover a la papelera"
+                button-class="btn-outline-warning"
+                data-testid="btn-trash-content-item">
+                <i class="bi bi-trash me-1" aria-hidden="true"></i> Mover a la papelera
+            </x-swal-confirm>
+        @endcan
     </div>
 
     @can('update', $project)

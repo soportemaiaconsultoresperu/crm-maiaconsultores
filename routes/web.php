@@ -11,6 +11,7 @@ use App\Http\Controllers\Content\ContentCatalogController;
 use App\Http\Controllers\Content\ContentFieldSchemaController;
 use App\Http\Controllers\Content\ContentIdeaController;
 use App\Http\Controllers\Content\ContentItemController;
+use App\Http\Controllers\Content\ContentTrashController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
@@ -1000,6 +1001,21 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.retire');
             Route::get('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/download', 'download')
                 ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.download');
+        });
+
+        // Trash and permanence lifecycle (T8b). Additive block: the same
+        // `contentProject` binding resolves reachability and a child id is
+        // resolved inside the addressed project. The static `trash` segment is
+        // a GET of its own; `contents/{contentItem}` stays numeric-only, so it
+        // can never swallow it.
+        Route::controller(ContentTrashController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/contents/trash', 'index')->name('projects.contents.trash');
+            Route::delete('projects/{contentProject}/contents/{contentItem}', 'destroy')
+                ->whereNumber('contentItem')->name('projects.contents.destroy');
+            Route::post('projects/{contentProject}/contents/{contentItem}/restore', 'restore')
+                ->whereNumber('contentItem')->name('projects.contents.restore');
+            Route::delete('projects/{contentProject}/contents/{contentItem}/purge', 'purge')
+                ->whereNumber('contentItem')->name('projects.contents.purge');
         });
 
         // Ideas section (T6d). Additive block: the same `contentProject`

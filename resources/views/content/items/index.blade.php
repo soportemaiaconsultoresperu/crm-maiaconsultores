@@ -23,6 +23,9 @@
         <a href="{{ route('content.projects.ideas.index', $project) }}" class="btn btn-outline-secondary" data-testid="btn-content-idea-section">
             <i class="bi bi-lightbulb me-1" aria-hidden="true"></i> Ver ideas
         </a>
+        <a href="{{ route('content.projects.contents.trash', $project) }}" class="btn btn-outline-secondary" data-testid="btn-content-trash">
+            <i class="bi bi-trash me-1" aria-hidden="true"></i> Papelera
+        </a>
         @if ($canManage)
             <a href="{{ route('content.projects.contents.create', $project) }}" class="btn btn-primary" data-testid="btn-create-content-item">
                 <i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Nuevo contenido

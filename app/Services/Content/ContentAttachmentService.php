@@ -38,11 +38,14 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * The stored MIME type and extension are the ones detected, not the claimed
  * ones.
  *
- * There is deliberately no purge path. Retiring an attachment only soft-deletes
- * its row; the physical file stays on disk so the content can recover it. The
- * only file deletion here is `discardStoredFile()`, and it exists solely to
- * remove a file this service copied for a duplication that then rolled back, so
- * a failed duplication leaves no orphan.
+ * There is deliberately no automatic purge path. Retiring an attachment only
+ * soft-deletes its row and trashing a content only soft-deletes its content
+ * row: the physical file stays on disk in both cases so the content can
+ * recover it. Physical files are removed in exactly two explicit, transactional
+ * cases: `discardStoredFile()` cleans up a file this service copied for a
+ * duplication that then rolled back, so a failed duplication leaves no orphan,
+ * and the operator purge (`ContentTrashService::purge()`) empties the trash.
+ * Nothing removes a file on a schedule, a console command or a model event.
  *
  * The size ceilings are read from `config('content.attachments.*')` so a test
  * can prove the boundary with a tiny controlled override while production keeps
@@ -313,10 +316,11 @@ class ContentAttachmentService
     }
 
     /**
-     * Delete a file this service copied for a duplication that then failed, so
-     * a rolled-back duplication leaves no orphan file on the private disk. This
-     * is the only file deletion in the service, and it is never called on a
-     * committed copy: retirement still keeps every file.
+     * Delete a stored file from the private disk. This is the module's single
+     * low-level file-removal primitive, called only from the two explicit,
+     * transactional paths: the rollback cleanup that removes a copy this
+     * service made for a duplication that then failed, and the operator purge
+     * that empties the trash. A committed attachment keeps its file.
      */
     public function discardStoredFile(?string $path): void
     {
