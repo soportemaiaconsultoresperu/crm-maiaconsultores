@@ -1,0 +1,276 @@
+<?php
+
+namespace App\Services\Content;
+
+use App\Enums\Content\ContentFieldType;
+use App\Enums\Content\ContentItemStatus;
+use App\Exports\Content\ContentCellSanitizer;
+use App\Models\Content\ContentChannel;
+use App\Models\Content\ContentFieldDefinition;
+use App\Models\Content\ContentFormat;
+use App\Models\Content\ContentItem;
+use App\Models\Content\ContentPillar;
+use App\Models\Content\ContentProject;
+use App\Models\Content\ContentTopic;
+use App\Support\Content\PeruTime;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
+
+/**
+ * Content scheduling module — exports (T10).
+ *
+ * Builds the exported grid from the SAME filtered query the screen uses
+ * (`ContentItemService::query()`), so the exported set can never drift from what
+ * the operator sees: same project pin, same title/copy search, same month,
+ * status and catalog narrowings. Custom-field columns come from the project's
+ * active definitions and their values are read through ContentFieldValueService,
+ * the single value reader of the module.
+ *
+ * The project pin lives in `ContentItemService::query()`, so even a filter input
+ * that names another project's catalog id can only narrow this project's rows,
+ * never widen the export across projects.
+ *
+ * Every cell goes through ContentCellSanitizer before it can reach a
+ * spreadsheet: grid text, catalog names and custom values alike.
+ */
+class ContentGridExportService
+{
+    /**
+     * Grid columns, in the on-screen order. The Acciones column is not data.
+     *
+     * @var list<string>
+     */
+    private const GRID_HEADINGS = [
+        'Fecha',
+        'Día',
+        'Horario',
+        'Pilar de contenido',
+        'Tema',
+        'Estado',
+        'Objetivos',
+        'Formato',
+        'Red social o canal',
+        'Gancho o título',
+        'Descripción o copy',
+        'Hashtags',
+        'Notas',
+    ];
+
+    public function __construct(
+        private readonly ContentItemService $items,
+        private readonly ContentFieldValueService $values,
+    ) {
+    }
+
+    /**
+     * The grid columns followed by one column per active custom field of the
+     * project.
+     *
+     * @return list<string>
+     */
+    public function headings(ContentProject $project): array
+    {
+        return array_merge(
+            self::GRID_HEADINGS,
+            $this->definitions($project)->pluck('label')->all(),
+        );
+    }
+
+    /**
+     * The exported rows: the addressed project's contents matching the same
+     * filters the grid accepts, with their custom values appended and every cell
+     * made spreadsheet-safe.
+     *
+     * @param  array<string, string>  $filters
+     * @return list<list<mixed>>
+     */
+    public function rows(ContentProject $project, array $filters): array
+    {
+        $definitions = $this->definitions($project);
+
+        return $this->items
+            ->query($project, $filters)
+            ->with(['fieldValues.definition', 'fieldValues.selectedOptions'])
+            ->get()
+            ->map(fn (ContentItem $item): array => $this->mapRow($item, $definitions))
+            ->all();
+    }
+
+    /**
+     * The applied filters as Spanish statements for the exported document, so a
+     * PDF states the slice it represents. Catalog ids are resolved to their
+     * names inside the addressed project; an unresolved id falls back to the raw
+     * value instead of leaking a foreign name.
+     *
+     * @param  array<string, string>  $filters
+     * @return list<string>
+     */
+    public function filterSummary(ContentProject $project, array $filters): array
+    {
+        $summary = [];
+
+        $term = trim((string) ($filters['q'] ?? ''));
+        if ($term !== '') {
+            $summary[] = 'Buscar: '.$term;
+        }
+
+        $month = trim((string) ($filters['month'] ?? ''));
+        if ($month !== '') {
+            $summary[] = 'Mes: '.$month;
+        }
+
+        $status = (string) ($filters['status'] ?? '');
+        if (in_array($status, ContentItemStatus::values(), true)) {
+            $summary[] = 'Estado: '.(ContentItemStatus::labels()[$status] ?? $status);
+        }
+
+        $catalogs = [
+            'pillar' => ['Pilar de contenido', ContentPillar::class],
+            'topic' => ['Tema', ContentTopic::class],
+            'format' => ['Formato', ContentFormat::class],
+            'channel' => ['Red social o canal', ContentChannel::class],
+        ];
+
+        foreach ($catalogs as $key => [$label, $class]) {
+            $id = (int) ($filters[$key] ?? 0);
+
+            if ($id <= 0) {
+                continue;
+            }
+
+            $summary[] = $label.': '.($this->catalogName($class, $id, $project) ?? (string) $id);
+        }
+
+        return $summary;
+    }
+
+    /**
+     * The project's active custom fields, grouped by their section and then by
+     * their own order, so the extra export columns read in the same order the
+     * editor presents them. Ungrouped fields come last.
+     *
+     * @return Collection<int, ContentFieldDefinition>
+     */
+    private function definitions(ContentProject $project): Collection
+    {
+        return ContentFieldDefinition::query()
+            ->where('content_project_id', $project->getKey())
+            ->where('is_active', true)
+            ->with(['section', 'options' => fn ($options) => $options->orderBy('sort')->orderBy('id')])
+            ->get()
+            ->sort(function (ContentFieldDefinition $a, ContentFieldDefinition $b): int {
+                return [
+                    $a->section?->sort ?? PHP_INT_MAX,
+                    $a->section?->getKey() ?? PHP_INT_MAX,
+                    $a->sort,
+                    $a->getKey(),
+                ] <=> [
+                    $b->section?->sort ?? PHP_INT_MAX,
+                    $b->section?->getKey() ?? PHP_INT_MAX,
+                    $b->sort,
+                    $b->getKey(),
+                ];
+            })
+            ->values();
+    }
+
+    /**
+     * @param  Collection<int, ContentFieldDefinition>  $definitions
+     * @return list<mixed>
+     */
+    private function mapRow(ContentItem $item, Collection $definitions): array
+    {
+        $planned = $item->planned_at !== null ? PeruTime::toPeru($item->planned_at) : null;
+        $values = $this->values->values($item);
+
+        $row = [
+            $planned?->format('d/m/Y') ?? '—',
+            $planned !== null ? PeruTime::weekdayLabel($item->planned_at) : '—',
+            $planned?->format('H:i') ?? '—',
+            $item->pillar?->name ?? '—',
+            $item->topic?->name ?? '—',
+            $item->status->label(),
+            $this->joinNames($item->objectives),
+            $this->joinNames($item->formats),
+            $this->joinNames($item->channels),
+            $item->title,
+            $item->body,
+            $item->hashtags ?? '—',
+            $item->notes ?? '—',
+        ];
+
+        foreach ($definitions as $definition) {
+            $row[] = $this->fieldValue($definition, $values[$definition->key] ?? null);
+        }
+
+        return array_map([ContentCellSanitizer::class, 'sanitize'], $row);
+    }
+
+    /**
+     * @param  Collection<int, \Illuminate\Database\Eloquent\Model>  $models
+     */
+    private function joinNames(Collection $models): string
+    {
+        $names = $models->pluck('name')->filter()->implode(', ');
+
+        return $names !== '' ? $names : '—';
+    }
+
+    /**
+     * Present one custom value in its human shape. An absent value is the same
+     * em dash the grid uses, so an empty cell is never read as data.
+     */
+    private function fieldValue(ContentFieldDefinition $definition, mixed $value): mixed
+    {
+        if ($value === null || $value === '' || $value === []) {
+            return '—';
+        }
+
+        return match ($definition->type) {
+            ContentFieldType::Text, ContentFieldType::LongText => (string) $value,
+            ContentFieldType::Number => (float) $value,
+            ContentFieldType::Date => CarbonImmutable::parse((string) $value)->format('d/m/Y'),
+            ContentFieldType::SingleSelection => $this->optionLabel($definition, (int) $value),
+            ContentFieldType::MultipleSelection => $this->optionLabels($definition, (array) $value),
+        };
+    }
+
+    private function optionLabel(ContentFieldDefinition $definition, int $optionId): string
+    {
+        return $definition->options->firstWhere('id', $optionId)?->label ?? '—';
+    }
+
+    /**
+     * @param  array<int, mixed>  $optionIds
+     */
+    private function optionLabels(ContentFieldDefinition $definition, array $optionIds): string
+    {
+        $labels = collect($optionIds)
+            ->map(fn (mixed $id): ?string => $definition->options->firstWhere('id', (int) $id)?->label)
+            ->filter()
+            ->implode(', ');
+
+        return $labels !== '' ? $labels : '—';
+    }
+
+    /**
+     * Resolve a catalog id to its name only inside the addressed project, so a
+     * foreign or unknown id renders as itself and never discloses a foreign row.
+     *
+     * @param  class-string<\Illuminate\Database\Eloquent\Model>  $class
+     */
+    private function catalogName(string $class, int $id, ContentProject $project): ?string
+    {
+        $query = $class::query()->whereKey($id);
+
+        if ($class === ContentTopic::class) {
+            $query->whereHas('pillar', fn ($pillars) => $pillars->where('content_project_id', $project->getKey()));
+        } else {
+            $query->where('content_project_id', $project->getKey());
+        }
+
+        $name = $query->value('name');
+
+        return $name !== null ? (string) $name : null;
+    }
+}

@@ -9,6 +9,7 @@ use App\Http\Controllers\Content\ContentProjectController;
 use App\Http\Controllers\Content\ContentAttachmentController;
 use App\Http\Controllers\Content\ContentCalendarController;
 use App\Http\Controllers\Content\ContentCatalogController;
+use App\Http\Controllers\Content\ContentExportController;
 use App\Http\Controllers\Content\ContentFieldSchemaController;
 use App\Http\Controllers\Content\ContentIdeaController;
 use App\Http\Controllers\Content\ContentItemController;
@@ -965,6 +966,20 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.state');
             Route::post('projects/{contentProject}/fields/{fieldDefinition}/options/{fieldOption}/reorder', 'reorderOption')
                 ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.reorder');
+        });
+
+        // Grid exports (T10). Additive block placed before the dynamic
+        // `contents/{contentItem}` routes: static `export/excel` and
+        // `export/pdf` segments can never be swallowed by the numeric child
+        // route. The same `contentProject` binding answers 404 for an
+        // unreachable project, reads ask the policy for `view`, and the filter
+        // payload is the grid's own ContentGridFilterRequest, so an export
+        // cannot interpret the filters differently from the screen.
+        Route::controller(ContentExportController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/contents/export/excel', 'excel')
+                ->name('projects.contents.export.excel');
+            Route::get('projects/{contentProject}/contents/export/pdf', 'pdf')
+                ->name('projects.contents.export.pdf');
         });
 
         Route::controller(ContentItemController::class)->group(function (): void {

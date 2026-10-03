@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Content;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Content\ContentGridFilterRequest;
 use App\Http\Requests\Content\RescheduleContentItemRequest;
 use App\Http\Requests\Content\StoreContentItemRequest;
 use App\Http\Requests\Content\UpdateContentItemRequest;
@@ -13,7 +14,6 @@ use App\Services\Content\ContentAttachmentService;
 use App\Services\Content\ContentItemService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -37,11 +37,11 @@ class ContentItemController extends Controller
     ) {
     }
 
-    public function index(Request $request, ContentProject $contentProject): View
+    public function index(ContentGridFilterRequest $request, ContentProject $contentProject): View
     {
         Gate::authorize('view', $contentProject);
 
-        $filters = $this->filters($request);
+        $filters = $request->filters();
 
         $contents = $this->items
             ->query($contentProject, $filters)
@@ -165,22 +165,6 @@ class ContentItemController extends Controller
         return ContentItem::query()
             ->where('content_project_id', $project->getKey())
             ->findOrFail((int) $contentItem);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function filters(Request $request): array
-    {
-        return [
-            'q' => trim((string) $request->query('q', '')),
-            'month' => trim((string) $request->query('month', '')),
-            'status' => (string) $request->query('status', ''),
-            'pillar' => (string) $request->query('pillar', ''),
-            'topic' => (string) $request->query('topic', ''),
-            'format' => (string) $request->query('format', ''),
-            'channel' => (string) $request->query('channel', ''),
-        ];
     }
 
     /**

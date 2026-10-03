@@ -7,6 +7,10 @@
     // Presentation only: the create form is a mutation, so its link mirrors
     // the same `update` ability the endpoint enforces.
     $canManage = Gate::allows('update', $project);
+    // The export links carry the filters currently applied to the grid, using
+    // the same normalised filter set the controller reads.
+    $exportFilters = array_filter($filters, fn ($value): bool => (string) $value !== '');
+    $exportQuery = $exportFilters === [] ? '' : '?'.http_build_query($exportFilters);
     $statusClasses = [
         \App\Enums\Content\ContentItemStatus::Incomplete->value => 'text-bg-secondary',
         \App\Enums\Content\ContentItemStatus::InProgress->value => 'text-bg-info',
@@ -26,6 +30,16 @@
         <a href="{{ route('content.projects.contents.trash', $project) }}" class="btn btn-outline-secondary" data-testid="btn-content-trash">
             <i class="bi bi-trash me-1" aria-hidden="true"></i> Papelera
         </a>
+        <div class="btn-group" role="group" aria-label="Exportar el cronograma">
+            <a href="{{ route('content.projects.contents.export.excel', $project).$exportQuery }}"
+               class="btn btn-outline-success" data-testid="btn-content-export-excel">
+                <i class="bi bi-file-earmark-excel me-1" aria-hidden="true"></i> Exportar a Excel
+            </a>
+            <a href="{{ route('content.projects.contents.export.pdf', $project).$exportQuery }}"
+               class="btn btn-outline-danger" data-testid="btn-content-export-pdf">
+                <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i> Exportar a PDF
+            </a>
+        </div>
         @if ($canManage)
             <a href="{{ route('content.projects.contents.create', $project) }}" class="btn btn-primary" data-testid="btn-create-content-item">
                 <i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Nuevo contenido

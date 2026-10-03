@@ -43,11 +43,28 @@ class ContentFieldValueService
             return [];
         }
 
-        $rows = ContentFieldValue::query()
-            ->where('content_item_id', $item->getKey())
-            ->with(['definition', 'selectedOptions'])
-            ->get();
+        // An eager-loaded caller (the grid exports, which map many rows in one
+        // pass) already holds the rows with their definition and selected
+        // options, so reading them again would be a needless query per row.
+        $rows = $item->relationLoaded('fieldValues')
+            ? $item->fieldValues
+            : ContentFieldValue::query()
+                ->where('content_item_id', $item->getKey())
+                ->with(['definition', 'selectedOptions'])
+                ->get();
 
+        return $this->mapValues($rows);
+    }
+
+    /**
+     * Turn stored value rows into the `key => value` map, keyed by each
+     * definition's stable `key` and skipping rows whose definition is gone.
+     *
+     * @param  iterable<int, ContentFieldValue>  $rows
+     * @return array<string, mixed>
+     */
+    private function mapValues(iterable $rows): array
+    {
         $values = [];
 
         foreach ($rows as $row) {
