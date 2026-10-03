@@ -16,7 +16,7 @@
         @endcan
 
         @if ($project->isArchived())
-            @can('update', $project)
+            @can('archive', $project)
                 <form method="POST" action="{{ route('content.projects.reactivate', $project) }}" class="d-inline" data-testid="content-project-reactivate-form">
                     @csrf
                     <button type="submit" class="btn btn-outline-success">

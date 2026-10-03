@@ -137,14 +137,13 @@ class ContentProjectController extends Controller
     }
 
     /**
-     * Bring an archived project back into normal use. Reactivation is an
-     * edition of the lifecycle, so it asks for the `update` ability rather than
-     * the `archive` one.
+     * Bring an archived project back into normal use. The `archive` ability
+     * owns both directions of the lifecycle.
      */
     public function reactivate(Request $request, ContentProject $contentProject): RedirectResponse
     {
         $this->ensureReachable($request, $contentProject);
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('archive', $contentProject);
 
         $contentProject->reactivate();
 

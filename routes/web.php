@@ -898,6 +898,19 @@ Route::middleware(['auth', 'active'])->controller(\App\Http\Controllers\ReportCo
  * ContentProjectScopeService and reports a project the user may not reach as
  * 404, never 403, so a foreign project's existence is not disclosed.
  */
+// Resolve reachability before FormRequest validation can disclose existence.
+// Keep archived records eligible: canAccess(), not the default listing, owns
+// the reachability rule. This parameter is exclusive to the content module.
+Route::bind('contentProject', function (string $value): \App\Models\Content\ContentProject {
+    $project = \App\Models\Content\ContentProject::query()->findOrFail($value);
+    $user = request()->user();
+
+    abort_unless($user && app(\App\Services\Content\ContentProjectScopeService::class)
+        ->canAccess($user, $project), 404);
+
+    return $project;
+});
+
 Route::middleware(['auth', 'active'])
     ->prefix('content')
     ->name('content.')

@@ -132,6 +132,91 @@ class ContentProjectHttpTest extends TestCase
         $this->assertNull($foreign->fresh()->archived_at);
     }
 
+    public function test_unreachable_projects_return_404_before_validation_in_json_and_browser_requests(): void
+    {
+        $actor = $this->manager([
+            'content_projects.update',
+            'content_projects.archive',
+            'content_projects.assign_members',
+        ]);
+        $foreign = ContentProject::factory()->create();
+        $original = $foreign->fresh()->getAttributes();
+
+        $this->actingAs($actor);
+
+        // Both existing foreign records and missing ids must be indistinguishable,
+        // including payloads that would otherwise produce 422 or a redirect.
+        foreach ([$foreign->id, $foreign->id + 1000] as $id) {
+            foreach ([['Accept' => 'application/json'], []] as $headers) {
+                foreach ([
+                    ['GET', 'show', []],
+                    ['GET', 'edit', []],
+                    ['PUT', 'update', ['name' => '', 'slug' => 'INVALID SLUG']],
+                    ['POST', 'members.sync', ['members' => 'not-an-array']],
+                    ['POST', 'archive', []],
+                    ['POST', 'reactivate', []],
+                ] as [$method, $action, $payload]) {
+                    $this->call($method, route('content.projects.'.$action, $id), $payload, [], [],
+                        $this->transformHeadersToServerVars($headers))
+                        ->assertNotFound();
+                }
+            }
+        }
+
+        $this->assertSame($original, $foreign->fresh()->getAttributes());
+        $this->assertSame([], $this->memberIds($foreign));
+    }
+
+    public function test_authorized_create_and_edit_pages_render(): void
+    {
+        $manager = $this->manager(['content_projects.create', 'content_projects.update']);
+        $project = ContentProject::factory()->create();
+        $project->members()->attach($manager->id);
+
+        $this->actingAs($manager)->get(route('content.projects.create'))
+            ->assertOk()->assertViewIs('content.projects.create');
+        $this->actingAs($manager)->get(route('content.projects.edit', $project))
+            ->assertOk()->assertViewIs('content.projects.edit');
+    }
+
+    public function test_reachable_projects_without_mutation_abilities_return_403_and_do_not_change(): void
+    {
+        $member = $this->reader();
+        $project = ContentProject::factory()->create();
+        $project->members()->attach($member->id);
+        $original = $project->fresh()->getAttributes();
+
+        $this->actingAs($member)->putJson(route('content.projects.update', $project), [
+            'name' => 'Forbidden change', 'slug' => 'forbidden-change',
+        ])->assertForbidden();
+        $this->postJson(route('content.projects.members.sync', $project), ['members' => []])
+            ->assertForbidden();
+        $this->postJson(route('content.projects.archive', $project))->assertForbidden();
+
+        $this->assertSame($original, $project->fresh()->getAttributes());
+        $this->assertSame([$member->id], $this->memberIds($project));
+    }
+
+    public function test_update_permission_does_not_allow_reactivation(): void
+    {
+        $editor = $this->manager(['content_projects.update']);
+        $project = ContentProject::factory()->archived()->create();
+        $project->members()->attach($editor->id);
+        $original = $project->fresh()->getAttributes();
+
+        $this->actingAs($editor)->get(route('content.projects.show', $project))
+            ->assertOk()
+            ->assertDontSee('data-testid="content-project-reactivate-form"', false)
+            ->assertSee('data-testid="btn-edit-content-project"', false);
+
+        $this->postJson(route('content.projects.reactivate', $project))
+            ->assertForbidden();
+
+        $this->assertSame($original, $project->fresh()->getAttributes());
+        $this->assertNotNull($project->fresh()->archived_at);
+        $this->assertFalse($project->fresh()->is_active);
+    }
+
     public function test_an_archived_project_stays_readable_but_leaves_the_default_list(): void
     {
         $member = $this->reader();
@@ -215,7 +300,7 @@ class ContentProjectHttpTest extends TestCase
 
     public function test_archiving_and_reactivating_work(): void
     {
-        $manager = $this->manager(['content_projects.archive', 'content_projects.update']);
+        $manager = $this->manager(['content_projects.archive']);
         $project = ContentProject::factory()->create(['is_active' => true]);
         $project->members()->attach($manager->id);
 
@@ -227,6 +312,11 @@ class ContentProjectHttpTest extends TestCase
         $this->assertFalse($project->fresh()->is_active);
         // Archiving retires the project; it must NOT send it to the trash.
         $this->assertNull($project->fresh()->deleted_at);
+
+        $this->actingAs($manager)->get(route('content.projects.show', $project))
+            ->assertOk()
+            ->assertSee('data-testid="content-project-reactivate-form"', false)
+            ->assertDontSee('data-testid="btn-edit-content-project"', false);
 
         $this->actingAs($manager)
             ->post(route('content.projects.reactivate', $project))
