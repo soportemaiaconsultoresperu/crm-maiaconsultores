@@ -39,6 +39,10 @@ class ContentCatalogSelectionService
      * of activity checks, but never of project/pillar ownership checks.
      * This guard does not replace project authorization.
      *
+     * The per-part activity flags let a caller preserve a pillar or topic that
+     * is already stored on a row even when the catalog has retired it, without
+     * granting that tolerance to the other part of the same selection.
+     *
      * @throws ValidationException
      */
     public function assertValidSelection(
@@ -46,12 +50,17 @@ class ContentCatalogSelectionService
         int $pillarId,
         ?int $topicId = null,
         bool $requireActive = true,
+        ?bool $pillarMustBeActive = null,
+        ?bool $topicMustBeActive = null,
     ): void {
+        $pillarActive = $pillarMustBeActive ?? $requireActive;
+        $topicActive = $topicMustBeActive ?? $requireActive;
+
         $pillar = ContentPillar::query()
             ->where('content_project_id', $project->getKey())
             ->whereKey($pillarId);
 
-        if ($requireActive) {
+        if ($pillarActive) {
             $pillar->where('is_active', true);
         }
 
@@ -69,7 +78,7 @@ class ContentCatalogSelectionService
             ->where('content_pillar_id', $pillarId)
             ->whereKey($topicId);
 
-        if ($requireActive) {
+        if ($topicActive) {
             $topic->where('is_active', true);
         }
 

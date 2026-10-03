@@ -336,6 +336,73 @@ class ContentItemHttpTest extends TestCase
         $this->assertSame('Valor nuevo', app(ContentFieldValueService::class)->values($item)['texto']);
     }
 
+    public function test_editing_only_the_title_preserves_selections_the_catalog_retired(): void
+    {
+        $pillar = ContentPillar::factory()->for($this->project, 'project')->create();
+        $topic = ContentTopic::factory()->for($pillar, 'pillar')->create();
+        $objective = ContentObjective::factory()->for($this->project, 'project')->create();
+        $format = ContentFormat::factory()->for($this->project, 'project')->create();
+        $channel = ContentChannel::factory()->for($this->project, 'project')->create();
+
+        $item = ContentItem::factory()->for($this->project, 'project')->create([
+            'content_pillar_id' => $pillar->id,
+            'content_topic_id' => $topic->id,
+            'title' => 'Antes',
+        ]);
+        $item->objectives()->attach($objective);
+        $item->formats()->attach($format);
+        $item->channels()->attach($channel);
+
+        // The catalog retires every option the content already references.
+        $pillar->deactivate();
+        $topic->deactivate();
+        $objective->deactivate();
+        $format->deactivate();
+        $channel->deactivate();
+
+        $this->put(route('content.projects.contents.update', ['contentProject' => $this->project, 'contentItem' => $item->id]), $this->payload([
+            'title' => 'Después',
+            'content_pillar_id' => $pillar->id,
+            'content_topic_id' => $topic->id,
+            'objectives' => [$objective->id],
+            'formats' => [$format->id],
+            'channels' => [$channel->id],
+        ]))->assertRedirect(route('content.projects.contents.show', ['contentProject' => $this->project, 'contentItem' => $item->id]));
+
+        $item->refresh();
+        $this->assertSame('Después', $item->title);
+        $this->assertSame($pillar->id, $item->content_pillar_id);
+        $this->assertSame($topic->id, $item->content_topic_id);
+        $this->assertTrue($item->objectives()->whereKey($objective->id)->exists());
+        $this->assertTrue($item->formats()->whereKey($format->id)->exists());
+        $this->assertTrue($item->channels()->whereKey($channel->id)->exists());
+    }
+
+    public function test_editing_rejects_a_newly_chosen_retired_option(): void
+    {
+        $item = ContentItem::factory()->for($this->project, 'project')->create();
+
+        $retiredPillar = ContentPillar::factory()->for($this->project, 'project')->create();
+        $retiredObjective = ContentObjective::factory()->for($this->project, 'project')->create();
+        $retiredFormat = ContentFormat::factory()->for($this->project, 'project')->create();
+        $retiredChannel = ContentChannel::factory()->for($this->project, 'project')->create();
+        $retiredPillar->deactivate();
+        $retiredObjective->deactivate();
+        $retiredFormat->deactivate();
+        $retiredChannel->deactivate();
+
+        $url = route('content.projects.contents.update', ['contentProject' => $this->project, 'contentItem' => $item->id]);
+
+        $this->putJson($url, $this->payload(['content_pillar_id' => $retiredPillar->id]))
+            ->assertUnprocessable()->assertJsonValidationErrors('content_pillar_id');
+        $this->putJson($url, $this->payload(['objectives' => [$retiredObjective->id]]))
+            ->assertUnprocessable()->assertJsonValidationErrors('objectives');
+        $this->putJson($url, $this->payload(['formats' => [$retiredFormat->id]]))
+            ->assertUnprocessable()->assertJsonValidationErrors('formats');
+        $this->putJson($url, $this->payload(['channels' => [$retiredChannel->id]]))
+            ->assertUnprocessable()->assertJsonValidationErrors('channels');
+    }
+
     public function test_form_renders_project_custom_fields_grouped_by_section_with_required_marker(): void
     {
         $section = ContentFieldSection::factory()->for($this->project, 'project')->create(['name' => 'Datos generales']);

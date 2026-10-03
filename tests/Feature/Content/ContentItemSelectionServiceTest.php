@@ -4,6 +4,7 @@ namespace Tests\Feature\Content;
 
 use App\Models\Content\ContentChannel;
 use App\Models\Content\ContentFormat;
+use App\Models\Content\ContentItem;
 use App\Models\Content\ContentObjective;
 use App\Models\Content\ContentPillar;
 use App\Models\Content\ContentProject;
@@ -143,6 +144,91 @@ class ContentItemSelectionServiceTest extends TestCase
         $this->assertRejected($project, ['channels' => [999999]], 'channels');
     }
 
+    public function test_retired_selections_already_stored_on_the_item_are_preserved(): void
+    {
+        $project = ContentProject::factory()->create();
+        $pillar = ContentPillar::factory()->for($project, 'project')->create();
+        $topic = ContentTopic::factory()->for($pillar, 'pillar')->create();
+        $objective = ContentObjective::factory()->for($project, 'project')->create();
+        $format = ContentFormat::factory()->for($project, 'project')->create();
+        $channel = ContentChannel::factory()->for($project, 'project')->create();
+
+        $item = ContentItem::factory()->for($project, 'project')->create([
+            'content_pillar_id' => $pillar->id,
+            'content_topic_id' => $topic->id,
+        ]);
+        $item->objectives()->attach($objective);
+        $item->formats()->attach($format);
+        $item->channels()->attach($channel);
+
+        // The catalog retires every option the row already references.
+        $pillar->deactivate();
+        $topic->deactivate();
+        $objective->deactivate();
+        $format->deactivate();
+        $channel->deactivate();
+
+        $this->guard()->assertValidSelections($project, [
+            'content_pillar_id' => $pillar->id,
+            'content_topic_id' => $topic->id,
+            'objectives' => [$objective->id],
+            'formats' => [$format->id],
+            'channels' => [$channel->id],
+        ], $item);
+
+        $this->assertFalse($pillar->fresh()->is_active);
+        $this->assertFalse($objective->fresh()->is_active);
+    }
+
+    public function test_a_new_retired_selection_is_rejected_next_to_a_preserved_one(): void
+    {
+        $project = ContentProject::factory()->create();
+        $kept = ContentObjective::factory()->for($project, 'project')->create();
+        $added = ContentObjective::factory()->for($project, 'project')->create();
+
+        $item = ContentItem::factory()->for($project, 'project')->create();
+        $item->objectives()->attach($kept);
+
+        $kept->deactivate();
+        $added->deactivate();
+
+        // The stored retired objective stays; the newly chosen one is refused.
+        $this->assertRejected($project, ['objectives' => [$kept->id, $added->id]], 'objectives', $item);
+
+        $this->guard()->assertValidSelections($project, ['objectives' => [$kept->id]], $item);
+        $this->assertTrue($item->objectives()->whereKey($kept->id)->exists());
+    }
+
+    public function test_foreign_ownership_is_refused_even_when_the_value_is_already_stored(): void
+    {
+        $project = ContentProject::factory()->create();
+        $foreignProject = ContentProject::factory()->create();
+        $foreignPillar = ContentPillar::factory()->for($foreignProject, 'project')->create();
+        $foreignObjective = ContentObjective::factory()->for($foreignProject, 'project')->create();
+
+        $pillar = ContentPillar::factory()->for($project, 'project')->create();
+        $sibling = ContentPillar::factory()->for($project, 'project')->create();
+        $topic = ContentTopic::factory()->for($sibling, 'pillar')->create();
+
+        $item = ContentItem::factory()->for($project, 'project')->create([
+            'content_pillar_id' => $pillar->id,
+            'content_topic_id' => $topic->id,
+        ]);
+        $item->objectives()->attach($foreignObjective);
+
+        // A pillar from another project is refused even when a pillar is stored.
+        $this->assertRejected($project, ['content_pillar_id' => $foreignPillar->id], 'content_pillar_id', $item);
+
+        // A stored topic from another pillar is refused in every case.
+        $this->assertRejected($project, [
+            'content_pillar_id' => $pillar->id,
+            'content_topic_id' => $topic->id,
+        ], 'content_topic_id', $item);
+
+        // A foreign-project objective is refused even as the stored value.
+        $this->assertRejected($project, ['objectives' => [$foreignObjective->id]], 'objectives', $item);
+    }
+
     private function guard(): ContentItemSelectionService
     {
         return app(ContentItemSelectionService::class);
@@ -151,10 +237,10 @@ class ContentItemSelectionServiceTest extends TestCase
     /**
      * @param  array<string, mixed>  $selection
      */
-    private function assertRejected(ContentProject $project, array $selection, string $field): void
+    private function assertRejected(ContentProject $project, array $selection, string $field, ?ContentItem $current = null): void
     {
         try {
-            $this->guard()->assertValidSelections($project, $selection);
+            $this->guard()->assertValidSelections($project, $selection, $current);
             $this->fail("A selection incompatible with the project/field {$field} must be rejected.");
         } catch (ValidationException $exception) {
             $this->assertArrayHasKey($field, $exception->errors());

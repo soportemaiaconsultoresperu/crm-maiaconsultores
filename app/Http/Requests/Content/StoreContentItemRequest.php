@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Content;
 
 use App\Enums\Content\ContentItemStatus;
+use App\Models\Content\ContentItem;
 use App\Models\Content\ContentProject;
 use App\Services\Content\ContentItemSelectionService;
 use Illuminate\Foundation\Http\FormRequest;
@@ -78,8 +79,28 @@ class StoreContentItemRequest extends FormRequest
                     'formats' => $this->input('formats', []),
                     'channels' => $this->input('channels', []),
                 ],
+                $this->currentContentItem(),
             );
         }];
+    }
+
+    /**
+     * The content being edited, resolved inside the addressed project so a
+     * foreign id can never be used to smuggle a stored selection. A creation
+     * request has no such row, so every selection is new and must be active.
+     */
+    private function currentContentItem(): ?ContentItem
+    {
+        $project = $this->route('contentProject');
+        $id = $this->route('contentItem');
+
+        if (! $project instanceof ContentProject || $id === null) {
+            return null;
+        }
+
+        return ContentItem::query()
+            ->where('content_project_id', $project->getKey())
+            ->find((int) $id);
     }
 
     /**
