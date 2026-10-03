@@ -11,6 +11,7 @@
 
         @can('update', $project)
             <a href="{{ route('content.catalogs.index', $project) }}" class="btn btn-outline-primary">Administrar catálogos</a>
+            <a href="{{ route('content.fields.index', $project) }}" class="btn btn-outline-primary">Campos personalizados</a>
             <a href="{{ route('content.projects.edit', $project) }}" class="btn btn-outline-primary" data-testid="btn-edit-content-project">
                 <i class="bi bi-pencil me-1" aria-hidden="true"></i> Editar
             </a>

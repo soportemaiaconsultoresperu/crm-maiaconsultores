@@ -7,6 +7,7 @@ use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Content\ContentProjectController;
 use App\Http\Controllers\Content\ContentCatalogController;
+use App\Http\Controllers\Content\ContentFieldSchemaController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
@@ -926,6 +927,39 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('catalogOption')->name('catalogs.reorder');
             Route::put('projects/{contentProject}/catalogs/{catalogGroup}/{catalogOption}', 'update')
                 ->whereNumber('catalogOption')->name('catalogs.update');
+        });
+
+        // Custom-field sections, definitions and list options (T5b). Additive
+        // block inside the same group: the addressed project still resolves
+        // through the `contentProject` binding, so an unreachable project is
+        // 404 before any validation runs.
+        Route::controller(ContentFieldSchemaController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/fields', 'index')->name('fields.index');
+
+            Route::post('projects/{contentProject}/fields/sections', 'storeSection')->name('fields.sections.store');
+            Route::put('projects/{contentProject}/fields/sections/{fieldSection}', 'updateSection')
+                ->whereNumber('fieldSection')->name('fields.sections.update');
+            Route::post('projects/{contentProject}/fields/sections/{fieldSection}/state', 'stateSection')
+                ->whereNumber('fieldSection')->name('fields.sections.state');
+            Route::post('projects/{contentProject}/fields/sections/{fieldSection}/reorder', 'reorderSection')
+                ->whereNumber('fieldSection')->name('fields.sections.reorder');
+
+            Route::post('projects/{contentProject}/fields', 'storeField')->name('fields.store');
+            Route::put('projects/{contentProject}/fields/{fieldDefinition}', 'updateField')
+                ->whereNumber('fieldDefinition')->name('fields.update');
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/state', 'stateField')
+                ->whereNumber('fieldDefinition')->name('fields.state');
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/reorder', 'reorderField')
+                ->whereNumber('fieldDefinition')->name('fields.reorder');
+
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/options', 'storeOption')
+                ->whereNumber('fieldDefinition')->name('fields.options.store');
+            Route::put('projects/{contentProject}/fields/{fieldDefinition}/options/{fieldOption}', 'updateOption')
+                ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.update');
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/options/{fieldOption}/state', 'stateOption')
+                ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.state');
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/options/{fieldOption}/reorder', 'reorderOption')
+                ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.reorder');
         });
 
         Route::controller(ContentProjectController::class)->group(function (): void {
