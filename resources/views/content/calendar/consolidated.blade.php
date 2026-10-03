@@ -1,0 +1,119 @@
+@extends('layouts.app')
+
+@section('title', 'Calendario consolidado de fechas importantes')
+@section('page-title', 'Calendario consolidado')
+
+@php
+    $monthKey = $month->format('Y-m');
+    $todayPeru = \App\Support\Content\PeruTime::date(\Carbon\CarbonImmutable::now());
+    $navQuery = $selected !== [] ? ['projects' => $selected] : [];
+@endphp
+
+@section('content')
+    <div class="alert alert-info" role="alert" data-testid="content-consolidated-notice">
+        Vista consolidada para administradores. El filtro de proyectos sólo acota lo que ya puede ver:
+        nunca muestra un proyecto al que no tenga acceso.
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">
+            <h3 class="card-title mb-0">Filtros</h3>
+        </div>
+        <div class="card-body">
+            <form method="GET" action="{{ route('content.calendar.consolidated') }}"
+                  class="d-flex flex-wrap align-items-start gap-3" data-testid="content-consolidated-filters">
+                <div>
+                    <label for="month" class="form-label mb-0 small">Mes y año</label>
+                    <input type="month" id="month" name="month" value="{{ $monthKey }}"
+                           class="form-control form-control-sm" data-testid="content-consolidated-month">
+                </div>
+
+                <div>
+                    <label for="projects" class="form-label mb-0 small">Proyectos</label>
+                    <select id="projects" name="projects[]" multiple size="5"
+                            class="form-select form-select-sm" data-testid="content-consolidated-projects">
+                        @foreach ($projects as $option)
+                            <option value="{{ $option->id }}" @selected(in_array($option->id, $selected, true))>{{ $option->name }}</option>
+                        @endforeach
+                    </select>
+                    <div class="form-text">Uno, varios o ninguno (todos los proyectos).</div>
+                </div>
+
+                <div class="d-flex gap-1">
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Filtrar</button>
+                    <a href="{{ route('content.calendar.consolidated', ['month' => $monthKey]) }}"
+                       class="btn btn-sm btn-outline-secondary">Todos</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3" data-testid="content-consolidated-nav">
+        <a href="{{ route('content.calendar.consolidated', array_merge($navQuery, ['month' => $month->subMonth()->format('Y-m')])) }}"
+           class="btn btn-outline-secondary btn-sm" data-testid="content-consolidated-prev">
+            <i class="bi bi-chevron-left me-1" aria-hidden="true"></i> Mes anterior
+        </a>
+        <a href="{{ route('content.calendar.consolidated', array_merge($navQuery, ['month' => $month->addMonth()->format('Y-m')])) }}"
+           class="btn btn-outline-secondary btn-sm" data-testid="content-consolidated-next">
+            Mes siguiente <i class="bi bi-chevron-right ms-1" aria-hidden="true"></i>
+        </a>
+        <span class="badge text-bg-secondary" data-testid="content-consolidated-total">{{ $total }} fechas importantes</span>
+    </div>
+
+    <h2 class="h5 mb-3" data-testid="content-consolidated-period">{{ $month->translatedFormat('F Y') }}</h2>
+
+    <div class="card mb-3" data-testid="content-consolidated">
+        <div class="card-body p-0">
+            <table class="table table-bordered mb-0">
+                <thead class="table-light">
+                    <tr>
+                        @foreach (['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'] as $weekday)
+                            <th class="text-center small">{{ $weekday }}</th>
+                        @endforeach
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach ($grid['weeks'] as $week)
+                        <tr>
+                            @foreach ($week as $day)
+                                @php
+                                    $dayKey = $day->toDateString();
+                                    $isCurrentMonth = $day->year === $month->year && $day->month === $month->month;
+                                    $dayAnnotations = $annotations[$dayKey] ?? collect();
+                                @endphp
+                                <td class="align-top {{ $isCurrentMonth ? '' : 'bg-light text-secondary' }} {{ $dayKey === $todayPeru ? 'table-warning' : '' }}"
+                                    style="width: 14.28%; min-width: 9rem;"
+                                    data-date="{{ $dayKey }}"
+                                    data-testid="content-consolidated-cell-{{ $dayKey }}">
+                                    <div class="small fw-medium mb-1">{{ $day->day }}</div>
+
+                                    @foreach ($dayAnnotations as $annotation)
+                                        @php
+                                            $projectColor = $annotation->project?->color;
+                                            $badgeStyle = is_string($projectColor) && preg_match('/^#[0-9A-Fa-f]{3,8}$/', $projectColor) === 1
+                                                ? ['background-color: '.$projectColor, 'color: #fff']
+                                                : [];
+                                        @endphp
+                                        <div class="small border rounded p-1 mb-1" data-testid="content-consolidated-annotation-{{ $annotation->id }}">
+                                            <span class="badge {{ $badgeStyle === [] ? 'text-bg-secondary' : '' }}" @style($badgeStyle) data-testid="content-consolidated-project-{{ $annotation->content_project_id }}">{{ $annotation->project?->name }}</span>
+                                            <div class="fw-medium">{{ $annotation->name }}</div>
+                                            @if ($annotation->notes)
+                                                <div class="text-secondary">{{ $annotation->notes }}</div>
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                </td>
+                            @endforeach
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if ($annotations === [])
+        <div class="alert alert-light border" data-testid="content-consolidated-empty">
+            No hay fechas importantes registradas para la selección y el mes elegidos.
+        </div>
+    @endif
+@endsection

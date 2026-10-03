@@ -13,6 +13,10 @@
             <i class="bi bi-calendar3 me-1" aria-hidden="true"></i> Ver cronograma
         </a>
 
+        <a href="{{ route('content.projects.calendar', $project) }}" class="btn btn-outline-primary" data-testid="btn-content-project-calendar">
+            <i class="bi bi-calendar2-week me-1" aria-hidden="true"></i> Fechas importantes
+        </a>
+
         <a href="{{ route('content.projects.ideas.index', $project) }}" class="btn btn-outline-primary" data-testid="btn-content-project-ideas">
             <i class="bi bi-lightbulb me-1" aria-hidden="true"></i> Ideas
         </a>

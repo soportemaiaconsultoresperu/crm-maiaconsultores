@@ -7,6 +7,7 @@ use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Content\ContentProjectController;
 use App\Http\Controllers\Content\ContentAttachmentController;
+use App\Http\Controllers\Content\ContentCalendarController;
 use App\Http\Controllers\Content\ContentCatalogController;
 use App\Http\Controllers\Content\ContentFieldSchemaController;
 use App\Http\Controllers\Content\ContentIdeaController;
@@ -1034,6 +1035,24 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('contentIdea')->name('projects.ideas.update');
             Route::post('projects/{contentProject}/ideas/{contentIdea}/convert', 'convert')
                 ->whereNumber('contentIdea')->name('projects.ideas.convert');
+        });
+
+        // Important-dates calendar (T9). Additive block: the addressed project
+        // still resolves through the `contentProject` binding, so an
+        // unreachable project is 404 before validation, reads ask the policy for
+        // `view` and annotation mutations for `update`, and a child annotation
+        // id is resolved inside the project. The bare `calendar` route is the
+        // consolidated administrator view, guarded by
+        // `content_projects.view_all` in its controller (403 without it).
+        Route::controller(ContentCalendarController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/calendar', 'index')->name('projects.calendar');
+            Route::post('projects/{contentProject}/calendar/annotations', 'store')
+                ->name('projects.calendar.annotations.store');
+            Route::put('projects/{contentProject}/calendar/annotations/{annotation}', 'update')
+                ->whereNumber('annotation')->name('projects.calendar.annotations.update');
+            Route::delete('projects/{contentProject}/calendar/annotations/{annotation}', 'destroy')
+                ->whereNumber('annotation')->name('projects.calendar.annotations.destroy');
+            Route::get('calendar', 'consolidated')->name('calendar.consolidated');
         });
 
         Route::controller(ContentProjectController::class)->group(function (): void {
