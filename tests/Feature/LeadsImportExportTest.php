@@ -130,6 +130,47 @@ class LeadsImportExportTest extends TestCase
             $this->assertFalse($flat->contains(fn (string $line) => str_contains($line, $excluded->code)));
     }
 
+    public function test_template_download_returns_a_valid_xlsx_and_leaves_no_residue(): void
+    {
+        Storage::fake('local');
+        $this->seed(\Database\Seeders\RolesAndPermissionsSeeder::class);
+
+        $admin = User::factory()->create(['is_active' => true]);
+        $admin->assignRole('admin');
+
+        $pattern = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'leads-template-*';
+        $before = glob($pattern) ?: [];
+
+        $response = $this->actingAs($admin)->get('/leads/template');
+
+        $response->assertOk();
+        $response->assertHeader(
+            'Content-Type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+
+        $disposition = (string) $response->baseResponse->headers->get('Content-Disposition');
+        $this->assertStringContainsString('attachment; filename=plantilla-prospectos-', $disposition);
+        $this->assertStringEndsWith('.xlsx', $disposition);
+
+        // Consuming the download runs the real send path, which deletes the
+        // generated temporary file.
+        $bytes = $response->streamedContent();
+        $this->assertStringStartsWith('PK', $bytes, 'The template must be a valid xlsx (zip) payload.');
+
+        $after = glob($pattern) ?: [];
+        $this->assertSame(
+            [],
+            array_values(array_diff($after, $before)),
+            'The generated template must not be left behind.',
+        );
+        $this->assertSame(
+            [],
+            Storage::disk('local')->allFiles('imports'),
+            'The template must not be written to the local disk.',
+        );
+    }
+
     /**
      * @return list<array<string, string>>
      */

@@ -11,7 +11,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -210,7 +209,10 @@ class SettingController extends Controller
                 abort(404);
             }
 
-            $absolute = Storage::disk($disk)->path($path);
+            // Read the stored bytes instead of resolving a filesystem path:
+            // ->path() only works on a local disk and breaks on S3.
+            $bytes = (string) Storage::disk($disk)->get($path);
+
             // MIME inferred from the extension — the upload route already
             // restricts the whitelist to jpg/jpeg/png/webp, so we don't need
             // a separate filesystem probe here.
@@ -221,7 +223,7 @@ class SettingController extends Controller
                 default       => 'application/octet-stream',
             };
 
-            return new BinaryFileResponse($absolute, 200, [
+            return response($bytes, 200, [
                 'Content-Type' => $mime,
                 'Cache-Control' => 'private, max-age=300',
             ]);
