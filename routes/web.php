@@ -6,6 +6,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Content\ContentProjectController;
+use App\Http\Controllers\Content\ContentAttachmentController;
 use App\Http\Controllers\Content\ContentCatalogController;
 use App\Http\Controllers\Content\ContentFieldSchemaController;
 use App\Http\Controllers\Content\ContentIdeaController;
@@ -975,6 +976,24 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('contentItem')->name('projects.contents.edit');
             Route::put('projects/{contentProject}/contents/{contentItem}', 'update')
                 ->whereNumber('contentItem')->name('projects.contents.update');
+        });
+
+        // Attachments and links for a content (T7). Additive block: the same
+        // `contentProject` binding resolves reachability (404 before
+        // validation) and the content/attachment ids are resolved inside the
+        // addressed project, so a foreign media row can never be fetched.
+        Route::controller(ContentAttachmentController::class)->group(function (): void {
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments', 'store')
+                ->whereNumber('contentItem')->name('projects.contents.attachments.store');
+            // Static segment first so it is never swallowed by the id routes.
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments/link', 'storeLink')
+                ->whereNumber('contentItem')->name('projects.contents.attachments.link');
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/reorder', 'reorder')
+                ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.reorder');
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/retire', 'retire')
+                ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.retire');
+            Route::get('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/download', 'download')
+                ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.download');
         });
 
         // Ideas section (T6d). Additive block: the same `contentProject`

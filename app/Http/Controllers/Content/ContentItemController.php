@@ -8,6 +8,7 @@ use App\Http\Requests\Content\UpdateContentItemRequest;
 use App\Models\Content\ContentItem;
 use App\Models\Content\ContentProject;
 use App\Models\Setting;
+use App\Services\Content\ContentAttachmentService;
 use App\Services\Content\ContentItemService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -29,8 +30,10 @@ use Illuminate\Support\Facades\Gate;
  */
 class ContentItemController extends Controller
 {
-    public function __construct(private readonly ContentItemService $items)
-    {
+    public function __construct(
+        private readonly ContentItemService $items,
+        private readonly ContentAttachmentService $attachments,
+    ) {
     }
 
     public function index(Request $request, ContentProject $contentProject): View
@@ -80,12 +83,14 @@ class ContentItemController extends Controller
         Gate::authorize('view', $contentProject);
 
         $item = $this->resolveItem($contentProject, $contentItem)
-            ->load(['pillar', 'topic', 'objectives', 'formats', 'channels']);
+            ->load(['pillar', 'topic', 'objectives', 'formats', 'channels', 'attachments']);
 
         return view('content.items.show', [
             'project' => $contentProject,
             'item' => $item,
             'form' => $this->items->formData($contentProject, $item),
+            'attachments' => $item->attachments,
+            'attachmentLimits' => $this->attachments->limits(),
         ]);
     }
 

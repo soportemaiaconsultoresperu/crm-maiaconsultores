@@ -140,6 +140,16 @@ class ContentItem extends Model
     }
 
     /**
+     * Media attachments (uploads and external links) attached to this item.
+     *
+     * @return HasMany<ContentAttachment, $this>
+     */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(ContentAttachment::class, 'content_item_id');
+    }
+
+    /**
      * Default listing order: dated rows ascending by planned instant, then
      * undated ideas. `planned_at IS NULL` is portable to SQLite and MySQL.
      */

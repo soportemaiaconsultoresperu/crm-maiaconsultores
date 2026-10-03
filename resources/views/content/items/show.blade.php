@@ -127,4 +127,11 @@
             </div>
         </div>
     @endif
+
+    @include('content.items._attachments', [
+        'project' => $project,
+        'item' => $item,
+        'attachments' => $attachments,
+        'attachmentLimits' => $attachmentLimits,
+    ])
 @endsection
