@@ -8,6 +8,7 @@ use App\Http\Controllers\ContactController;
 use App\Http\Controllers\Content\ContentProjectController;
 use App\Http\Controllers\Content\ContentCatalogController;
 use App\Http\Controllers\Content\ContentFieldSchemaController;
+use App\Http\Controllers\Content\ContentItemController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
@@ -960,6 +961,19 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.state');
             Route::post('projects/{contentProject}/fields/{fieldDefinition}/options/{fieldOption}/reorder', 'reorderOption')
                 ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.reorder');
+        });
+
+        Route::controller(ContentItemController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/contents', 'index')->name('projects.contents.index');
+            // Static segment first so `contents/{contentItem}` never shadows it.
+            Route::get('projects/{contentProject}/contents/create', 'create')->name('projects.contents.create');
+            Route::post('projects/{contentProject}/contents', 'store')->name('projects.contents.store');
+            Route::get('projects/{contentProject}/contents/{contentItem}', 'show')
+                ->whereNumber('contentItem')->name('projects.contents.show');
+            Route::get('projects/{contentProject}/contents/{contentItem}/edit', 'edit')
+                ->whereNumber('contentItem')->name('projects.contents.edit');
+            Route::put('projects/{contentProject}/contents/{contentItem}', 'update')
+                ->whereNumber('contentItem')->name('projects.contents.update');
         });
 
         Route::controller(ContentProjectController::class)->group(function (): void {
