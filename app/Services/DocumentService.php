@@ -156,8 +156,15 @@ class DocumentService
 
         // Authorization already passed above, so a signed URL is only ever
         // issued for a file this actor may read. A remote disk hands out a
-        // short-lived URL; a local disk keeps streaming exactly as before.
-        $redirect = $this->responder->signedUrlRedirect($diskName, (string) $document->path);
+        // short-lived URL carrying the same download name and content type the
+        // streamed response below would send; a local disk keeps streaming
+        // exactly as before.
+        $redirect = $this->responder->signedUrlRedirect(
+            $diskName,
+            (string) $document->path,
+            $document->name,
+            $document->mime_type,
+        );
 
         if ($redirect !== null) {
             return $redirect;

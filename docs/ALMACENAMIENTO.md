@@ -112,11 +112,41 @@ o exportación se mueve a la cola. En ese escenario, con más de un contenedor y
 compartido, el worker y el proceso que sirve la descarga podrían no ver el archivo temporal. No se
 cambia esa configuración en este trabajo.
 
-## 8. Verificación
+## 8. Migración de los archivos ya cargados (antes de activar AWS)
+
+Activar AWS **no copia nada**. El interruptor solo cambia dónde lee y escribe el CRM; los archivos
+que ya estaban en disco no viajan solos al bucket. Antes de poner las credenciales hay que copiar los
+objetos existentes al bucket, respetando la misma distribución de la sección 2.
+
+- **Qué se copia:** todo lo que hoy vive bajo `storage/app/private` (que incluye el disco `docs`) y
+  bajo `storage/app/public`. Son los archivos de usuario: documentos, adjuntos de contenido, logos,
+  certificados y PDF generados.
+- **Con qué estructura:** con las **mismas rutas relativas y los mismos prefijos** que describe la
+  sección 2: `private/`, `private/docs/` y `public/`. El valor guardado en la base (`path`) no cambia
+  entre modos, así que el objeto debe quedar en el bucket exactamente donde el CRM lo va a buscar.
+- **Cuándo:** antes de completar las tres variables `AWS_BUCKET`, `AWS_ACCESS_KEY_ID` y
+  `AWS_SECRET_ACCESS_KEY`. No hay una puesta en marcha parcial: en cuanto las tres están, los tres
+  discos apuntan al bucket.
+- **La copia la hace el operador** con la herramienta de copia que use el equipo; esta guía no
+  fija un comando. Lo que sí es obligatorio es no alterar rutas ni prefijos al copiar.
+
+**Qué pasa si no se copian:** la base de datos sigue apuntando a las rutas de siempre, pero las
+lecturas ya se resuelven contra el bucket. Cada archivo subido antes del cambio queda **inalcanzable**:
+la autorización sigue funcionando y la URL temporal se firma igual, pero S3 no encuentra el objeto y
+la descarga falla. El archivo no se pierde —sigue en el disco local o en el volumen—, pero el CRM deja
+de servirlo, y los respaldos del bucket no lo cubren porque nunca estuvo ahí. Por eso conviene
+conservar los archivos locales hasta confirmar que cada ruta resuelve en el bucket.
+
+## 9. Verificación
 
 - [ ] Con las tres variables vacías, subir y descargar un adjunto: se guarda y se lee en local.
 - [ ] Con las tres variables presentes, repetir: el objeto aparece en el bucket bajo el prefijo
   esperado y la descarga redirige a una URL temporal firmada.
+- [ ] La descarga en la nube conserva el **nombre y el tipo** del archivo original (por ejemplo, el
+  PDF de una cotización llega como `cotizacion.pdf` y `application/pdf`), no el nombre generado del
+  objeto.
+- [ ] Copiar al bucket los archivos anteriores al cambio y confirmar que una descarga previa a la
+  activación sigue resolviendo.
 - [ ] Confirmar que un archivo privado no tiene URL pública y que un usuario sin permiso no recibe
   la URL.
 - [ ] Confirmar que el bucket tiene versionado y una política de respaldo probada.

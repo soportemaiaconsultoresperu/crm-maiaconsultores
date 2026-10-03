@@ -49,10 +49,14 @@ class PublicCertificateQrController extends Controller
         }
 
         // Authorization/visibility already passed above, so a signed URL is
-        // only ever issued for a file this request may read.
+        // only ever issued for a file this request may read. It carries the
+        // same inline name and type the streamed response below would send.
         $redirect = $this->responder->signedUrlRedirect(
             $commercialDocument->document->disk,
             $commercialDocument->document->path,
+            'commercial-document.pdf',
+            'application/pdf',
+            PrivateFileResponder::DISPOSITION_INLINE,
         );
 
         if ($redirect !== null) {
@@ -88,10 +92,14 @@ class PublicCertificateQrController extends Controller
     {
         // The status, revocation and existence checks in canStream() already
         // passed, so a signed URL is only ever issued for a file this request
-        // may read.
+        // may read. It carries the same inline name and type the streamed
+        // response below would send.
         $redirect = $this->responder->signedUrlRedirect(
             $academic->document->disk,
             $academic->document->path,
+            'certificate.pdf',
+            'application/pdf',
+            PrivateFileResponder::DISPOSITION_INLINE,
         );
 
         if ($redirect !== null) {

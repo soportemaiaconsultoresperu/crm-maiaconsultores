@@ -272,6 +272,27 @@ class ContentAttachmentHttpTest extends TestCase
         $this->assertStringContainsString('X-Amz-Signature=', (string) $response->headers->get('Location'));
     }
 
+    public function test_a_signed_cloud_download_carries_the_attachment_name_and_content_type(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        // Assert on the object-response overrides the service hands to the
+        // disk, which is what makes the cloud download keep its identity.
+        $disk = Mockery::mock(FilesystemAdapter::class);
+        $disk->shouldReceive('exists')->andReturn(true);
+        $disk->shouldReceive('providesTemporaryUrls')->andReturn(true);
+        $disk->shouldReceive('temporaryUrl')->once()->withArgs(function (string $path, $expiration, array $options): bool {
+            return ($options['ResponseContentType'] ?? null) === 'image/jpeg'
+                && ($options['ResponseContentDisposition'] ?? null) === 'attachment; filename="foto.jpg"';
+        })->andReturn('https://crm-files.s3.amazonaws.com/private/docs/foto.jpg?X-Amz-Signature=abc&X-Amz-Expires=299');
+        Storage::set(ContentAttachmentService::DISK, $disk);
+
+        $this->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]))
+            ->assertRedirect();
+    }
+
     public function test_a_refused_download_never_receives_a_signed_url(): void
     {
         Storage::fake(ContentAttachmentService::DISK);

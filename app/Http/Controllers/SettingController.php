@@ -211,18 +211,6 @@ class SettingController extends Controller
                 abort(404);
             }
 
-            // The permission check above already passed, so a signed URL is
-            // only ever issued for a logo this user may see. A local disk
-            // keeps streaming; a cloud-backed logo disk redirects instead.
-            $redirect = $this->responder->signedUrlRedirect($disk, $path);
-            if ($redirect !== null) {
-                return $redirect;
-            }
-
-            // Read the stored bytes instead of resolving a filesystem path:
-            // ->path() only works on a local disk and breaks on S3.
-            $bytes = (string) Storage::disk($disk)->get($path);
-
             // MIME inferred from the extension — the upload route already
             // restricts the whitelist to jpg/jpeg/png/webp, so we don't need
             // a separate filesystem probe here.
@@ -232,6 +220,26 @@ class SettingController extends Controller
                 'webp'        => 'image/webp',
                 default       => 'application/octet-stream',
             };
+
+            // The permission check above already passed, so a signed URL is
+            // only ever issued for a logo this user may see. A local disk
+            // keeps streaming; a cloud-backed logo disk redirects instead, so
+            // the signed URL carries the image type and name the streamed
+            // response below would send.
+            $redirect = $this->responder->signedUrlRedirect(
+                $disk,
+                $path,
+                basename($path),
+                $mime,
+                PrivateFileResponder::DISPOSITION_INLINE,
+            );
+            if ($redirect !== null) {
+                return $redirect;
+            }
+
+            // Read the stored bytes instead of resolving a filesystem path:
+            // ->path() only works on a local disk and breaks on S3.
+            $bytes = (string) Storage::disk($disk)->get($path);
 
             return response($bytes, 200, [
                 'Content-Type' => $mime,

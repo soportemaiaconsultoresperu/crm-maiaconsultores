@@ -261,15 +261,18 @@ class ContentAttachmentService
             throw new NotFoundHttpException('El archivo adjunto no está disponible.');
         }
 
+        $downloadName = $attachment->original_name ?: basename($path);
+
         // The controller authorized the request before calling this method, so
-        // a signed URL is only ever issued for a file this user may read.
-        $redirect = $this->responder()->signedUrlRedirect(self::DISK, $path);
+        // a signed URL is only ever issued for a file this user may read. It
+        // carries the same name and type the streamed response below would.
+        $redirect = $this->responder()->signedUrlRedirect(self::DISK, $path, $downloadName, $attachment->mime_type);
 
         if ($redirect !== null) {
             return $redirect;
         }
 
-        return $disk->download($path, $attachment->original_name ?: basename($path));
+        return $disk->download($path, $downloadName);
     }
 
     /**
