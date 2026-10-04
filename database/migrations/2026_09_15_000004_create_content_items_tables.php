@@ -56,14 +56,18 @@ return new class extends Migration
             $table->index('content_topic_id');
         });
 
+        // The third element is an explicit unique name, needed only where the
+        // automatic name exceeds MySQL's 64-character identifier limit (the
+        // objective pivot's automatic name is 66 characters). The other pivots
+        // keep Laravel's default naming.
         $pivots = [
-            'content_item_objective' => ['content_objective_id', 'content_objectives'],
-            'content_item_format' => ['content_format_id', 'content_formats'],
-            'content_item_channel' => ['content_channel_id', 'content_channels'],
+            'content_item_objective' => ['content_objective_id', 'content_objectives', 'uq_content_item_objective_item_objective'],
+            'content_item_format' => ['content_format_id', 'content_formats', null],
+            'content_item_channel' => ['content_channel_id', 'content_channels', null],
         ];
 
-        foreach ($pivots as $name => [$relatedKey, $relatedTable]) {
-            Schema::create($name, function (Blueprint $table) use ($relatedKey, $relatedTable) {
+        foreach ($pivots as $name => [$relatedKey, $relatedTable, $uniqueName]) {
+            Schema::create($name, function (Blueprint $table) use ($relatedKey, $relatedTable, $uniqueName) {
                 $table->id();
                 $table->unsignedBigInteger('content_item_id');
                 $table->unsignedBigInteger($relatedKey);
@@ -71,7 +75,7 @@ return new class extends Migration
                 $table->foreign($relatedKey)->references('id')->on($relatedTable)->cascadeOnDelete();
                 $table->timestamps();
 
-                $table->unique(['content_item_id', $relatedKey]);
+                $table->unique(['content_item_id', $relatedKey], $uniqueName);
             });
         }
     }

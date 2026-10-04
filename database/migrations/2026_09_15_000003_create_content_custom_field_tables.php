@@ -60,7 +60,9 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['content_project_id', 'key']);
-            $table->index(['content_project_id', 'is_active', 'sort']);
+            // Explicit name: the automatic name is 65 characters, over MySQL's
+            // 64-character identifier limit.
+            $table->index(['content_project_id', 'is_active', 'sort'], 'idx_content_field_definitions_project_active_sort');
         });
 
         Schema::create('content_field_options', function (Blueprint $table) {
@@ -78,7 +80,9 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['content_field_definition_id', 'slug']);
-            $table->index(['content_field_definition_id', 'is_active', 'sort']);
+            // Explicit name: the automatic name is 70 characters, over MySQL's
+            // 64-character identifier limit.
+            $table->index(['content_field_definition_id', 'is_active', 'sort'], 'idx_content_field_options_definition_active_sort');
         });
     }
 

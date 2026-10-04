@@ -44,7 +44,9 @@ return new class extends Migration
             $table->foreign('updated_by')->references('id')->on('users');
             $table->timestamps();
 
-            $table->unique(['content_item_id', 'content_field_definition_id']);
+            // Explicit name: the automatic name is 71 characters, over MySQL's
+            // 64-character identifier limit.
+            $table->unique(['content_item_id', 'content_field_definition_id'], 'uq_content_field_values_item_definition');
             $table->index('content_field_definition_id');
         });
 
@@ -56,7 +58,9 @@ return new class extends Migration
             $table->foreign('content_field_option_id')->references('id')->on('content_field_options')->cascadeOnDelete();
             $table->timestamps();
 
-            $table->unique(['content_field_value_id', 'content_field_option_id']);
+            // Explicit name: the automatic name is 80 characters, over MySQL's
+            // 64-character identifier limit.
+            $table->unique(['content_field_value_id', 'content_field_option_id'], 'uq_content_field_value_option_value_option');
         });
     }
 

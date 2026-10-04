@@ -50,8 +50,9 @@ return new class extends Migration
 
             // No unique index on `annotated_at`: several annotations may share
             // the same day. This composite index only accelerates the monthly
-            // read of one project's calendar.
-            $table->index(['content_project_id', 'annotated_at']);
+            // read of one project's calendar. The name is explicit because the
+            // automatic name is 66 characters, over MySQL's 64-character limit.
+            $table->index(['content_project_id', 'annotated_at'], 'idx_content_calendar_annotations_project_annotated');
         });
     }
 
