@@ -67,9 +67,9 @@ El acceso depende de **permisos**. Por defecto, el rol **administrador** tiene t
 
 | Permiso (nombre en la pantalla de roles) | Qué habilita |
 |---|---|
-| `course-talks.view` | Ver el módulo: menú, catálogo, detalle de cursos y dictados, participantes, asistencia (solo lectura), documentos académicos (solo lectura), comprobantes (solo lectura) y alertas de entrega. |
-| `course-talks.activities.manage` | Crear cursos y charlas. |
-| `course-talks.editions.manage` | Crear dictados, cambiar su estado, administrar docentes y sesiones. |
+| `course-talks.view` | Ver el módulo: menú, catálogo, detalle de cursos y dictados, participantes, asistencia (solo lectura), documentos académicos (solo lectura, con el botón **Ver PDF**), comprobantes (solo lectura, con el botón **Ver PDF** / **Ver archivo**) y alertas de entrega. |
+| `course-talks.activities.manage` | Crear, editar y eliminar cursos y charlas. |
+| `course-talks.editions.manage` | Crear, editar y eliminar dictados, cambiar su estado, administrar docentes y sesiones. |
 | `course-talks.sessions.manage` | Administrar las sesiones de un dictado (también lo permite el permiso anterior). |
 | `course-talks.participants.manage` | Inscribir participantes (individual o en grupo) y cambiar el estado de pago, incluida la exoneración. |
 | `course-talks.attendance.manage` | Marcar y guardar la asistencia. |
@@ -79,7 +79,7 @@ El acceso depende de **permisos**. Por defecto, el rol **administrador** tiene t
 | `course-talks.commercial-documents.manage` | Registrar comprobantes y adjuntar su archivo. |
 | `course-talks.documents.send` | Enviar documentos académicos y comprobantes por correo o WhatsApp, y descartar alertas de entrega. |
 | `course-talks.templates.manage` | Administrar las plantillas de certificados. |
-| `course-talks.audit.view` | Existe en la lista de permisos, pero hoy ninguna pantalla del módulo lo usa. |
+| `course-talks.audit.view` | Reservado para una futura pantalla de auditoría. Hoy no tiene ningún efecto: asignarlo o quitarlo no cambia nada. |
 
 Resumen por rol con la configuración inicial:
 
@@ -135,6 +135,9 @@ La lista se ordena por tipo y luego por nombre.
 ### Filtro por tipo
 Arriba de la tabla hay un selector **Tipo** con las opciones *Todos*, *Curso* y *Charla*. Elija una opción y pulse **Filtrar**. Mientras el filtro está activo se muestra la etiqueta *Filtro activo: …*. Para volver a ver todo, pulse **Ver todas**.
 
+### Cursos y charlas inactivos
+Por defecto, el catálogo **no muestra** los cursos y charlas inactivos (los que tienen desmarcada la casilla **Activa**). Para verlos, marque **Mostrar inactivas** y pulse **Filtrar**. En la lista, los inactivos llevan la etiqueta **Inactiva** junto al nombre.
+
 ### El "dictado destacado" de cada fila
 Para no tener que entrar al detalle cada vez, cada fila muestra un acceso directo al dictado con el que probablemente quiera trabajar, con una etiqueta que explica por qué se eligió:
 
@@ -162,7 +165,7 @@ Si el curso no tiene dictados, o todos están cancelados, solo verá el botón *
 | **Nombre** | Sí | El nombre tal como debe salir en el certificado. Máximo 255 caracteres. |
 | **Horas académicas** | Sí | Número de horas (admite decimales, no negativo). **Se imprime en el certificado**, así que revíselo bien. |
 | **Charla con certificado** | No | Solo aparece cuando el tipo es *Charla*. Márquelo si los asistentes recibirán un *Certificado de charla*. Si no lo marca, la charla no emite certificado. |
-| **Activa** | No | Viene marcada. Hoy no cambia nada visible en el módulo. |
+| **Activa** | No | Viene marcada. Si la desmarca, el curso o charla deja de aparecer en el catálogo (salvo con **Mostrar inactivas**) y no admite nuevos dictados. Los dictados existentes no cambian. |
 | **Temario base** | No | Lista de temas. Sirve como punto de partida para el temario de cada dictado. Los renglones vacíos no se guardan. |
 
 3. Pulse **Crear curso o charla**. Volverá al catálogo con el mensaje *Curso o charla "[Nombre]" creado correctamente.*
@@ -173,6 +176,22 @@ Para salir sin guardar, pulse **Cancelar** o **Volver al catálogo**.
 
 ### Ver el detalle
 Desde el catálogo, **Ver detalle** abre la ficha con **Código**, **Horas académicas** y **Temario base**, y debajo la tabla **Dictados** (Código, Fechas, Modalidad, Estado, Precio), ordenada del dictado más reciente al más antiguo. Desde aquí se crea un dictado nuevo con **Nuevo dictado**.
+
+Si el curso o charla está inactivo, la ficha muestra la etiqueta **Inactiva** y el aviso *Este curso o charla está inactivo: no aparece en el catálogo por defecto y no admite nuevos dictados. Los dictados existentes no cambian.* En ese caso no aparece el botón **Nuevo dictado**.
+
+### Editar un curso o charla
+1. En la ficha del curso o charla, pulse **Editar** (requiere permiso para administrar cursos y charlas).
+2. Se abre **Editar curso o charla** con los mismos campos del alta.
+3. Pulse **Guardar cambios**. Verá *Curso o charla "[Nombre]" actualizado correctamente.*
+
+- El **Tipo** solo se puede cambiar mientras el curso o charla no tenga dictados; si ya los tiene, el campo aparece bloqueado con la nota *No se puede cambiar porque ya tiene dictados.*
+- Para reactivar un curso o charla inactivo, vuelva a marcar **Activa** aquí.
+- Los cambios **no modifican** los certificados ya emitidos. Si corrige el nombre o las horas académicas, regenere los documentos que deban reflejarlo ([sección 15.6](#156-regenerar-corregir-un-documento)).
+
+### Eliminar un curso o charla
+El botón **Eliminar** de la ficha solo aparece mientras el curso o charla **no tiene dictados**. Al pulsarlo, el sistema pide confirmación (*¿Eliminar este curso o charla? Esta acción no se puede deshacer desde la pantalla.*) y, al aceptar, vuelve al catálogo con *Curso o charla "[Nombre]" eliminado correctamente.*
+
+Si tiene dictados, primero elimine sus dictados (solo es posible si no tienen inscritos); de lo contrario verá *No se puede eliminar el curso o charla porque tiene dictados registrados. Elimine primero sus dictados.* Si el curso o charla ya tuvo actividad, en lugar de eliminarlo desmarque **Activa**.
 
 ---
 
@@ -187,6 +206,7 @@ Desde el catálogo, **Ver detalle** abre la ficha con **Código**, **Horas acad�
 | **Modalidad** | Sí | *Presencial*, *Virtual* o *Híbrida*. |
 | **Precio** | Sí | Precio por participante. Puede ser 0 si es gratuito. No negativo. |
 | **Precio del certificado** | No | Solo aparece en charlas con certificado. Se suma al precio en cada matrícula. Use 0 si el certificado no se cobra. |
+| **Responsable** | No | Usuario del CRM que hace el seguimiento de las entregas de este dictado (o *Sin responsable*). Su nombre aparece en las [alertas de entrega](#20-alertas-de-entrega) y permite filtrarlas. Solo se ofrecen usuarios activos. |
 | **Fecha de inicio** | No | Primer día del dictado. |
 | **Fecha de fin** | No | Último día. Debe ser igual o posterior a la fecha de inicio. |
 | **Dirección** | Según modalidad | Obligatoria para *Presencial* e *Híbrida*. |
@@ -197,6 +217,8 @@ Desde el catálogo, **Ver detalle** abre la ficha con **Código**, **Horas acad�
 
 Todo dictado nuevo empieza en estado **Borrador** y con moneda **PEN** (soles).
 
+No se pueden crear dictados de un curso o charla inactivo: verá *No se pueden crear dictados de un curso o charla inactivo. Actívelo primero desde «Editar».*
+
 > **Importante:** las fechas del dictado se imprimen en el certificado (*"realizado del 05 al 26 de marzo de 2026"*). Si las deja vacías, esa parte del certificado saldrá incompleta.
 
 ---
@@ -205,9 +227,9 @@ Todo dictado nuevo empieza en estado **Borrador** y con moneda **PEN** (soles).
 
 La página **Dictado [código]** es el centro de trabajo. Arriba tiene la barra de secciones:
 
-**Docentes** · **Sesiones** · **Participantes** · **Inscribir participante** · **Asistencia** · **Notas** · **Documentos** · **Comprobantes**
+**Editar** · **Docentes** · **Sesiones** · **Participantes** · **Inscribir participante** · **Asistencia** · **Notas** · **Documentos** · **Comprobantes**
 
-y, a continuación, los botones para cambiar de estado. Debajo se muestra la ficha: **Código**, **Estado**, **Modalidad**, **Fechas**, **Dirección**, **Acceso virtual** (con el enlace *Abrir enlace*), **Temario del dictado**, **Precio**, **Precio del certificado** (solo charlas con certificado) y **Total por matrícula**.
+y, a continuación, los botones para cambiar de estado y, si corresponde, **Eliminar**. Debajo se muestra la ficha: **Código**, **Estado**, **Modalidad**, **Responsable** (o *Sin responsable*), **Fechas**, **Dirección**, **Acceso virtual** (con el enlace *Abrir enlace*), **Temario del dictado**, **Precio**, **Precio del certificado** (solo charlas con certificado) y **Total por matrícula**.
 
 ### Estados del dictado
 
@@ -224,6 +246,16 @@ Para cambiar el estado, pulse el botón con el nombre del estado al que quiere p
 > **El paso a Finalizada es clave:** al finalizar un dictado, el sistema da por **completadas las validaciones del dictado**, que es una de las condiciones para emitir certificados. Mientras el dictado no esté *Finalizada*, ningún participante es elegible para recibir su documento.
 
 > No hay vuelta atrás: un dictado finalizado o cancelado no puede reabrirse desde la pantalla.
+
+### Editar un dictado
+1. En la página del dictado, pulse **Editar** (requiere permiso para administrar dictados).
+2. Se abre **Editar dictado de [nombre]** con los mismos campos del alta, incluido **Responsable**.
+3. Pulse **Guardar cambios**. Verá *Dictado [código] actualizado correctamente.*
+
+El estado **no** se cambia desde este formulario, sino con los botones de la página del dictado. Los cambios no modifican los certificados ya emitidos; si cambia fechas o modalidad de un dictado con documentos, regenérelos ([sección 15.6](#156-regenerar-corregir-un-documento)).
+
+### Eliminar un dictado
+El botón **Eliminar** solo aparece mientras el dictado **no tiene participantes inscritos**. El sistema pide confirmación (*¿Eliminar este dictado? Esta acción no se puede deshacer desde la pantalla.*) y, al aceptar, vuelve a la ficha del curso o charla con *Dictado [código] eliminado correctamente.* Si ya hay inscritos, verá *No se puede eliminar el dictado porque tiene participantes inscritos.*; en ese caso, si no se realizará, páselo a **Cancelada**.
 
 ---
 
@@ -342,12 +374,12 @@ Pulse **Participantes**. La tabla **Participantes inscritos** muestra:
 | **Participante** | Apellidos y nombres, documento y correo. |
 | **Estado** | Estado de la inscripción (ver abajo). |
 | **Estado de pago** | Pendiente, Parcial, Pagado, Exonerado o Reembolsado. |
-| **Importe** | Total de la matrícula: precio del dictado + precio del certificado (si aplica) − descuento. |
+| **Importe** | Total de la matrícula: precio del dictado + precio del certificado (si aplica). |
 | **Grupo pagador** | Nombre del pagador si se inscribió en grupo; *—* si no. |
 | **Acciones** | Selector de estado de pago y botón **Actualizar pago**. |
 
 ### Estado de la inscripción
-Toda inscripción nueva queda como **Inscrito**. La pantalla también conoce los estados *Confirmado*, *En curso*, *Completado*, *Retirado* y *No asistió*, pero hoy no hay ningún botón para cambiarlos.
+Toda inscripción queda como **Inscrito**, que es el único estado que hoy usa el módulo: no hay acciones para cambiarlo, por eso la pantalla no ofrece otros estados.
 
 ### Cambiar el estado de pago
 1. En la fila del participante, elija el nuevo estado.
@@ -432,7 +464,8 @@ Un participante es **elegible** cuando se cumplen **todas** estas condiciones. S
 | *Datos del participante incompletos* | Falta nombre, apellido, documento, correo o celular. | Complete la ficha del participante. |
 | *Validaciones del dictado pendientes* | El dictado todavía no está *Finalizada*. | Finalice el dictado ([sección 8](#8-la-página-del-dictado-y-sus-estados)). |
 | *Resultado académico o participación pendiente* | (Curso) No tiene notas cargadas. | Cargue las notas ([sección 14](#14-notas-solo-cursos)). |
-| *Participación de la charla sin confirmar* | (Charla) No tiene asistencia válida, **o** la charla no se creó como *Charla con certificado*. | Marque la asistencia; si la charla no emite certificado, no hay documento. |
+| *Participación de la charla sin confirmar* | (Charla con certificado) No tiene ninguna sesión en *Presente*, *Tardanza* o *Justificado*. | Marque la asistencia ([sección 13](#13-asistencia)). |
+| *La charla no emite certificado: no corresponde documento* | (Charla sin certificado) La charla no se creó como *Charla con certificado*, así que no emite ningún documento, aunque la asistencia esté confirmada. | Nada que hacer. Si la charla sí debía emitir certificado, marque **Charla con certificado** al [editarla](#editar-un-curso-o-charla). |
 | *La matrícula está retirada o el participante no asistió* | La inscripción está en *Retirado* o *No asistió*. | No corresponde documento. |
 
 ### 15.2 Qué documento corresponde
@@ -445,17 +478,17 @@ Un participante es **elegible** cuando se cumplen **todas** estas condiciones. S
 
 ### 15.3 Generación automática y manual
 
-- **Automática:** cuando se completa la última condición que faltaba (por ejemplo, al marcar el pago como *Pagado* o al finalizar un curso), el sistema intenta generar el documento por su cuenta, en segundo plano. Puede tardar unos instantes; actualice la página para verlo.
+- **Automática:** cuando se completa la última condición que faltaba (por ejemplo, al marcar el pago como *Pagado* o al finalizar el dictado de un curso o de una charla con certificado), el sistema intenta generar el documento por su cuenta, en segundo plano. Puede tardar unos instantes; actualice la página para verlo.
 - **Manual:** si el participante es elegible y no tiene documento vigente, aparece el botón **Generar documento**. Púlselo y verá *Documento académico generado correctamente.* Si todavía no es elegible, verá el aviso *La generación estará disponible cuando se cumplan las condiciones pendientes.*
 
-> En las **charlas**, finalizar el dictado no dispara la generación automática por sí solo. Si la última condición que se cumplió fue la finalización, use **Generar documento**.
+> Finalizar el dictado de una **charla sin certificado** no genera nada: esas charlas no emiten documentos.
 
 ### 15.4 Qué contiene el certificado
 
 El PDF tiene dos páginas en formato horizontal:
 
-1. **Portada:** título del documento (en el certificado de aprobación se muestra *CERTIFICADO*), texto de introducción (*"Otorga el presente certificado a"*), nombre del participante, *"Por haber participado en el:"*, nombre del curso o charla, la frase *"Organizado por [empresa], desarrollado en modalidad [modalidad], realizado del [fechas], con una duración de [horas] horas académicas."*, lugar y fecha de emisión (*Lima, [fecha]*), el **código QR**, las **firmas** (dos) y el **Código** del documento.
-2. **Temario:** una constancia con los mismos datos y la tabla **Clase / Tema / Ponente / Fecha**, armada con las sesiones del dictado.
+1. **Portada:** título del documento (en el certificado de aprobación se muestra *CERTIFICADO*), texto de introducción (*"Otorga el presente certificado a"*), nombre del participante, *"Por haber participado en el:"*, nombre del curso o charla, la frase *"Organizado por [empresa], desarrollado en modalidad [modalidad], realizado del [fechas], con una duración de [horas] horas académicas."* (la modalidad se imprime en español: *Presencial*, *Virtual* o *Híbrida*), lugar y fecha de emisión (*Lima, [fecha]*), el **código QR**, las **firmas** (dos) y el **Código** del documento.
+2. **Temario:** un texto con los mismos datos y la tabla **Clase / Tema / Ponente / Fecha**, armada con las sesiones del dictado. El título de esta página depende del documento: **CONSTANCIA DE PARTICIPACIÓN** en las constancias y **CERTIFICADO** en los certificados de aprobación y de charla.
 
 Las firmas, el título, el texto de introducción y la empresa se pueden personalizar con [plantillas](#18-plantillas-de-certificados). Si no hay plantilla activa, las firmas por defecto son *Dirección Académica* y *Coordinación Académica*, ambas de *Maia Consultores*.
 
@@ -491,6 +524,11 @@ El documento pasa a **Anulado** y su QR deja de funcionar. Mensaje: *Documento a
 
 Después de anular, si el participante sigue siendo elegible, puede volver a usar **Generar documento**.
 
+### 15.8 Ver el PDF
+Cada documento **vigente** con su archivo disponible muestra el botón **Ver PDF**, que abre el certificado o la constancia en una pestaña nueva. Lo ve cualquier usuario que pueda consultar el dictado (también el supervisor), sin permisos adicionales. Los documentos anulados, reemplazados o sin archivo no tienen este botón.
+
+El enlace que abre el PDF se crea al pulsar el botón y dura **solo unos minutos**: no lo copie para enviarlo a nadie. Para entregar el documento, use las opciones de la [sección 16](#16-entregar-un-documento-académico).
+
 ---
 
 ## 16. Entregar un documento académico
@@ -506,7 +544,7 @@ Verá *El documento quedó en cola de envío por correo. La entrega se registrar
 ### 16.2 Por WhatsApp (envío asistido)
 El CRM no envía WhatsApp por su cuenta: le prepara el mensaje y usted lo envía.
 
-1. Revise el teléfono (precargado con el celular del participante). Escríbalo con código de país, solo números si prefiere (ej.: *51999999999*).
+1. Revise el teléfono (precargado con el celular del participante). Escríbalo con código de país, solo números si prefiere (ej.: *51999999999*). Debe tener entre 8 y 15 dígitos; si no, verá *El teléfono de WhatsApp debe tener entre 8 y 15 dígitos, incluido el código de país (por ejemplo, 51999999999).*
 2. Pulse **Abrir WhatsApp**. Se abre WhatsApp con el mensaje *"Hola, le escribimos de Maia Consultores. Puede descargar su documento académico aquí: [enlace]"*.
 3. Envíe el mensaje desde WhatsApp.
 4. Vuelva al CRM y pulse **Marcar como enviado**. Verá *Entrega por WhatsApp confirmada y registrada en el historial de entregas.*
@@ -515,7 +553,7 @@ Si abrió WhatsApp pero finalmente no envió el mensaje, pulse **Descartar inten
 
 Mientras haya intentos de WhatsApp sin confirmar, la parte superior de la página muestra un aviso con todos ellos y sus botones **Marcar como enviado** / **Descartar intento**.
 
-> **Importante:** el enlace que viaja por WhatsApp vence **a la hora**. Envíe el mensaje apenas se abra WhatsApp. Si la persona lo abre tarde, envíele el documento por correo (enlace de 7 días) o repita el envío por WhatsApp.
+> El enlace que viaja por WhatsApp dura **7 días**, igual que el del correo. Si vence o la persona lo pierde, repita el envío por cualquiera de los dos canales.
 
 ### 16.3 Historial de entregas
 Cada documento muestra su **Historial de entregas**: canal (*Correo* o *WhatsApp*), estado del intento (*En cola*, *Enviando*, *Enviado*, *Entregado*, *Intento fallido*, *Omitido* o *Pendiente de confirmar*), destinatario, número de intentos, fecha y, si hubo, el error.
@@ -571,12 +609,14 @@ Pulse **Comprobantes** en la página del dictado. Aquí se registran las **factu
 ### 19.1 La tabla de comprobantes
 Columnas: **Comprobante** (tipo y observaciones), **Pagador**, **Serie y número**, **Emisión**, **Moneda**, **Subtotal**, **Tasa IGV**, **IGV**, **Total**, **Estado**, **Entrega** y **Adjunto privado**. Debajo de cada comprobante está su **Historial de entregas** y sus acciones de envío.
 
+Mientras haya envíos por WhatsApp sin confirmar, la parte superior de la página los lista con el tipo de comprobante (*Factura*, *Boleta* o *Recibo*), su serie y número y el teléfono, junto a los botones **Marcar como enviado** / **Descartar intento**.
+
 ### 19.2 Registrar un comprobante por matrícula
 En la sección **Registrar comprobante por matrícula** hay una tarjeta por participante, con un **desglose calculado por el sistema** para cada tipo de comprobante (Subtotal, Tasa IGV, IGV, Total):
 
 - **Factura** y **Boleta**: llevan IGV del **18 %** sobre el subtotal.
 - **Recibo**: sin IGV.
-- El subtotal es el precio del dictado + el precio del certificado − el descuento de esa matrícula.
+- El subtotal es el precio del dictado + el precio del certificado de esa matrícula.
 
 Complete el formulario:
 
@@ -602,6 +642,8 @@ En la columna **Adjunto privado** de un comprobante *Sin adjunto*:
 1. Elija el archivo (PDF, Word, Excel, imagen JPG/PNG o texto, dentro del tamaño máximo configurado para documentos).
 2. Pulse **Adjuntar archivo**. Verá *Archivo del comprobante adjuntado correctamente.*
 
+Una vez adjunto, la columna muestra *Adjunto cargado*, el nombre del archivo y el botón **Ver PDF** (o **Ver archivo** si el adjunto no es un PDF), que lo abre en una pestaña nueva. Igual que en los documentos académicos, lo ve cualquier usuario que pueda consultar el dictado y el enlace dura solo unos minutos.
+
 ### 19.5 Estados del comprobante
 
 | Estado | Significado |
@@ -609,12 +651,12 @@ En la columna **Adjunto privado** de un comprobante *Sin adjunto*:
 | **Pendiente de archivo** | Registrado sin archivo. Todavía no se puede enviar. |
 | **Registrado** | Ya tiene su archivo. Se puede enviar. |
 
-(La pantalla también conoce los estados *Enviado* y *Descartado*, pero hoy ninguna acción los asigna.)
+Si el comprobante ya se envió o se descartó su alerta, eso se ve en la columna **Entrega**, no en **Estado**.
 
 ### 19.6 Enviar un comprobante
 Funciona igual que con los documentos académicos ([sección 16](#16-entregar-un-documento-académico)): **Enviar por correo** o **Abrir WhatsApp** → **Marcar como enviado** / **Descartar intento**. El destinatario se precarga con el correo y celular del participante o, en comprobantes de grupo, con los del cliente pagador. El estado de entrega se muestra como *Entrega pendiente*, *Enviado*, *Entrega fallida* o *Descartado*.
 
-> **Aviso:** en la versión actual, el envío de comprobantes **por correo** depende de una cuenta de correo vinculada y puede terminar en *Entrega fallida* con el error *No fue posible enviar el correo.* Si le ocurre, envíe el comprobante por WhatsApp y avise al administrador.
+El correo del comprobante sale desde la **cuenta de correo del sistema**, igual que los certificados, con el asunto *Comprobante: [tipo, serie y número]* y un enlace seguro válido por **7 días**.
 
 ---
 
@@ -636,7 +678,7 @@ El plazo es de **1 día** desde la fecha de emisión (o, si el comprobante no ti
 ### Qué muestra cada fila
 - **Documento**: *Documento académico* o *Comprobante*, su código o número y su tipo.
 - **Curso o charla y dictado**.
-- **Participante y responsable** (hoy siempre *Sin responsable*: ver [sección 25](#25-lo-que-el-módulo-todavía-no-hace)).
+- **Participante y responsable**: el responsable es el que se eligió en el campo **Responsable** del dictado ([sección 7](#7-crear-un-dictado)); si no se eligió, se muestra *Sin responsable*.
 - **Estado de entrega**, con *Vencida* o *En plazo*, la fecha de emisión y si el archivo está disponible (*Archivo disponible: la entrega puede intentarse.* o *No entregable: falta el archivo privado…*).
 - **Último intento**: canal, cantidad de intentos, fecha, estado y último error.
 
@@ -657,33 +699,41 @@ Según la configuración del servidor, se almacenan en el propio servidor o en l
 
 ## 22. Mensajes de error frecuentes
 
-Algunos mensajes de validación muestran el nombre interno del campo (en inglés o sin traducir). La tabla indica a qué corresponden.
+Los mensajes aparecen en español y nombran el campo tal como se ve en el formulario. Donde la tabla dice *[…]*, el mensaje real muestra el dato concreto (código, estado o nota).
 
 | Mensaje / situación | Causa | Qué hacer |
 |---|---|---|
-| *El campo type / code / name es obligatorio.* | Falta Tipo, Código o Nombre del curso. | Complete el campo. |
-| *El campo official academic hours es obligatorio.* / *Las horas académicas son obligatorias.* | Faltan las horas académicas. | Escriba las horas. |
-| *Course activity code … is already in use.* | El código del curso ya existe. | Use otro código. |
-| *Course edition code … is already in use.* | El código del dictado ya existe. | Use otro código o déjelo vacío. |
-| *Presential editions require an address.* | Modalidad presencial sin dirección. | Complete **Dirección**. |
-| *Virtual editions require an access URL.* | Modalidad virtual sin enlace. | Complete **Enlace de acceso virtual**. |
-| *Hybrid editions require both address and access URL.* | Híbrida sin dirección o sin enlace. | Complete ambos. |
-| *El campo ends on debe ser una fecha posterior o igual a starts on.* | La fecha de fin es anterior a la de inicio. | Corrija las fechas. |
-| *El campo price amount es obligatorio.* / *El precio del dictado es obligatorio.* | Falta el precio. | Escriba el precio (puede ser 0). |
+| *El campo tipo / código / nombre es obligatorio.* | Falta Tipo, Código o Nombre del curso. | Complete el campo. |
+| *El campo horas académicas es obligatorio.* / *Las horas académicas son obligatorias.* | Faltan las horas académicas. | Escriba las horas. |
+| *El código «[…]» ya está en uso por otro curso o charla.* | El código del curso ya existe. | Use otro código. |
+| *No se puede cambiar el tipo porque el curso o charla ya tiene dictados.* | Se intentó cambiar el tipo de un curso con dictados. | Mantenga el tipo o cree otro curso o charla. |
+| *No se puede eliminar el curso o charla porque tiene dictados registrados. Elimine primero sus dictados.* | El curso o charla tiene dictados. | Elimine sus dictados o desmarque **Activa**. |
+| *No se pueden crear dictados de un curso o charla inactivo. Actívelo primero desde «Editar».* | El curso o charla está inactivo. | Marque **Activa** al editarlo. |
+| *El código de dictado «[…]» ya está en uso.* | El código del dictado ya existe. | Use otro código o déjelo vacío. |
+| *Para un dictado presencial, la dirección es obligatoria.* | Modalidad presencial sin dirección. | Complete **Dirección**. |
+| *Para un dictado virtual, el enlace de acceso es obligatorio.* | Modalidad virtual sin enlace. | Complete **Enlace de acceso virtual**. |
+| *Para un dictado híbrido, la dirección y el enlace de acceso son obligatorios.* | Híbrida sin dirección o sin enlace. | Complete ambos. |
+| *El campo fecha de fin debe ser una fecha posterior o igual a fecha de inicio.* | La fecha de fin es anterior a la de inicio. | Corrija las fechas. |
+| *El campo precio es obligatorio.* / *El precio del dictado es obligatorio.* | Falta el precio. | Escriba el precio (puede ser 0). |
+| *No se puede eliminar el dictado porque tiene participantes inscritos.* | El dictado tiene inscritos. | Si no se realizará, páselo a **Cancelada**. |
+| *No se puede cambiar el estado del dictado de «[…]» a «[…]».* | Cambio de estado no permitido. | Siga la tabla de la [sección 8](#8-la-página-del-dictado-y-sus-estados). |
 | *El nombre del docente es obligatorio.* | Una fila de docente quedó sin nombre. | Escriba el nombre o marque **Quitar**. |
 | *No se puede quitar el docente porque está asignado a una o más sesiones…* | El docente tiene sesiones. | Reasigne esas sesiones y vuelva a intentar. |
-| Error de *topic* obligatorio en sesiones | Una sesión (o la fila *Nueva* con datos) no tiene tema. | Escriba el **Tema**. |
-| *Participants require names, document type and number, email, and a mobile number with country code.* | Faltan datos del participante o el celular no empieza con **+**. Ocurre también al inscribir un contacto sin correo o con teléfono sin código de país. | Complete los datos; escriba el celular como *+51…*. |
-| *This participant is already enrolled in the selected edition.* | La persona ya está inscrita en este dictado. | No hace falta inscribirla de nuevo. |
-| *Payment transition from … to … is not permitted.* | Cambio de pago no permitido (por ejemplo, de *Pendiente* a *Reembolsado*). | Siga la tabla de la [sección 12](#12-lista-de-participantes-y-estado-de-pago). |
-| *Invalid grade […].* | Nota fuera de 0–20 o con más de dos decimales, o con coma en lugar de punto. | Escriba la nota con punto decimal, ej. *15.5*. |
-| *Talk editions do not accept grades.* | Se intentó poner notas a una charla. | Las charlas no llevan notas. |
+| *El campo tema es obligatorio.* / *El tema de la sesión es obligatorio.* | Una sesión (o la fila *Nueva* con datos) no tiene tema. | Escriba el **Tema**. |
+| *Cada participante necesita nombres, apellidos, tipo y número de documento, correo y un celular con código de país (por ejemplo, +51).* | Faltan datos del participante o el celular no empieza con **+**. Ocurre también al inscribir un contacto sin correo o con teléfono sin código de país. | Complete los datos; escriba el celular como *+51…*. |
+| *Este participante ya está inscrito en este dictado.* | La persona ya está inscrita en este dictado. | No hace falta inscribirla de nuevo. |
+| *El nombre del pagador del grupo es obligatorio.* / *La inscripción de grupo necesita al menos un participante.* | Falta el pagador o no se completó ninguna fila del grupo. | Complete el pagador y al menos una fila. |
+| *No se permite cambiar el estado de pago de «[…]» a «[…]».* | Cambio de pago no permitido (por ejemplo, de *Pendiente* a *Reembolsado*). | Siga la tabla de la [sección 12](#12-lista-de-participantes-y-estado-de-pago). |
+| *La nota «[…]» no es válida: debe ser un número entre 0 y 20 con hasta dos decimales.* | Nota fuera de 0–20 o con más de dos decimales, o con coma en lugar de punto. | Escriba la nota con punto decimal, ej. *15.5*. |
+| *Los dictados de charlas no llevan notas.* | Se intentó poner notas a una charla. | Las charlas no llevan notas. |
 | *No se pudo guardar la asistencia / las notas: una de las sesiones o participantes ya no está disponible…* | La página estaba desactualizada. | Recargue la página e intente de nuevo. |
 | *La matrícula todavía no es elegible para generar documento académico.* | Falta alguna condición. | Revise **Condiciones pendientes**. |
 | *La matrícula ya cuenta con un documento académico vigente…* | Ya tiene un documento vigente. | Use **Regenerar** con un motivo. |
 | *No se pudo regenerar el documento: solo un documento vigente puede regenerarse.* | El documento ya estaba anulado o reemplazado. | Trabaje sobre el documento vigente. |
 | *Solo un documento vigente puede anularse…* | Se intentó anular un documento no vigente. | Nada que hacer: ya no está vigente. |
-| *Solo un documento vigente con su archivo privado disponible puede entregarse.* | El documento no está vigente, falta su archivo **o el teléfono de WhatsApp no es válido** (debe tener entre 8 y 15 dígitos). | Revise el estado y el número de teléfono. |
+| *Solo un documento vigente con su archivo privado disponible puede entregarse.* | El documento no está vigente o falta su archivo. | Revise el estado del documento. |
+| *El teléfono de WhatsApp debe tener entre 8 y 15 dígitos, incluido el código de país (por ejemplo, 51999999999).* | El teléfono escrito para WhatsApp tiene muy pocos o demasiados dígitos. | Corrija el número con su código de país. |
+| *El PDF no está disponible: solo un documento vigente con su archivo puede abrirse.* / *El archivo no está disponible: solo un comprobante registrado con su archivo puede abrirse.* | Se pulsó **Ver PDF** / **Ver archivo** sobre un documento que dejó de estar vigente o sin archivo (por ejemplo, con la página desactualizada). | Recargue la página. |
 | *No se pudo confirmar el envío: el teléfono no coincide con el handoff de WhatsApp registrado.* | Se cambió el número al confirmar. | Confirme con el mismo número con el que abrió WhatsApp. |
 | *Solo un comprobante registrado con su archivo privado disponible puede entregarse.* | El comprobante no tiene archivo. | Adjunte el archivo primero. |
 | *El grupo no tiene matrículas facturables…* / *El subtotal del grupo es cero…* | El grupo no tiene montos a facturar. | Revise las matrículas del grupo. |
@@ -700,7 +750,7 @@ Algunos mensajes de validación muestran el nombre interno del campo (en inglés
 Lo más habitual es que el dictado todavía no esté en **Finalizada**. Revise también que su ficha tenga todos los datos (incluido el celular).
 
 **Finalicé el dictado y no se generaron los certificados. ¿Qué hago?**
-La generación automática corre en segundo plano y puede tardar; actualice la página. Si sigue sin aparecer (por ejemplo, en charlas), use **Generar documento** en cada participante elegible.
+La generación automática corre en segundo plano y puede tardar; actualice la página. Si sigue sin aparecer, revise las **Condiciones pendientes** del participante y, si es elegible, use **Generar documento**. Las charlas sin certificado no generan documentos.
 
 **Me equivoqué en el nombre del participante y ya emití el certificado.**
 Corrija la ficha y use **Regenerar** con el motivo. El certificado anterior queda reemplazado y su QR deja de funcionar. Envíe el nuevo.
@@ -721,13 +771,16 @@ No. Solo las charlas creadas con *Charla con certificado* emiten *Certificado de
 No. Recibe un enlace seguro (por correo o WhatsApp) y el certificado también puede abrirse escaneando el QR.
 
 **El enlace que mandé por WhatsApp no funciona.**
-Ese enlace vence a la hora. Envíe el documento por correo (enlace de 7 días) o repita el envío por WhatsApp.
+Los enlaces de WhatsApp y de correo duran 7 días y dejan de funcionar si el documento se anuló o se reemplazó. Revise que el documento siga vigente y repita el envío.
 
 **¿Puedo registrar dos comprobantes para la misma matrícula?**
 Sí. Cada envío del formulario registra un comprobante nuevo (por ejemplo, un pago en cuotas). Tenga cuidado de no registrar dos veces el mismo.
 
 **¿Cómo veo o descargo el PDF de un certificado desde el CRM?**
-Hoy la pantalla **Documentos** no tiene un botón para verlo. Puede enviárselo a usted mismo por correo o escanear el QR.
+Con el botón **Ver PDF** del documento vigente en la pantalla **Documentos** ([sección 15.8](#158-ver-el-pdf)). Los comprobantes tienen su botón **Ver PDF** o **Ver archivo** en la pantalla **Comprobantes**.
+
+**¿Puedo corregir los datos de un curso o de un dictado?**
+Sí, con **Editar** en su ficha ([sección 6](#6-crear-un-curso-o-una-charla) y [sección 8](#8-la-página-del-dictado-y-sus-estados)). Los certificados ya emitidos no cambian: regenérelos si deben reflejar la corrección.
 
 **¿Qué pasa si descarto una alerta?**
 Solo se cierra el seguimiento de la entrega. El documento sigue vigente y puede enviarse más adelante desde su pantalla.
@@ -754,7 +807,7 @@ Solo se cierra el seguimiento de la entrega. El documento sigue vigente y puede 
 3. Cargue una sesión con el tema y el ponente.
 4. Inscriba a los asistentes. Durante el evento marque **Presente** en la asistencia: la columna **Participación** pasa a *Participación confirmada*.
 5. Para quienes pagaron el certificado, cambie el pago a **Pagado**; para invitados especiales, a **Exonerado**. Quienes no pagan quedan en *Pendiente* y no reciben certificado.
-6. Finalice el dictado y use **Generar documento** para cada participante elegible (*Certificado de charla*).
+6. Finalice el dictado: el sistema genera el *Certificado de charla* de cada participante elegible. Si alguno no aparece, revise sus **Condiciones pendientes** o use **Generar documento**.
 7. Entréguelos por **Abrir WhatsApp** → enviar → **Marcar como enviado**.
 
 ### Empresa que inscribe a su equipo
@@ -768,17 +821,14 @@ Solo se cierra el seguimiento de la entrega. El documento sigue vigente y puede 
 
 ## 25. Lo que el módulo todavía no hace
 
-- **Editar o eliminar** un curso, una charla o un dictado desde la pantalla. Revise bien los datos antes de guardar (sobre todo horas académicas, nombre y fechas, que salen en el certificado).
-- **Asignar un responsable** al dictado: el formulario no tiene ese campo, por eso las alertas muestran *Sin responsable* y el filtro *Responsable* no encuentra resultados.
+- **Eliminar** un curso o charla con dictados, ni un dictado con participantes inscritos (en su lugar, desmarque **Activa** o cancele el dictado).
 - **Eliminar sesiones** ya cargadas: el formulario solo agrega y modifica.
-- **Cambiar el estado de la inscripción** (*Confirmado*, *Retirado*, *No asistió*, etc.): toda inscripción queda como *Inscrito*.
-- **Anular o quitar una inscripción**, ni **aplicar descuentos** desde la pantalla (el descuento siempre es 0).
+- **Cambiar el estado de la inscripción** (por ejemplo, marcar un retiro): toda inscripción queda como *Inscrito*.
+- **Anular o quitar una inscripción**, ni **aplicar descuentos**: el importe es siempre el precio del dictado más el del certificado.
 - **Agregar participantes a un grupo ya inscrito**, ni inscribir más de tres personas por vez en el formulario de grupo.
 - **Borrar una nota** ya cargada: dejar la celda vacía no la elimina.
 - **Reabrir** un dictado finalizado o cancelado.
-- **Ver o descargar** el PDF de un certificado o comprobante desde las pantallas del módulo.
 - **Reemplazar el archivo** de un comprobante que ya tiene adjunto, ni **anular** un comprobante.
 - **Enviar WhatsApp automáticamente**: el envío siempre lo hace una persona desde WhatsApp.
-- Usar la casilla **Activa** del curso o charla para algo visible: hoy no tiene efecto.
-- Usar el permiso `course-talks.audit.view`: no hay pantalla de auditoría propia del módulo.
+- Usar el permiso `course-talks.audit.view`: está reservado y no hay pantalla de auditoría propia del módulo.
 - Imprimir en el certificado el **Temario del dictado** escrito a mano: solo se imprimen las sesiones.
