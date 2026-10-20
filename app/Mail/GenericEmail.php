@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Storage;
  * here (Gmail + Outlook call vendor APIs directly).
  *
  * Attachments are exposed as a typed array shape to keep the Mail facade
- * integration ergonomic; the actual filenames + mime + storage paths come
+ * integration ergonomic; the actual filenames + mime + storage keys come
  * from {@see \App\Models\Email\EmailAttachment} rows.
  *
  * Every attachment MUST be registered through {@see Mailable::attach()}:
@@ -39,8 +39,8 @@ class GenericEmail extends Mailable
 
     /**
      * @param  list<array{path?: string, storage_path?: string, filename?: string, mime?: string}>  $attachments
-     *         `path` is an absolute filesystem path; `storage_path` is resolved
-     *         against the `local` disk, the disk every EmailAttachment row uses.
+     *         `path` is an absolute filesystem path; `storage_path` is read as
+     *         bytes from the `local` disk, the disk every EmailAttachment row uses.
      */
     public function __construct(public readonly EmailMessage $message, array $attachments = [])
     {
@@ -75,27 +75,48 @@ class GenericEmail extends Mailable
      */
     private function attachEmailAttachment(array $attachment): void
     {
+        $filename = (string) ($attachment['filename'] ?? '');
+        $mime = (string) ($attachment['mime'] ?? '');
+
+        // A caller that already holds an absolute filesystem path (a generated
+        // artifact, never a stored user file) keeps the path-based attach.
         $file = $attachment['path'] ?? null;
 
-        if (($file === null || $file === '') && ! empty($attachment['storage_path'])) {
-            $file = Storage::disk('local')->path($attachment['storage_path']);
-        }
+        if ($file !== null && $file !== '') {
+            $options = [];
 
-        if ($file === null || $file === '') {
+            if ($filename !== '') {
+                $options['as'] = $filename;
+            }
+
+            if ($mime !== '') {
+                $options['mime'] = $mime;
+            }
+
+            $this->attach($file, $options);
+
             return;
         }
 
-        $options = [];
-
-        if (! empty($attachment['filename'])) {
-            $options['as'] = $attachment['filename'];
+        if (empty($attachment['storage_path'])) {
+            return;
         }
 
-        if (! empty($attachment['mime'])) {
-            $options['mime'] = $attachment['mime'];
+        // Stored attachments are read as bytes from the disk and handed to the
+        // transport. Resolving the stored key to a filesystem path with
+        // Storage::disk()->path() only works while the disk is local and breaks
+        // as soon as the disk is backed by S3.
+        $disk = Storage::disk('local');
+
+        if (! $disk->exists($attachment['storage_path'])) {
+            return;
         }
 
-        $this->attach($file, $options);
+        $this->attachData(
+            (string) $disk->get($attachment['storage_path']),
+            $filename !== '' ? $filename : basename($attachment['storage_path']),
+            $mime !== '' ? ['mime' => $mime] : [],
+        );
     }
 
     /**

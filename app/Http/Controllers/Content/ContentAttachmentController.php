@@ -79,7 +79,7 @@ class ContentAttachmentController extends Controller
         return $this->back($contentProject, $item, 'Adjunto retirado. El archivo se conserva y puede restaurarse con el contenido.');
     }
 
-    public function download(ContentProject $contentProject, string $contentItem, string $attachment): StreamedResponse
+    public function download(ContentProject $contentProject, string $contentItem, string $attachment): StreamedResponse|RedirectResponse
     {
         Gate::authorize('view', $contentProject);
 

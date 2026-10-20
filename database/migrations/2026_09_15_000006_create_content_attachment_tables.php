@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Schema;
  * One `content_attachments` row is either an uploaded media file or an
  * external media link attached to a content item:
  *
- *   - `kind`         image | video (the media vocabulary lives in
+ *   - `kind`         image | video | link (the media vocabulary lives in
  *                    App\Models\Content\ContentAttachment, never in a DB enum).
  *   - `path`         private-disk path for an upload; null for a link.
  *   - `url`          external URL for a link; null for an upload.

@@ -91,6 +91,7 @@ Cada decisión se registra como ADR (Architecture Decision Record). Ningún ADR 
 - Disco privado configurable vía Laravel Filesystem (`FILESYSTEM_DISK`/`docs` disk). Desarrollo: local privado. Producción: local privado o S3 por variables de entorno.
 - Sin enlaces públicos: descargas pasan por autorización, o URL temporal firmada cuando el driver lo permite.
 - Validación de extensión, MIME, tamaño y permisos. Metadatos en `documents`; archivos nunca en la base de datos.
+- **Estado**: implementado en la función de almacenamiento AWS (rama `feat/aws-storage`); el interruptor por credenciales, la entrega por URL temporal y el disco público son reales. Ver ADR-017. El razonamiento original no cambia.
 - **Fecha**: B00.
 
 ## ADR-012 — Próximas acciones: fuente única en actividades
@@ -136,3 +137,11 @@ Verificación real de resolución de dependencias (`composer create-project` + `
 - AdminLTE 4 se consume como paquete npm **`admin-lte@^4.3.1`** (distribución oficial del proyecto para v4), compilado por Vite. Su dist CSS ya incluye Bootstrap 5 compilado; su JS es vanilla (dropdowns, collapse, push-menu), **sin jQuery**.
 - No se usa CDN ni copia manual de assets; `npm run build` reproduce el bundle.
 - **Fecha**: B01.
+
+## ADR-017 — Almacenamiento AWS S3 implementado (referencia a ADR-011)
+
+- **Decisión**: se implementa el destino previsto en ADR-011 sin reescribir su razonamiento. Los discos `local`, `docs` y `public` usan S3 cuando `AWS_BUCKET`, `AWS_ACCESS_KEY_ID` y `AWS_SECRET_ACCESS_KEY` están los tres presentes; si falta cualquiera, siguen en local. No hay bandera adicional ni cambio de código.
+- **Layout**: cada disco conserva su nombre y su raíz relativa (`local` → `private`, `docs` → `private/docs`, `public` → `public`), así que una ruta guardada en la base significa lo mismo en ambos modos. Detalle operativo en `docs/ALMACENAMIENTO.md`.
+- **Entrega privada**: la autorización se resuelve primero; con un disco remoto la descarga redirige a una URL temporal firmada (vigencia en `FILESYSTEM_TEMPORARY_URL_TTL`) y el archivo no atraviesa la aplicación. Sin URL pública para archivos privados (ADR-011).
+- **Respaldo**: los archivos de usuario dejan el volumen `storage-data`; el bucket necesita versionado y una política de respaldo propios.
+- **Fecha**: función de almacenamiento AWS (rama `feat/aws-storage`).

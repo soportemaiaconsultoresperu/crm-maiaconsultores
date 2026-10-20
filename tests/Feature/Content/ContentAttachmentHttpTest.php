@@ -9,10 +9,12 @@ use App\Models\User;
 use App\Services\Content\ContentAttachmentService;
 use Database\Seeders\ContentPermissionsSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Mockery;
 use Tests\TestCase;
 
 /**
@@ -256,6 +258,61 @@ class ContentAttachmentHttpTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_download_redirects_to_a_signed_url_when_the_docs_disk_is_cloud_backed(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        Storage::set(ContentAttachmentService::DISK, $this->signedUrlDisk());
+
+        $response = $this->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]));
+
+        $response->assertRedirect();
+        $this->assertStringContainsString('X-Amz-Signature=', (string) $response->headers->get('Location'));
+    }
+
+    public function test_a_signed_cloud_download_carries_the_attachment_name_and_content_type(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        // Assert on the object-response overrides the service hands to the
+        // disk, which is what makes the cloud download keep its identity.
+        $disk = Mockery::mock(FilesystemAdapter::class);
+        $disk->shouldReceive('exists')->andReturn(true);
+        $disk->shouldReceive('providesTemporaryUrls')->andReturn(true);
+        $disk->shouldReceive('temporaryUrl')->once()->withArgs(function (string $path, $expiration, array $options): bool {
+            return ($options['ResponseContentType'] ?? null) === 'image/jpeg'
+                && ($options['ResponseContentDisposition'] ?? null) === 'attachment; filename="foto.jpg"';
+        })->andReturn('https://crm-files.s3.amazonaws.com/private/docs/foto.jpg?X-Amz-Signature=abc&X-Amz-Expires=299');
+        Storage::set(ContentAttachmentService::DISK, $disk);
+
+        $this->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]))
+            ->assertRedirect();
+    }
+
+    public function test_a_refused_download_never_receives_a_signed_url(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        $disk = $this->signedUrlDisk();
+        Storage::set(ContentAttachmentService::DISK, $disk);
+
+        // A user who cannot reach the project is refused before the service
+        // runs, so the disk is never asked for a URL.
+        $stranger = User::factory()->create(['is_active' => true]);
+
+        $this->actingAs($stranger)
+            ->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]))
+            ->assertNotFound();
+
+        $disk->shouldNotHaveReceived('temporaryUrl');
+    }
+
     public function test_reordering_is_persisted(): void
     {
         Storage::fake(ContentAttachmentService::DISK);
@@ -275,16 +332,14 @@ class ContentAttachmentHttpTest extends TestCase
 
     public function test_no_public_url_exposes_the_stored_file(): void
     {
-        // The private disk is what makes the file unreachable: private
-        // visibility, no public `url` and no `serve` handler. These assertions
-        // run before faking the disk, which would replace the configured root.
-        $this->assertSame('private', config('filesystems.disks.docs.visibility'));
-        $this->assertArrayNotHasKey('url', config('filesystems.disks.docs'));
-        $this->assertFalse((bool) (config('filesystems.disks.docs.serve') ?? false));
-        $this->assertStringContainsString(
-            'app/private',
-            str_replace('\\', '/', (string) config('filesystems.disks.docs.root')),
-        );
+        // The private disk is what makes the file unreachable. These are
+        // invariants, not the local layout: private visibility, no public
+        // `url`, no `serve` handler, and a root that resolves to the same
+        // `private/docs` object path in either storage mode. They read the live
+        // configuration, so a regression that made the disk public, publicly
+        // served or pointed it at a public prefix turns them red.
+        $violations = $this->privateDiskInvariantViolations();
+        $this->assertSame([], $violations, implode('; ', $violations));
 
         Storage::fake(ContentAttachmentService::DISK);
         $item = $this->contentItem();
@@ -304,6 +359,36 @@ class ContentAttachmentHttpTest extends TestCase
         $show->assertOk();
         $this->assertStringNotContainsString('/storage/'.$path, $show->getContent());
         $show->assertSee(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]));
+    }
+
+    public function test_the_private_disk_invariants_reject_a_public_or_misplaced_disk(): void
+    {
+        // Non-tautology guard. Each shape is what a regression would look
+        // like: public visibility, a public URL, a public serve handler, or a
+        // public root prefix. The checker must flag every one of them instead
+        // of hardcoding a pass, so the mode-aware test above keeps its teeth.
+        $disk = ContentAttachmentService::DISK;
+        $original = config("filesystems.disks.{$disk}");
+
+        $regressions = [
+            'public visibility' => ['visibility' => 'public'],
+            'a public URL' => ['url' => 'https://cdn.example.com/docs/foto.jpg'],
+            'a public serve handler' => ['serve' => true],
+            'a public root prefix' => ['root' => 'public/docs'],
+        ];
+
+        foreach ($regressions as $label => $override) {
+            config(["filesystems.disks.{$disk}" => $override + $original]);
+
+            $this->assertNotSame(
+                [],
+                $this->privateDiskInvariantViolations(),
+                "The invariants must reject {$label}.",
+            );
+        }
+
+        config(["filesystems.disks.{$disk}" => $original]);
+        $this->assertSame([], $this->privateDiskInvariantViolations());
     }
 
     /**
@@ -348,6 +433,70 @@ class ContentAttachmentHttpTest extends TestCase
             ->assertForbidden();
 
         $this->assertSame(1, ContentAttachment::query()->count());
+    }
+
+    /**
+     * The invariants the private attachment disk must satisfy in either storage
+     * mode. Returning the violations (an empty list means safe) lets the
+     * non-tautology guard assert the checker itself rejects a bad config.
+     *
+     * @return list<string>
+     */
+    private function privateDiskInvariantViolations(): array
+    {
+        $disk = ContentAttachmentService::DISK;
+        $config = (array) config("filesystems.disks.{$disk}");
+        $violations = [];
+
+        if (in_array($config['visibility'] ?? null, ['public', 'public-read'], true)) {
+            $violations[] = 'visibility must not be public';
+        }
+
+        if (! empty($config['url'])) {
+            $violations[] = 'the disk must not expose a public URL';
+        }
+
+        if (! empty($config['serve'])) {
+            $violations[] = 'the disk must not be publicly served';
+        }
+
+        if ($this->relativeObjectRoot($disk) !== 'private/docs') {
+            $violations[] = 'the root must resolve to private/docs';
+        }
+
+        return $violations;
+    }
+
+    /**
+     * The object path a disk root stores, stripped of the local storage prefix
+     * so local and cloud modes resolve to the same value.
+     */
+    private function relativeObjectRoot(string $disk): string
+    {
+        $root = str_replace('\\', '/', (string) config("filesystems.disks.{$disk}.root"));
+        $localPrefix = str_replace('\\', '/', storage_path('app'));
+
+        if (str_starts_with($root, $localPrefix.'/')) {
+            $root = substr($root, strlen($localPrefix) + 1);
+        }
+
+        return trim($root, '/');
+    }
+
+    /**
+     * A cloud-backed private disk. The adapter is mocked so `exists()` never
+     * reaches the network, while the temporary-URL contract is the real one.
+     */
+    private function signedUrlDisk(): FilesystemAdapter
+    {
+        $disk = Mockery::mock(FilesystemAdapter::class);
+        $disk->shouldReceive('exists')->andReturn(true);
+        $disk->shouldReceive('providesTemporaryUrls')->andReturn(true);
+        $disk->shouldReceive('temporaryUrl')->andReturn(
+            'https://crm-files.s3.amazonaws.com/private/docs/foto.jpg?X-Amz-Signature=abc&X-Amz-Expires=299'
+        );
+
+        return $disk;
     }
 
     private function contentItem(): ContentItem

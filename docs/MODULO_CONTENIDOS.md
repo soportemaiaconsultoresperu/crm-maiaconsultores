@@ -114,8 +114,11 @@ Límites de la aplicación:
 > imagen de 10 MB, y nginx corta con 413 antes de llegar a PHP. En local (Laragon, 2 GB) el
 > problema no se reproduce, así que **no valides este punto solo en local**.
 
-Los archivos se guardan en el disco privado `docs`, bajo `content-attachments/{proyecto}/{contenido}/`,
-y solo se descargan por una ruta autorizada. No están en ninguna carpeta pública.
+Los archivos se guardan en el disco privado `docs`, bajo `content-attachments/{proyecto}/{contenido}/`:
+en local quedan en `storage/app/private/docs/…` y con AWS en el bucket, bajo el prefijo
+`private/docs/…`. Se descargan solo por una ruta autorizada —la aplicación decide el acceso y
+recién entonces entrega el archivo, con una URL temporal firmada si el disco es remoto— y no
+están en ninguna carpeta pública.
 
 ## Puesta en producción
 

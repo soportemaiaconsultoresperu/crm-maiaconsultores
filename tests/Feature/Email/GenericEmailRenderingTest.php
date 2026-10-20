@@ -88,4 +88,39 @@ class GenericEmailRenderingTest extends TestCase
         $this->assertSame($bytes, $attachments[0]->getBody());
         $this->assertStringContainsString(base64_encode($bytes), $email->toString());
     }
+
+    /**
+     * The stored attachment must be read as bytes from the disk, never
+     * resolved to a filesystem path. A disk that serves bytes but cannot hand
+     * out a usable local path is the S3 shape; if the mailable called
+     * ->path() the attachment could not be read.
+     */
+    public function test_stored_attachment_is_read_as_bytes_without_resolving_a_local_path(): void
+    {
+        $bytes = 'PDF-ATTACHMENT-BYTES-WITHOUT-A-LOCAL-PATH';
+        $path = 'email-attachments/quotations/9/cotizacion.pdf';
+
+        $disk = \Mockery::mock(\Illuminate\Contracts\Filesystem\Filesystem::class);
+        $disk->shouldReceive('exists')->once()->with($path)->andReturn(true);
+        $disk->shouldReceive('get')->once()->with($path)->andReturn($bytes);
+        $disk->shouldNotReceive('path');
+
+        Storage::set('local', $disk);
+
+        $mailable = new GenericEmail($this->outboundMessage(), [[
+            'storage_path' => $path,
+            'filename' => 'cotizacion.pdf',
+            'mime' => 'application/pdf',
+        ]]);
+
+        Mail::to('recipient@example.com')->send($mailable);
+
+        $email = Mail::getSymfonyTransport()->messages()->last()->getOriginalMessage();
+        $attachments = $email->getAttachments();
+
+        $this->assertCount(1, $attachments);
+        $this->assertSame('cotizacion.pdf', $attachments[0]->getFilename());
+        $this->assertSame('application/pdf', $attachments[0]->getContentType());
+        $this->assertSame($bytes, $attachments[0]->getBody());
+    }
 }

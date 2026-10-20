@@ -4,6 +4,8 @@ namespace App\Services\Content;
 
 use App\Models\Content\ContentAttachment;
 use App\Models\Content\ContentItem;
+use App\Services\Storage\PrivateFileResponder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -83,6 +85,11 @@ class ContentAttachmentService
         'mp4' => ['kind' => ContentAttachment::KIND_VIDEO, 'extension' => 'mp4', 'mime' => 'video/mp4'],
         'mov' => ['kind' => ContentAttachment::KIND_VIDEO, 'extension' => 'mov', 'mime' => 'video/quicktime'],
     ];
+
+    public function __construct(
+        private readonly ?PrivateFileResponder $responder = null,
+    ) {
+    }
 
     public function imageMaxBytes(): int
     {
@@ -271,7 +278,7 @@ class ContentAttachmentService
      *
      * @throws NotFoundHttpException when the row is a link or the file is gone
      */
-    public function download(ContentAttachment $attachment): StreamedResponse
+    public function download(ContentAttachment $attachment): StreamedResponse|RedirectResponse
     {
         if (! $attachment->isUpload()) {
             throw new NotFoundHttpException('El adjunto es un enlace, no un archivo descargable.');
@@ -285,13 +292,33 @@ class ContentAttachmentService
             throw new NotFoundHttpException('El archivo adjunto no está disponible.');
         }
 
-        $response = $disk->download($path, $attachment->original_name ?: basename($path));
+        $downloadName = $attachment->original_name ?: basename($path);
+
+        // The controller authorized the request before calling this method, so
+        // a signed URL is only ever issued for a file this user may read. It
+        // carries the same name and type the streamed response below would.
+        $redirect = $this->responder()->signedUrlRedirect(self::DISK, $path, $downloadName, $attachment->mime_type);
+
+        if ($redirect !== null) {
+            return $redirect;
+        }
+
+        $response = $disk->download($path, $downloadName);
 
         // The stored MIME type was sniffed on upload; the browser must not
         // second-guess it and render the file as something else.
         $response->headers->set('X-Content-Type-Options', 'nosniff');
 
         return $response;
+    }
+
+    /**
+     * The shared delivery strategy, resolved lazily so `new
+     * ContentAttachmentService` keeps working without the container.
+     */
+    private function responder(): PrivateFileResponder
+    {
+        return $this->responder ?? app(PrivateFileResponder::class);
     }
 
     /**

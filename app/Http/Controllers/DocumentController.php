@@ -178,7 +178,7 @@ class DocumentController extends Controller
      * Authorized download (ADR-011). Always routed through this controller
      * so the audit log captures the IP and the actor.
      */
-    public function download(Request $request, Document $document, DocumentService $service): StreamedResponse
+    public function download(Request $request, Document $document, DocumentService $service): StreamedResponse|RedirectResponse
     {
         return $service->download($document, $request->user());
     }
