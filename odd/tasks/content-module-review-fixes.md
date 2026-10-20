@@ -35,10 +35,10 @@ Defects to fix (review findings):
 - S26 Exports include values of inactive custom fields that still hold data, or docs state they are excluded — choose include.
 
 ## Tasks
-- [ ] T1 S1,S2,S17,S18(restore),S22,S25 — access & trash: policy abilities, seeder, sidebar, archived read-only, trash service/controller/view + empty-trash route, field-schema 404, projects index link. Route: worker W1. Commit: —
-- [ ] T2 S5-S10,S12,S14,S16,S18(trash button),S19(grid),S20,S21(validation),S23,S24 — forms, items, ideas, attachments. Route: worker W2. Commit: —
-- [ ] T3 S3,S4,S11,S13,S15,S19(export),S21(db timezone),S26 + docs for every S — exports, config, docs. Route: worker W3. Commit: —
-- [ ] T4 Integration: full Content suite + full suite diff vs base, browser smoke as member/admin, commits. Route: inline. Commit: —
+- [x] T1 S1,S2,S17,S18(restore),S22,S25 — access & trash: policy abilities, seeder, sidebar, archived read-only, trash service/controller/view + empty-trash route, field-schema 404, projects index link. Route: worker W1. Commit: eb12738
+- [x] T2 S5-S10,S12,S14,S16,S18(trash button),S19(grid),S20,S21(validation),S23,S24 — forms, items, ideas, attachments. Route: worker W2. Commit: 9985727
+- [x] T3 S3,S4,S11,S13,S15,S19(export),S21(db timezone),S26 + docs for every S — exports, config, docs. Route: worker W3. Commit: fd215a0
+- [x] T4 Integration: full Content suite + full suite diff vs base, browser smoke as admin (member flows covered by tests), commits. Route: inline. Commit: c1b72ed
 
 ## Log
 - L1 User: "revisa que el modulo Cronograma de contenidos este todo ok o si hay alguna ambiguedad o algun problema que se pueda presentar, revisa que todo este con coherencia" → review produced the findings above. Then: "si corrige todo lo que has encontrado".
@@ -46,3 +46,4 @@ Defects to fix (review findings):
 - L3 Baseline: tests/Feature/Content 229/229 green on feat/internal-activities a2693f7. Full suite has 13 pre-existing failures unrelated to this module.
 - L4 W3 done (exports/docs). S21 timezone part REVERTED by parent: local check showed @@global.time_zone=SYSTEM (Peru) and users.updated_at reads 17:46 under SYSTEM vs 22:46 under +00:00, so pinning would shift every existing TIMESTAMP by 5h across the CRM. config/database.php restored; test and docs adjusted. Needs a separate data-migration decision.
 - L5 W1 done. Parent fixed SeedersTest regression caused by blanking ADMIN_* in local .env: phpunit.xml now provides test ADMIN_EMAIL/ADMIN_PASSWORD (commit 96df4fe).
+- L6 Integration: tests/Feature/Content 271/271; full suite 1728/1743 with the same 13 pre-existing failures as baseline. Browser smoke (admin): topic filter by pillar, picker create/edit with chips, PUT edit, d/m/Y dates, invalid month warning; QA content removed. docs/guia-usuario/modulo-contenidos.md updated but left untracked (pre-existing untracked file; user decides).
