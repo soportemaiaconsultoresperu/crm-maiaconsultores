@@ -23,15 +23,20 @@ use Illuminate\Support\Collection;
  * (`ContentItemService::query()`), so the exported set can never drift from what
  * the operator sees: same project pin, same title/copy search, same month,
  * status and catalog narrowings. Custom-field columns come from the project's
- * active definitions and their values are read through ContentFieldValueService,
- * the single value reader of the module.
+ * active definitions plus any inactive definition that still holds data
+ * (labelled " (inactivo)"), and their values are read through
+ * ContentFieldValueService, the single value reader of the module.
+ *
+ * Dates are on the Peru clock (Fecha d/m/Y, Horario H:i) and the "Atrasado"
+ * column asks the model's own overdue rule, so the export never re-derives it.
  *
  * The project pin lives in `ContentItemService::query()`, so even a filter input
  * that names another project's catalog id can only narrow this project's rows,
  * never widen the export across projects.
  *
  * Every cell goes through ContentCellSanitizer before it can reach a
- * spreadsheet: grid text, catalog names and custom values alike.
+ * spreadsheet: headings (custom field labels are user text), grid text,
+ * catalog names and custom values alike.
  */
 class ContentGridExportService
 {
@@ -47,6 +52,7 @@ class ContentGridExportService
         'Pilar de contenido',
         'Tema',
         'Estado',
+        'Atrasado',
         'Objetivos',
         'Formato',
         'Red social o canal',
@@ -63,17 +69,34 @@ class ContentGridExportService
     }
 
     /**
-     * The grid columns followed by one column per active custom field of the
-     * project.
+     * The grid columns followed by one column per exported custom field of the
+     * project, neutralised like any other cell because a label is user text.
      *
      * @return list<string>
      */
     public function headings(ContentProject $project): array
     {
-        return array_merge(
-            self::GRID_HEADINGS,
-            $this->definitions($project)->pluck('label')->all(),
+        $labels = $this->definitions($project)
+            ->map(fn (ContentFieldDefinition $definition): string => $definition->is_active
+                ? (string) $definition->label
+                : $definition->label.' (inactivo)')
+            ->all();
+
+        return array_map(
+            [ContentCellSanitizer::class, 'sanitize'],
+            array_merge(self::GRID_HEADINGS, $labels),
         );
+    }
+
+    /**
+     * How many rows an export with these filters would contain, so the caller
+     * can refuse an oversized export before loading it.
+     *
+     * @param  array<string, string>  $filters
+     */
+    public function count(ContentProject $project, array $filters): int
+    {
+        return $this->items->query($project, $filters)->count();
     }
 
     /**
@@ -145,9 +168,10 @@ class ContentGridExportService
     }
 
     /**
-     * The project's active custom fields, grouped by their section and then by
-     * their own order, so the extra export columns read in the same order the
-     * editor presents them. Ungrouped fields come last.
+     * The project's active custom fields plus the inactive ones that still hold
+     * a stored value, grouped by their section and then by their own order, so
+     * the extra export columns read in the same order the editor presents them.
+     * Ungrouped fields come last. A retired field without data adds no column.
      *
      * @return Collection<int, ContentFieldDefinition>
      */
@@ -155,7 +179,9 @@ class ContentGridExportService
     {
         return ContentFieldDefinition::query()
             ->where('content_project_id', $project->getKey())
-            ->where('is_active', true)
+            ->where(fn ($query) => $query
+                ->where('is_active', true)
+                ->orWhereHas('values'))
             ->with(['section', 'options' => fn ($options) => $options->orderBy('sort')->orderBy('id')])
             ->get()
             ->sort(function (ContentFieldDefinition $a, ContentFieldDefinition $b): int {
@@ -190,6 +216,7 @@ class ContentGridExportService
             $item->pillar?->name ?? '—',
             $item->topic?->name ?? '—',
             $item->status->label(),
+            $item->isOverdue() ? 'Atrasado' : '',
             $this->joinNames($item->objectives),
             $this->joinNames($item->formats),
             $this->joinNames($item->channels),
