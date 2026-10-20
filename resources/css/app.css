@@ -1586,3 +1586,135 @@ textarea.form-control {
 		width: 100%;
 	}
 }
+
+/* Enhanced multiple select (resources/js/multi-select.js). */
+.ms {
+	position: relative;
+}
+
+.ms-native {
+	position: absolute !important;
+	width: 1px !important;
+	height: 1px !important;
+	opacity: 0;
+	pointer-events: none;
+	bottom: 0;
+	left: 50%;
+}
+
+.ms-control {
+	display: flex;
+	align-items: center;
+	min-height: calc(1.5em + 0.75rem + 2px);
+	height: auto;
+	cursor: pointer;
+	padding-top: 0.25rem;
+	padding-bottom: 0.25rem;
+}
+
+.ms-control:focus {
+	border-color: #86b7fe;
+	box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+	outline: 0;
+}
+
+.ms-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+}
+
+.ms-placeholder {
+	color: var(--bs-secondary-color);
+}
+
+.ms-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.15rem;
+	padding: 0.1rem 0.15rem 0.1rem 0.55rem;
+	border-radius: 999px;
+	background: rgba(37, 99, 235, 0.1);
+	color: #1e40af;
+	font-size: 0.85em;
+	line-height: 1.4;
+}
+
+.ms-chip-remove {
+	border: 0;
+	background: transparent;
+	color: inherit;
+	padding: 0 0.2rem;
+	border-radius: 999px;
+	line-height: 1;
+}
+
+.ms-chip-remove:hover,
+.ms-chip-remove:focus-visible {
+	background: rgba(37, 99, 235, 0.2);
+}
+
+.ms-panel {
+	position: absolute;
+	z-index: 1060;
+	top: calc(100% + 0.25rem);
+	left: 0;
+	right: 0;
+	min-width: 14rem;
+	padding: 0.5rem;
+	background: var(--bs-body-bg);
+	border: 1px solid var(--bs-border-color);
+	border-radius: 0.65rem;
+	box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.12);
+}
+
+.ms-search {
+	margin-bottom: 0.5rem;
+}
+
+.ms-toolbar {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 0.8rem;
+	color: var(--bs-secondary-color);
+	padding: 0 0.25rem 0.35rem;
+	border-bottom: 1px solid var(--bs-border-color);
+	margin-bottom: 0.25rem;
+}
+
+.ms-list {
+	max-height: 15rem;
+	overflow-y: auto;
+}
+
+.ms-option {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	margin: 0;
+	padding: 0.35rem 0.5rem;
+	border-radius: 0.4rem;
+	cursor: pointer;
+	user-select: none;
+}
+
+.ms-option:hover,
+.ms-option.is-active {
+	background: var(--bs-tertiary-bg);
+}
+
+.ms-option.is-selected {
+	font-weight: 500;
+}
+
+.ms-empty {
+	padding: 0.5rem;
+	color: var(--bs-secondary-color);
+	font-size: 0.875rem;
+}
+
+.ms-sm .ms-control {
+	min-height: calc(1.5em + 0.5rem + 2px);
+	font-size: 0.875rem;
+}

@@ -63,22 +63,20 @@
                 </div>
                 <div class="col-md-12" data-audience-pane="roles" @if ($audience !== 'roles') hidden @endif>
                     <x-label for="role_ids" label="Roles" :required="true"/>
-                    <select name="role_ids[]" id="role_ids" multiple size="5" class="form-select @error('role_ids') is-invalid @enderror">
+                    <select name="role_ids[]" id="role_ids" multiple class="form-select @error('role_ids') is-invalid @enderror">
                         @foreach ($roles as $role)
                             <option value="{{ $role->id }}" @selected(in_array($role->id, $selectedRoles, true))>{{ $role->name }}</option>
                         @endforeach
                     </select>
-                    <div class="form-text">Ctrl/Cmd + clic para elegir varios.</div>
                     <x-validation-error name="role_ids"/>
                 </div>
                 <div class="col-md-12" data-audience-pane="users" @if ($audience !== 'users') hidden @endif>
                     <x-label for="user_ids" label="Personas" :required="true"/>
-                    <select name="user_ids[]" id="user_ids" multiple size="6" class="form-select @error('user_ids') is-invalid @enderror">
+                    <select name="user_ids[]" id="user_ids" multiple class="form-select @error('user_ids') is-invalid @enderror">
                         @foreach ($users as $user)
                             <option value="{{ $user->id }}" @selected(in_array($user->id, $selectedUsers, true))>{{ $user->name }}</option>
                         @endforeach
                     </select>
-                    <div class="form-text">Ctrl/Cmd + clic para elegir varios.</div>
                     <x-validation-error name="user_ids"/>
                 </div>
 
@@ -89,7 +87,7 @@
                 </div>
                 <div class="col-md-8">
                     <x-label for="participant_ids" label="Participantes"/>
-                    <select name="participant_ids[]" id="participant_ids" multiple size="6" class="form-select @error('participant_ids') is-invalid @enderror">
+                    <select name="participant_ids[]" id="participant_ids" multiple class="form-select @error('participant_ids') is-invalid @enderror">
                         @foreach ($users as $user)
                             <option value="{{ $user->id }}" @selected(in_array($user->id, $selectedParticipants, true))>{{ $user->name }}</option>
                         @endforeach
