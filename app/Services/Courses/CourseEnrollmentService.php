@@ -20,6 +20,8 @@ class CourseEnrollmentService
     public function enroll(CourseEdition $edition, array $participantData, array $enrollmentData = [], ?CourseEnrollmentGroup $group = null): CourseEnrollment
     {
         return DB::transaction(function () use ($edition, $participantData, $enrollmentData, $group): CourseEnrollment {
+            CourseEditionService::lockLiveEdition($edition);
+
             $participant = $this->resolveParticipant($participantData);
 
             if (CourseEnrollment::where('course_edition_id', $edition->id)
@@ -153,6 +155,8 @@ class CourseEnrollmentService
         }
 
         return DB::transaction(function () use ($edition, $payerData, $participants): array {
+            CourseEditionService::lockLiveEdition($edition);
+
             $group = CourseEnrollmentGroup::create([
                 'course_edition_id' => $edition->id,
                 'payer_customer_id' => $payerData['payer_customer_id'] ?? null,

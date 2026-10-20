@@ -222,6 +222,98 @@ class CourseCatalogGuideFixesTest extends TestCase
         $this->assertNotSoftDeleted('course_editions', ['id' => $edition->id]);
     }
 
+    public function test_dictado_with_only_an_enrollment_group_cannot_be_deleted(): void
+    {
+        $edition = CourseEdition::factory()->for($this->activity(), 'activity')->create();
+        \App\Models\Courses\CourseEnrollmentGroup::query()->create([
+            'course_edition_id' => $edition->id,
+            'payer_name' => 'Empresa pagadora',
+        ]);
+
+        try {
+            app(CourseEditionService::class)->delete($edition);
+            $this->fail('A dictado with an enrollment group must not be deleted.');
+        } catch (InvalidCourseEditionData $exception) {
+            $this->assertSame('No se puede eliminar el dictado porque tiene inscripciones grupales.', $exception->getMessage());
+        }
+
+        $this->assertNotSoftDeleted('course_editions', ['id' => $edition->id]);
+    }
+
+    public function test_a_stale_dictado_deleted_meanwhile_accepts_no_enrollment_or_group(): void
+    {
+        $edition = CourseEdition::factory()->for($this->activity(), 'activity')->create();
+        $stale = CourseEdition::query()->findOrFail($edition->id);
+        app(CourseEditionService::class)->delete($edition);
+
+        $participant = [
+            'first_name' => 'Luz', 'last_name' => 'Ramos', 'document_type' => 'DNI',
+            'document_number' => '12345678', 'email' => 'luz@example.test', 'mobile' => '+51 999 111 222',
+        ];
+        $service = app(CourseEnrollmentService::class);
+
+        foreach ([
+            fn () => $service->enroll($stale, $participant),
+            fn () => $service->enrollGroup($stale, ['payer_name' => 'Empresa'], [$participant]),
+        ] as $attempt) {
+            try {
+                $attempt();
+                $this->fail('A deleted dictado must not accept enrollments.');
+            } catch (InvalidCourseEditionData $exception) {
+                $this->assertSame('El dictado ya no existe; actualice la página.', $exception->getMessage());
+            }
+        }
+
+        $this->assertSame(0, CourseEnrollment::query()->withTrashed()->where('course_edition_id', $edition->id)->count());
+        $this->assertSame(0, \App\Models\Courses\CourseEnrollmentGroup::query()->where('course_edition_id', $edition->id)->count());
+    }
+
+    public function test_a_stale_activity_deleted_meanwhile_accepts_no_new_dictado(): void
+    {
+        $activity = $this->activity();
+        $stale = CourseActivity::query()->findOrFail($activity->id);
+        app(CourseActivityService::class)->delete($activity);
+
+        try {
+            app(CourseEditionService::class)->create($stale, $this->editionPayload());
+            $this->fail('A deleted activity must not get dictados.');
+        } catch (InvalidCourseEditionData $exception) {
+            $this->assertSame('El curso o charla ya no existe; actualice la página.', $exception->getMessage());
+        }
+
+        $this->assertSame(0, CourseEdition::query()->withTrashed()->where('course_activity_id', $activity->id)->count());
+    }
+
+    public function test_talk_certificate_flag_is_frozen_once_a_dictado_has_enrollments(): void
+    {
+        $talk = $this->activity(['type' => CourseActivityType::Talk, 'code' => 'CHA-GUIA-001', 'talk_includes_certificate' => false]);
+        $edition = CourseEdition::factory()->for($talk, 'activity')->create();
+        CourseEnrollment::factory()->for($edition, 'edition')->create();
+
+        try {
+            app(CourseActivityService::class)->update($talk, $this->activityPayload([
+                'type' => CourseActivityType::Talk->value,
+                'code' => 'CHA-GUIA-001',
+                'talk_includes_certificate' => '1',
+            ]));
+            $this->fail('The certificate flag must be frozen once people are enrolled.');
+        } catch (InvalidCourseEditionData $exception) {
+            $this->assertSame('No se puede cambiar «Charla con certificado» porque ya hay participantes inscritos en sus dictados.', $exception->getMessage());
+        }
+
+        $this->assertFalse((bool) $talk->fresh()->talk_includes_certificate);
+
+        // Without enrollments the flag can still change.
+        $other = $this->activity(['type' => CourseActivityType::Talk, 'code' => 'CHA-GUIA-002', 'talk_includes_certificate' => false]);
+        CourseEdition::factory()->for($other, 'activity')->create();
+        app(CourseActivityService::class)->update($other, $this->activityPayload([
+            'type' => CourseActivityType::Talk->value,
+            'code' => 'CHA-GUIA-002',
+            'talk_includes_certificate' => '1',
+        ]));
+        $this->assertTrue((bool) $other->fresh()->talk_includes_certificate);
+    }
+
     public function test_dictado_without_enrollments_is_soft_deleted(): void
     {
         $edition = CourseEdition::factory()->for($this->activity(), 'activity')->create();

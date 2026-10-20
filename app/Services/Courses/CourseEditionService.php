@@ -46,6 +46,12 @@ class CourseEditionService
         );
 
         return DB::transaction(function () use ($activity, $attributes, $location, $code): CourseEdition {
+            // Same lock CourseActivityService::delete() takes, so an activity deleted
+            // meanwhile never gets a new dictado.
+            if (CourseActivity::query()->lockForUpdate()->find($activity->getKey()) === null) {
+                throw new InvalidCourseEditionData('El curso o charla ya no existe; actualice la página.');
+            }
+
             $edition = CourseEdition::create(array_merge($attributes, $location, [
                 'course_activity_id' => $activity->id,
                 'code' => $code === '' ? null : $code,
@@ -102,15 +108,38 @@ class CourseEditionService
      */
     public function delete(CourseEdition $edition): void
     {
-        if ($edition->enrollments()->withTrashed()->exists()) {
-            throw new InvalidCourseEditionData('No se puede eliminar el dictado porque tiene participantes inscritos.');
+        DB::transaction(function () use ($edition): void {
+            // Lock the row and re-check under the lock: enroll()/enrollGroup() take
+            // the same lock, so no enrollment can slip in between check and delete.
+            $locked = self::lockLiveEdition($edition);
+
+            if ($locked->enrollments()->withTrashed()->exists()) {
+                throw new InvalidCourseEditionData('No se puede eliminar el dictado porque tiene participantes inscritos.');
+            }
+
+            if (\App\Models\Courses\CourseEnrollmentGroup::query()->where('course_edition_id', $locked->id)->exists()) {
+                throw new InvalidCourseEditionData('No se puede eliminar el dictado porque tiene inscripciones grupales.');
+            }
+
+            $locked->delete();
+
+            CourseEditionChanged::dispatch($locked->id, 'course-edition-deleted');
+        });
+    }
+
+    /**
+     * Lock a dictado that still exists, or refuse: a stale model of a dictado
+     * deleted meanwhile must not receive enrollments or groups.
+     */
+    public static function lockLiveEdition(CourseEdition $edition): CourseEdition
+    {
+        $locked = CourseEdition::query()->lockForUpdate()->find($edition->getKey());
+
+        if ($locked === null) {
+            throw new InvalidCourseEditionData('El dictado ya no existe; actualice la página.');
         }
 
-        DB::transaction(function () use ($edition): void {
-            $edition->delete();
-
-            CourseEditionChanged::dispatch($edition->id, 'course-edition-deleted');
-        });
+        return $locked;
     }
 
     /**

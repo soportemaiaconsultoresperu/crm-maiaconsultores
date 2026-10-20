@@ -60,6 +60,15 @@ class CourseActivityService
             throw InvalidCourseEditionData::forField('type', 'No se puede cambiar el tipo porque el curso o charla ya tiene dictados.');
         }
 
+        // Whether a talk issues certificates decides charges and document issuing;
+        // once people are enrolled it is frozen, like the type.
+        if ((bool) ($attributes['talk_includes_certificate'] ?? false) !== (bool) $activity->talk_includes_certificate
+            && \App\Models\Courses\CourseEnrollment::query()
+                ->whereIn('course_edition_id', $activity->editions()->withTrashed()->select('id'))
+                ->exists()) {
+            throw InvalidCourseEditionData::forField('talk_includes_certificate', 'No se puede cambiar «Charla con certificado» porque ya hay participantes inscritos en sus dictados.');
+        }
+
         return DB::transaction(function () use ($activity, $attributes): CourseActivity {
             $activity->fill($attributes)->save();
 
@@ -76,14 +85,17 @@ class CourseActivityService
      */
     public function delete(CourseActivity $activity): void
     {
-        if ($activity->editions()->exists()) {
-            throw new InvalidCourseEditionData('No se puede eliminar el curso o charla porque tiene dictados registrados. Elimine primero sus dictados.');
-        }
-
         DB::transaction(function () use ($activity): void {
-            $activity->delete();
+            // Lock and re-check: CourseEditionService::create() takes the same lock.
+            $locked = CourseActivity::query()->lockForUpdate()->findOrFail($activity->getKey());
 
-            CourseActivityChanged::dispatch($activity->id, 'course-activity-deleted');
+            if ($locked->editions()->exists()) {
+                throw new InvalidCourseEditionData('No se puede eliminar el curso o charla porque tiene dictados registrados. Elimine primero sus dictados.');
+            }
+
+            $locked->delete();
+
+            CourseActivityChanged::dispatch($locked->id, 'course-activity-deleted');
         });
     }
 
