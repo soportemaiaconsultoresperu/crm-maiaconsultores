@@ -36,7 +36,7 @@ class RescheduleContentItemRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'planned_date' => ['required', 'date_format:Y-m-d'],
+            'planned_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:2000-01-01', 'before_or_equal:2099-12-31'],
             'planned_time' => ['required', 'date_format:H:i'],
             'revision' => ['required', 'integer', 'min:1'],
         ];
@@ -50,6 +50,8 @@ class RescheduleContentItemRequest extends FormRequest
         return [
             'planned_date.required' => 'Indique la nueva fecha planificada.',
             'planned_date.date_format' => 'La fecha planificada no es válida.',
+            'planned_date.after_or_equal' => 'La fecha planificada debe estar entre los años 2000 y 2099.',
+            'planned_date.before_or_equal' => 'La fecha planificada debe estar entre los años 2000 y 2099.',
             'planned_time.required' => 'Indique el nuevo horario planificado.',
             'planned_time.date_format' => 'El horario planificado no es válido.',
             'revision.required' => 'Faltó la versión del contenido. Vuelva a abrir la pantalla e intente de nuevo.',

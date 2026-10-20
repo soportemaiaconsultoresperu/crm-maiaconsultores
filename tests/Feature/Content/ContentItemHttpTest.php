@@ -102,13 +102,29 @@ class ContentItemHttpTest extends TestCase
         $this->putJson(route('content.projects.contents.update', ['contentProject' => $foreign, 'contentItem' => $foreignItem->id]), [])->assertNotFound();
     }
 
-    public function test_actor_without_update_is_refused_and_mutates_nothing(): void
+    /**
+     * Review fixes S1/S2: membership alone lets a user work on the project's
+     * contents (this test used to assert 403 for a member without
+     * `content_projects.update`), while an archived project is read-only:
+     * reads stay open and every mutation is refused.
+     */
+    public function test_plain_member_works_on_contents_and_an_archived_project_is_read_only(): void
     {
-        $reader = User::factory()->create(['is_active' => true]);
-        $reader->givePermissionTo('content_projects.view');
-        $this->project->members()->attach($reader);
+        $member = User::factory()->create(['is_active' => true]);
+        $member->givePermissionTo('content_projects.view');
+        $this->project->members()->attach($member);
         $item = ContentItem::factory()->for($this->project, 'project')->create(['title' => 'Original']);
-        $this->actingAs($reader);
+        $this->actingAs($member);
+
+        $this->get(route('content.projects.contents.create', $this->project))->assertOk();
+        $this->get(route('content.projects.contents.edit', ['contentProject' => $this->project, 'contentItem' => $item->id]))->assertOk();
+        $this->put(route('content.projects.contents.update', ['contentProject' => $this->project, 'contentItem' => $item->id]), $this->payload([
+            'title' => 'Editado por un miembro',
+            'revision' => $item->fresh()->revision,
+        ]))->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertSame('Editado por un miembro', $item->fresh()->title);
+
+        $this->project->archive();
 
         // Reading the grid is allowed; the form and every mutation are not.
         $this->get(route('content.projects.contents.index', $this->project))->assertOk();
@@ -116,11 +132,13 @@ class ContentItemHttpTest extends TestCase
         $this->get(route('content.projects.contents.create', $this->project))->assertForbidden();
         $this->postJson(route('content.projects.contents.store', $this->project), $this->payload())->assertForbidden();
         $this->get(route('content.projects.contents.edit', ['contentProject' => $this->project, 'contentItem' => $item->id]))->assertForbidden();
-        $this->putJson(route('content.projects.contents.update', ['contentProject' => $this->project, 'contentItem' => $item->id]), $this->payload(['title' => 'Robado']))
-            ->assertForbidden();
+        $this->putJson(route('content.projects.contents.update', ['contentProject' => $this->project, 'contentItem' => $item->id]), $this->payload([
+            'title' => 'Robado',
+            'revision' => $item->fresh()->revision,
+        ]))->assertForbidden();
 
         $this->assertSame(1, ContentItem::query()->count());
-        $this->assertSame('Original', $item->fresh()->title);
+        $this->assertSame('Editado por un miembro', $item->fresh()->title);
     }
 
     public function test_only_the_addressed_projects_contents_appear_and_foreign_items_are_404(): void
@@ -212,11 +230,12 @@ class ContentItemHttpTest extends TestCase
             'title' => 'Contenido de medianoche',
         ]);
 
+        // Review fix S19: the Peru calendar day is shown as d/m/Y.
         $this->get(route('content.projects.contents.index', $this->project))->assertOk()
-            ->assertSee('2026-03-08')
+            ->assertSee('08/03/2026')
             ->assertSee('domingo')
             ->assertSee('23:30')
-            ->assertDontSee('2026-03-09')
+            ->assertDontSee('09/03/2026')
             ->assertDontSee('lunes')
             ->assertDontSee('04:30');
     }
@@ -228,7 +247,7 @@ class ContentItemHttpTest extends TestCase
 
         $this->get(route('content.projects.contents.index', $this->project))->assertOk()
             ->assertSee('content-item-overdue-'.$overdue->id, false)
-            ->assertSee('Vencido')
+            ->assertSee('Atrasado')
             ->assertDontSee('content-item-overdue-'.$published->id, false);
     }
 

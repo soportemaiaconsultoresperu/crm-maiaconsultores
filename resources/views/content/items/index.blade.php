@@ -47,6 +47,13 @@
         @endif
     </div>
 
+    @if ($errors->any())
+        {{-- A refused filter (for example an impossible month) was dropped. --}}
+        <div class="alert alert-warning" role="alert" data-testid="content-items-filter-errors">
+            <ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
+        </div>
+    @endif
+
     <x-table title="Contenidos de {{ $project->name }}" data-testid="content-items-table">
         @slot('filters')
             <form method="GET" action="{{ route('content.projects.contents.index', $project) }}"
@@ -135,9 +142,9 @@
             @forelse ($contents as $content)
                 <tr data-testid="content-item-row-{{ $content->id }}" @class(['table-warning' => $content->isOverdue()])>
                     <td class="text-nowrap">
-                        {{ $content->plannedDate() ?? '—' }}
+                        {{ $content->planned_at ? \App\Support\Content\PeruTime::displayDate($content->planned_at) : '—' }}
                         @if ($content->isOverdue())
-                            <span class="badge text-bg-danger" data-testid="content-item-overdue-{{ $content->id }}">Vencido</span>
+                            <span class="badge text-bg-danger" data-testid="content-item-overdue-{{ $content->id }}">Atrasado</span>
                         @endif
                     </td>
                     <td class="text-nowrap">{{ $content->planned_at ? \App\Support\Content\PeruTime::weekdayLabel($content->planned_at) : '—' }}</td>

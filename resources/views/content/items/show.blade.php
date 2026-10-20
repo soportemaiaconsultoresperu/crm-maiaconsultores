@@ -39,14 +39,15 @@
             <a href="{{ route('content.projects.contents.edit', [$project, $item]) }}" class="btn btn-primary" data-testid="btn-edit-content-item">
                 <i class="bi bi-pencil me-1" aria-hidden="true"></i> Editar
             </a>
-            <form method="POST" action="{{ route('content.projects.contents.duplicate', [$project, $item]) }}" class="d-inline">
+            <form method="POST" action="{{ route('content.projects.contents.duplicate', [$project, $item]) }}" class="d-inline"
+                  data-testid="content-item-duplicate-form" data-swal-loading>
                 @csrf
                 <button type="submit" class="btn btn-outline-secondary" data-testid="btn-duplicate-content-item">
                     <i class="bi bi-files me-1" aria-hidden="true"></i> Duplicar
                 </button>
             </form>
         @endcan
-        @can('archive', $project)
+        @can('trash', $project)
             <x-swal-confirm
                 :action="route('content.projects.contents.destroy', [$project, $item])"
                 method="DELETE"
@@ -95,7 +96,7 @@
             <h3 class="card-title mb-0">Detalle del contenido</h3>
             <div class="d-flex gap-2">
                 @if ($item->isOverdue())
-                    <span class="badge text-bg-danger" data-testid="content-item-overdue-badge">Vencido</span>
+                    <span class="badge text-bg-danger" data-testid="content-item-overdue-badge">Atrasado</span>
                 @endif
                 <span class="badge {{ $statusClasses[$item->status->value] ?? 'text-bg-secondary' }}">{{ $item->status->label() }}</span>
             </div>
@@ -103,7 +104,7 @@
         <div class="card-body">
             <dl class="row mb-0">
                 <dt class="col-sm-3">Fecha</dt>
-                <dd class="col-sm-9">{{ $item->plannedDate() ?? '—' }}</dd>
+                <dd class="col-sm-9">{{ $item->planned_at ? \App\Support\Content\PeruTime::displayDate($item->planned_at) : '—' }}</dd>
 
                 <dt class="col-sm-3">Día</dt>
                 <dd class="col-sm-9">{{ $item->planned_at ? \App\Support\Content\PeruTime::weekdayLabel($item->planned_at) : '—' }}</dd>

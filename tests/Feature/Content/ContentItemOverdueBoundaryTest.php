@@ -16,11 +16,13 @@ use Tests\TestCase;
 /**
  * T6d — the overdue boundary rule in Peru time.
  *
- * Proves the "date but no time" case against the Peruvian day rather than the
- * UTC day (at 00:00 UTC the content is still inside its Peru day because Peru is
- * five hours behind), that a timed content is overdue from its own instant, that
- * published rows are never overdue, and that the grid marker follows the same
- * rule it followed before for timed contents.
+ * Every content carries an explicit Peru time (the forms require one), so a
+ * content is overdue from its own Peruvian instant, including one planned for
+ * 00:00. Review fix S20 dropped the former date-only grace, which kept a row
+ * stored at Peru midnight "on time" until its day ended: no form can create a
+ * date-only row, so the grace only ever hid an explicit 00:00 publication. The
+ * tests also prove published rows are never overdue and that the grid marker
+ * follows the same rule.
  */
 class ContentItemOverdueBoundaryTest extends TestCase
 {
@@ -68,33 +70,32 @@ class ContentItemOverdueBoundaryTest extends TestCase
         $this->assertNotContains($laterToday->id, $overdueIds);
     }
 
-    public function test_a_date_without_a_time_becomes_overdue_only_after_its_peruvian_day_ends(): void
+    public function test_an_explicit_midnight_content_is_overdue_right_after_that_peruvian_instant(): void
     {
-        // A date-only content planned for 2026-03-08 is stored at Peru midnight,
+        // A content planned for 2026-03-08 00:00 in Peru is stored at
         // 2026-03-08 05:00 UTC.
-        $dateOnly = ContentItem::factory()->for($this->project, 'project')->create([
+        $midnight = ContentItem::factory()->for($this->project, 'project')->create([
             'planned_at' => PeruTime::toUtc('2026-03-08 00:00:00'),
-            'title' => 'Solo fecha',
+            'title' => 'Medianoche',
         ]);
-        $this->assertSame('2026-03-08 05:00:00', $dateOnly->planned_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-03-08 05:00:00', $midnight->planned_at->format('Y-m-d H:i:s'));
 
-        // 20:00 in Peru on the 8th is already 2026-03-09 01:00 UTC. A naive UTC
-        // comparison would call the row overdue; the Peruvian day has not ended.
-        $this->travelTo(PeruTime::toUtc('2026-03-08 20:00:00'));
-        $this->assertSame('2026-03-09', CarbonImmutable::now()->format('Y-m-d'), 'The UTC day is already the 9th.');
-        $this->assertSame('2026-03-08', PeruTime::date(CarbonImmutable::now()), 'The Peruvian day is still the 8th.');
-        $this->assertFalse($dateOnly->fresh()->isOverdue());
-        $this->assertNotContains($dateOnly->id, ContentItem::query()->overdue()->pluck('id')->all());
+        // One second before, in Peru, it is still on time, even though the UTC
+        // day is already the 8th.
+        $this->travelTo(PeruTime::toUtc('2026-03-07 23:59:59'));
+        $this->assertSame('2026-03-08', CarbonImmutable::now()->format('Y-m-d'), 'The UTC day is already the 8th.');
+        $this->assertFalse($midnight->fresh()->isOverdue());
+        $this->assertNotContains($midnight->id, ContentItem::query()->overdue()->pluck('id')->all());
 
-        // One second before the Peruvian day ends it is still not overdue.
-        $this->travelTo(PeruTime::toUtc('2026-03-08 23:59:59'));
-        $this->assertFalse($dateOnly->fresh()->isOverdue());
+        // From that Peruvian instant on it is overdue, with no grace for the
+        // rest of the day.
+        $this->travelTo(PeruTime::toUtc('2026-03-08 00:00:00'));
+        $this->assertTrue($midnight->fresh()->isOverdue());
+        $this->assertContains($midnight->id, ContentItem::query()->overdue()->pluck('id')->all());
 
-        // The instant the Peruvian day ends (2026-03-09 00:00 Peru) it becomes
-        // overdue.
-        $this->travelTo(PeruTime::toUtc('2026-03-09 00:00:00'));
-        $this->assertTrue($dateOnly->fresh()->isOverdue());
-        $this->assertContains($dateOnly->id, ContentItem::query()->overdue()->pluck('id')->all());
+        $this->travelTo(PeruTime::toUtc('2026-03-08 00:01:00'));
+        $this->assertTrue($midnight->fresh()->isOverdue());
+        $this->assertContains($midnight->id, ContentItem::query()->overdue()->pluck('id')->all());
     }
 
     public function test_published_contents_are_never_overdue_in_either_case(): void
@@ -115,21 +116,26 @@ class ContentItemOverdueBoundaryTest extends TestCase
         $this->assertSame(0, ContentItem::query()->overdue()->count());
     }
 
-    public function test_the_grid_keeps_marking_timed_contents_and_spares_the_date_only_row_for_today(): void
+    public function test_the_grid_marks_every_reached_instant_including_todays_midnight(): void
     {
         $this->travelTo(PeruTime::toUtc('2026-03-08 20:00:00'));
 
         $timedOverdue = ContentItem::factory()->for($this->project, 'project')->create([
             'planned_at' => PeruTime::toUtc('2026-03-08 18:00:00'),
-            'title' => 'Timed vencido',
+            'title' => 'Timed atrasado',
         ]);
-        $dateOnlyToday = ContentItem::factory()->for($this->project, 'project')->create([
+        $midnightToday = ContentItem::factory()->for($this->project, 'project')->create([
             'planned_at' => PeruTime::toUtc('2026-03-08 00:00:00'),
-            'title' => 'Solo fecha de hoy',
+            'title' => 'Medianoche de hoy',
+        ]);
+        $later = ContentItem::factory()->for($this->project, 'project')->create([
+            'planned_at' => PeruTime::toUtc('2026-03-08 21:00:00'),
+            'title' => 'Más tarde',
         ]);
 
         $this->get(route('content.projects.contents.index', $this->project))->assertOk()
             ->assertSee('content-item-overdue-'.$timedOverdue->id, false)
-            ->assertDontSee('content-item-overdue-'.$dateOnlyToday->id, false);
+            ->assertSee('content-item-overdue-'.$midnightToday->id, false)
+            ->assertDontSee('content-item-overdue-'.$later->id, false);
     }
 }

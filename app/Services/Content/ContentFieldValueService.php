@@ -31,6 +31,11 @@ use Illuminate\Validation\ValidationException;
  */
 class ContentFieldValueService
 {
+    /** Bounds of the `value_number` decimal(14,2) column. */
+    public const NUMBER_MAX = '999999999999.99';
+
+    public const NUMBER_MIN = '-999999999999.99';
+
     /**
      * Read a content item's stored values, keyed by each definition's `key`.
      * Only fields that currently hold a value are returned.
@@ -84,17 +89,19 @@ class ContentFieldValueService
      * Write a content item's custom values from an array keyed by field. A
      * present value is validated and stored; a null/blank/empty entry clears
      * the row. Required fields must have a value either in the payload or
-     * already stored.
+     * already stored, unless `$enforceRequired` is false: a duplicate copies the
+     * source's values as they are, even when a required field was added after
+     * the source was created.
      *
      * @param  array<string, mixed>  $values
      *
      * @throws ValidationException
      */
-    public function save(ContentItem $item, array $values): void
+    public function save(ContentItem $item, array $values, bool $enforceRequired = true): void
     {
         $definitions = $this->definitionsFor($item);
 
-        DB::transaction(function () use ($item, $values, $definitions): void {
+        DB::transaction(function () use ($item, $values, $definitions, $enforceRequired): void {
             $handled = [];
 
             foreach ($values as $key => $value) {
@@ -111,7 +118,7 @@ class ContentFieldValueService
                 $this->assertDefinitionBelongsToItem($item, $definition);
 
                 if ($this->isEmpty($value)) {
-                    if ($definition->required && $definition->is_active) {
+                    if ($enforceRequired && $definition->required && $definition->is_active) {
                         throw ValidationException::withMessages([
                             $key => 'El campo es obligatorio.',
                         ]);
@@ -126,7 +133,7 @@ class ContentFieldValueService
             }
 
             foreach ($definitions as $definition) {
-                if (! $definition->required || ! $definition->is_active || isset($handled[$definition->key])) {
+                if (! $enforceRequired || ! $definition->required || ! $definition->is_active || isset($handled[$definition->key])) {
                     continue;
                 }
 
@@ -148,6 +155,13 @@ class ContentFieldValueService
     public function store(ContentItem $item, ContentFieldDefinition $definition, mixed $value): ContentFieldValue
     {
         $this->assertDefinitionBelongsToItem($item, $definition);
+
+        // A multiple selection form keeps a hidden empty entry so unticking
+        // every option still submits the field; that entry is not an option.
+        if ($definition->type === ContentFieldType::MultipleSelection && is_array($value)) {
+            $value = array_values(array_filter($value, fn (mixed $entry): bool => ! $this->isEmpty($entry)));
+        }
+
         $this->assertValidValue($definition, $value);
 
         $row = ContentFieldValue::query()->firstOrNew([
@@ -256,6 +270,20 @@ class ContentFieldValueService
             [$key => $value],
             [$key => $type->valueRules()],
         )->validate();
+
+        // A number is stored as decimal(14,2): at most two decimals and twelve
+        // integer digits, so a value MySQL would reject or round is refused here.
+        if ($type === ContentFieldType::Number) {
+            Validator::make(
+                [$key => is_string($value) ? trim($value) : $value],
+                [$key => ['numeric', 'decimal:0,2', 'min:'.self::NUMBER_MIN, 'max:'.self::NUMBER_MAX]],
+                [
+                    $key.'.decimal' => 'El número admite como máximo 2 decimales.',
+                    $key.'.min' => 'El número debe estar entre '.self::NUMBER_MIN.' y '.self::NUMBER_MAX.'.',
+                    $key.'.max' => 'El número debe estar entre '.self::NUMBER_MIN.' y '.self::NUMBER_MAX.'.',
+                ],
+            )->validate();
+        }
 
         if ($type === ContentFieldType::SingleSelection) {
             $this->assertOptionBelongsToDefinition($definition, (int) $value, $key);

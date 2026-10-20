@@ -91,11 +91,13 @@ class ContentAttachmentController extends Controller
 
     /**
      * Resolve a child content inside the addressed project. A foreign or
-     * unknown id is a 404, never a disclosure of another project's row.
+     * unknown id is a 404, never a disclosure of another project's row, and so
+     * is an idea id: attachments belong to planned contents.
      */
     private function resolveItem(ContentProject $project, string $contentItem): ContentItem
     {
         return ContentItem::query()
+            ->contents()
             ->where('content_project_id', $project->getKey())
             ->findOrFail((int) $contentItem);
     }

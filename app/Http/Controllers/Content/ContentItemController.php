@@ -14,7 +14,9 @@ use App\Services\Content\ContentAttachmentService;
 use App\Services\Content\ContentItemService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Content scheduling module — a project's content grid (T6c).
@@ -106,7 +108,7 @@ class ContentItemController extends Controller
             'project' => $contentProject,
             'item' => $item,
             'form' => $this->items->formData($contentProject, $item),
-            'catalogOptions' => $this->items->catalogOptions($contentProject),
+            'catalogOptions' => $this->items->catalogOptions($contentProject, $item),
         ]);
     }
 
@@ -126,13 +128,24 @@ class ContentItemController extends Controller
      * Duplicate a content into a new row: same text, selections, custom values
      * and attachments, but no planned instant, the Incompleto status and its own
      * copy of every uploaded file. The source is left untouched (T8a).
+     *
+     * A refused duplication (for example an attachment whose file is gone) is
+     * shown on the source's detail as an error message instead of a silent
+     * redirect, since that page has no form to attach field errors to.
      */
     public function duplicate(ContentProject $contentProject, string $contentItem): RedirectResponse
     {
         Gate::authorize('update', $contentProject);
 
         $source = $this->resolveItem($contentProject, $contentItem);
-        $copy = $this->items->duplicate($source);
+
+        try {
+            $copy = $this->items->duplicate($source);
+        } catch (ValidationException $exception) {
+            return redirect()
+                ->route('content.projects.contents.show', [$contentProject, $source])
+                ->with('error', 'No se pudo duplicar el contenido. '.implode(' ', Arr::flatten($exception->errors())));
+        }
 
         return redirect()
             ->route('content.projects.contents.show', [$contentProject, $copy])
@@ -153,16 +166,18 @@ class ContentItemController extends Controller
 
         return redirect()
             ->route('content.projects.contents.show', [$contentProject, $item])
-            ->with('status', 'Contenido reprogramado para el '.\App\Support\Content\PeruTime::date($item->planned_at).' a las '.\App\Support\Content\PeruTime::toPeru($item->planned_at)->format('H:i').' (hora de Perú).');
+            ->with('status', 'Contenido reprogramado para el '.\App\Support\Content\PeruTime::displayDate($item->planned_at).' a las '.\App\Support\Content\PeruTime::toPeru($item->planned_at)->format('H:i').' (hora de Perú).');
     }
 
     /**
      * Resolve a child content inside the addressed project. A foreign or
-     * unknown id is a 404, never a disclosure of another project's row.
+     * unknown id is a 404, never a disclosure of another project's row, and so
+     * is an idea id: ideas have their own routes.
      */
     private function resolveItem(ContentProject $project, string $contentItem): ContentItem
     {
         return ContentItem::query()
+            ->contents()
             ->where('content_project_id', $project->getKey())
             ->findOrFail((int) $contentItem);
     }

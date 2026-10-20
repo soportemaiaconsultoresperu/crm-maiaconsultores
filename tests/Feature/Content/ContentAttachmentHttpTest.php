@@ -306,33 +306,48 @@ class ContentAttachmentHttpTest extends TestCase
         $show->assertSee(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]));
     }
 
-    public function test_mutation_requires_the_project_update_ability(): void
+    /**
+     * Review fixes S1/S2: a plain member attaches files (this test used to
+     * assert 403 for a member without `content_projects.update`), while an
+     * archived project refuses every attachment write but still lists them.
+     */
+    public function test_plain_member_attaches_and_an_archived_project_refuses_attachment_writes(): void
     {
         Storage::fake(ContentAttachmentService::DISK);
-        $reader = User::factory()->create(['is_active' => true]);
-        $reader->givePermissionTo('content_projects.view');
-        $this->project->members()->attach($reader);
+        $member = User::factory()->create(['is_active' => true]);
+        $member->givePermissionTo('content_projects.view');
+        $this->project->members()->attach($member);
 
         $item = $this->contentItem();
 
-        $this->actingAs($reader)
+        $this->actingAs($member)
+            ->post(route('content.projects.contents.attachments.store', [$this->project, $item]), [
+                'file' => UploadedFile::fake()->createWithContent('foto.jpg', $this->jpeg()),
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+        $this->assertSame(1, ContentAttachment::query()->count());
+
+        $this->project->archive();
+
+        $this->actingAs($member)
             ->get(route('content.projects.contents.show', [$this->project, $item]))
             ->assertOk()
             ->assertSee('Archivos y enlaces');
 
-        $this->actingAs($reader)
+        $this->actingAs($member)
             ->post(route('content.projects.contents.attachments.store', [$this->project, $item]), [
-                'file' => UploadedFile::fake()->createWithContent('foto.jpg', $this->jpeg()),
+                'file' => UploadedFile::fake()->createWithContent('otra.jpg', $this->jpeg()),
             ])
             ->assertForbidden();
 
-        $this->actingAs($reader)
+        $this->actingAs($member)
             ->post(route('content.projects.contents.attachments.link', [$this->project, $item]), [
                 'url' => 'https://cdn.example.com/media/foto.jpg',
             ])
             ->assertForbidden();
 
-        $this->assertSame(0, ContentAttachment::query()->count());
+        $this->assertSame(1, ContentAttachment::query()->count());
     }
 
     private function contentItem(): ContentItem

@@ -5,6 +5,7 @@ namespace App\Services\Content;
 use App\Models\Content\ContentAttachment;
 use App\Models\Content\ContentItem;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -41,10 +42,11 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * There is deliberately no automatic purge path. Retiring an attachment only
  * soft-deletes its row and trashing a content only soft-deletes its content
  * row: the physical file stays on disk in both cases so the content can
- * recover it. Physical files are removed in exactly two explicit, transactional
- * cases: `discardStoredFile()` cleans up a file this service copied for a
- * duplication that then rolled back, so a failed duplication leaves no orphan,
- * and the operator purge (`ContentTrashService::purge()`) empties the trash.
+ * recover it. Physical files are removed only in explicit, transactional
+ * cases: `discardStoredFile()` cleans up a file this service stored for an
+ * upload whose row could not be inserted, or copied for a duplication that
+ * then rolled back, so neither leaves an orphan, and the operator purge
+ * (`ContentTrashService::purge()`) empties the trash.
  * Nothing removes a file on a schedule, a console command or a model event.
  *
  * The size ceilings are read from `config('content.attachments.*')` so a test
@@ -159,6 +161,8 @@ class ContentAttachmentService
             ]);
         }
 
+        // Cheap early refusal before any byte is written; the authoritative
+        // check runs again under the row lock below.
         $this->assertCapacity($item, 'file');
 
         $path = $file->storeAs(
@@ -173,16 +177,47 @@ class ContentAttachmentService
             ]);
         }
 
-        return ContentAttachment::query()->create([
-            'content_item_id' => $item->getKey(),
-            'kind' => $detected['kind'],
-            'path' => (string) $path,
-            'url' => null,
-            'original_name' => $file->getClientOriginalName(),
-            'mime_type' => $detected['mime'],
-            'size_bytes' => $size,
-            'sort' => $this->nextSort($item),
-        ]);
+        // The stored file must never outlive a refused or failed insert: a
+        // concurrent upload that filled the last slot, or any database error,
+        // removes it before the failure propagates.
+        try {
+            return $this->insertLocked($item, 'file', fn (): array => [
+                'kind' => $detected['kind'],
+                'path' => (string) $path,
+                'url' => null,
+                'original_name' => $file->getClientOriginalName(),
+                'mime_type' => $detected['mime'],
+                'size_bytes' => $size,
+            ]);
+        } catch (\Throwable $exception) {
+            $this->discardStoredFile((string) $path);
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * Count, sort and insert in one transaction while the content row is
+     * locked, so two concurrent requests can neither exceed the per-content
+     * ceiling nor take the same position.
+     *
+     * @param  callable(): array<string, mixed>  $attributes
+     *
+     * @throws ValidationException when the content is already full
+     */
+    private function insertLocked(ContentItem $item, string $field, callable $attributes): ContentAttachment
+    {
+        return DB::transaction(function () use ($item, $field, $attributes): ContentAttachment {
+            ContentItem::query()->withTrashed()->lockForUpdate()->findOrFail($item->getKey());
+
+            $this->assertCapacity($item, $field);
+
+            return ContentAttachment::query()->create([
+                'content_item_id' => $item->getKey(),
+                ...$attributes(),
+                'sort' => $this->nextSort($item),
+            ]);
+        });
     }
 
     /**
@@ -208,17 +243,13 @@ class ContentAttachmentService
         $extension = strtolower(pathinfo($urlPath, PATHINFO_EXTENSION));
         $format = $this->formatForExtension($extension);
 
-        $this->assertCapacity($item, 'url');
-
-        return ContentAttachment::query()->create([
-            'content_item_id' => $item->getKey(),
+        return $this->insertLocked($item, 'url', fn (): array => [
             'kind' => $format['kind'] ?? ContentAttachment::KIND_LINK,
             'path' => null,
             'url' => $url,
             'original_name' => $format !== null && basename($urlPath) !== '' ? basename($urlPath) : null,
             'mime_type' => $format['mime'] ?? null,
             'size_bytes' => null,
-            'sort' => $this->nextSort($item),
         ]);
     }
 
@@ -254,7 +285,13 @@ class ContentAttachmentService
             throw new NotFoundHttpException('El archivo adjunto no está disponible.');
         }
 
-        return $disk->download($path, $attachment->original_name ?: basename($path));
+        $response = $disk->download($path, $attachment->original_name ?: basename($path));
+
+        // The stored MIME type was sniffed on upload; the browser must not
+        // second-guess it and render the file as something else.
+        $response->headers->set('X-Content-Type-Options', 'nosniff');
+
+        return $response;
     }
 
     /**
@@ -317,10 +354,11 @@ class ContentAttachmentService
 
     /**
      * Delete a stored file from the private disk. This is the module's single
-     * low-level file-removal primitive, called only from the two explicit,
-     * transactional paths: the rollback cleanup that removes a copy this
-     * service made for a duplication that then failed, and the operator purge
-     * that empties the trash. A committed attachment keeps its file.
+     * low-level file-removal primitive, called only from explicit,
+     * transactional paths: the cleanup of an upload whose row was not
+     * inserted, the rollback cleanup that removes a copy this service made for
+     * a duplication that then failed, and the operator purge that empties the
+     * trash. A committed attachment keeps its file.
      */
     public function discardStoredFile(?string $path): void
     {

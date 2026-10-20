@@ -97,20 +97,33 @@ class ContentRescheduleTest extends TestCase
         $this->assertSame(1, $item->revision);
     }
 
-    public function test_reschedule_requires_update_permission_and_a_reachable_project(): void
+    /**
+     * Review fixes S1/S2: a plain member may reschedule (this test used to
+     * assert 403 for a member without `content_projects.update`); an archived
+     * project refuses it and a project out of reach answers 404.
+     */
+    public function test_reschedule_is_open_to_members_refused_on_archived_and_404_out_of_reach(): void
     {
         $item = ContentItem::factory()->for($this->project, 'project')->create([
             'planned_at' => PeruTime::toUtc('2026-07-15 09:30:00'),
         ]);
 
-        $reader = User::factory()->create(['is_active' => true]);
-        $reader->givePermissionTo('content_projects.view');
-        $this->project->members()->attach($reader);
+        $member = User::factory()->create(['is_active' => true]);
+        $member->givePermissionTo('content_projects.view');
+        $this->project->members()->attach($member);
 
-        $this->actingAs($reader);
+        $this->actingAs($member);
         $this->put(route('content.projects.contents.reschedule', [$this->project, $item]), [
             'planned_date' => '2026-08-20',
             'planned_time' => '18:45',
+            'revision' => $item->fresh()->revision,
+        ])->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertSame('2026-08-20', $item->fresh()->plannedDate());
+
+        $this->project->archive();
+        $this->put(route('content.projects.contents.reschedule', [$this->project, $item]), [
+            'planned_date' => '2026-09-01',
+            'planned_time' => '10:00',
             'revision' => $item->fresh()->revision,
         ])->assertForbidden();
 
@@ -125,7 +138,7 @@ class ContentRescheduleTest extends TestCase
             'revision' => 1,
         ])->assertNotFound();
 
-        $this->assertSame('2026-07-15', $item->fresh()->plannedDate());
+        $this->assertSame('2026-08-20', $item->fresh()->plannedDate());
         $this->assertSame('2026-07-15', $foreignItem->fresh()->plannedDate());
     }
 }

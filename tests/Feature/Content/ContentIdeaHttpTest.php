@@ -131,13 +131,27 @@ class ContentIdeaHttpTest extends TestCase
         $this->get($convertedShow)->assertNotFound();
     }
 
-    public function test_actor_without_update_is_refused_and_mutates_nothing(): void
+    /**
+     * Review fixes S1/S2: membership alone lets a user work on ideas (this test
+     * used to assert 403 for a member without `content_projects.update`), while
+     * an archived project is read-only: reads stay open, mutations are refused.
+     */
+    public function test_plain_member_works_on_ideas_and_an_archived_project_is_read_only(): void
     {
-        $reader = User::factory()->create(['is_active' => true]);
-        $reader->givePermissionTo('content_projects.view');
-        $this->project->members()->attach($reader);
+        $member = User::factory()->create(['is_active' => true]);
+        $member->givePermissionTo('content_projects.view');
+        $this->project->members()->attach($member);
         $idea = ContentItem::factory()->for($this->project, 'project')->idea()->create(['title' => 'Original']);
-        $this->actingAs($reader);
+        $this->actingAs($member);
+
+        $this->get(route('content.projects.ideas.create', $this->project))->assertOk();
+        $this->put(route('content.projects.ideas.update', ['contentProject' => $this->project, 'contentIdea' => $idea->id]), $this->payload([
+            'title' => 'Editada por un miembro',
+            'revision' => $idea->fresh()->revision,
+        ]))->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertSame('Editada por un miembro', $idea->fresh()->title);
+
+        $this->project->archive();
 
         // Reading the ideas section is allowed; the form and every mutation are not.
         $this->get(route('content.projects.ideas.index', $this->project))->assertOk();
@@ -146,8 +160,10 @@ class ContentIdeaHttpTest extends TestCase
         $this->get(route('content.projects.ideas.create', $this->project))->assertForbidden();
         $this->postJson(route('content.projects.ideas.store', $this->project), $this->payload())->assertForbidden();
         $this->get(route('content.projects.ideas.edit', ['contentProject' => $this->project, 'contentIdea' => $idea->id]))->assertForbidden();
-        $this->putJson(route('content.projects.ideas.update', ['contentProject' => $this->project, 'contentIdea' => $idea->id]), $this->payload(['title' => 'Robado']))
-            ->assertForbidden();
+        $this->putJson(route('content.projects.ideas.update', ['contentProject' => $this->project, 'contentIdea' => $idea->id]), $this->payload([
+            'title' => 'Robado',
+            'revision' => $idea->fresh()->revision,
+        ]))->assertForbidden();
         $this->postJson(route('content.projects.ideas.convert', ['contentProject' => $this->project, 'contentIdea' => $idea->id]), [
             'planned_date' => '2026-07-15',
             'planned_time' => '09:30',
@@ -155,7 +171,7 @@ class ContentIdeaHttpTest extends TestCase
 
         $this->assertSame(1, ContentItem::query()->count());
         $fresh = $idea->fresh();
-        $this->assertSame('Original', $fresh->title);
+        $this->assertSame('Editada por un miembro', $fresh->title);
         $this->assertTrue($fresh->isIdea());
         $this->assertNull($fresh->planned_at);
     }
@@ -164,9 +180,11 @@ class ContentIdeaHttpTest extends TestCase
     {
         $idea = ContentItem::factory()->for($this->project, 'project')->idea()->create(['title' => 'Antes']);
 
+        // Review fix S10: an idea edit carries the revision the form loaded.
         $this->put(route('content.projects.ideas.update', ['contentProject' => $this->project, 'contentIdea' => $idea->id]), $this->payload([
             'title' => 'Después',
             'notes' => 'Nota agregada',
+            'revision' => $idea->fresh()->revision,
         ]))->assertRedirect(route('content.projects.ideas.show', ['contentProject' => $this->project, 'contentIdea' => $idea->id]));
 
         $fresh = $idea->fresh();

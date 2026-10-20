@@ -37,6 +37,12 @@ use Illuminate\Validation\ValidationException;
  */
 class ContentItemService
 {
+    /**
+     * A grid month: `YYYY-MM` with a real month (01-12). Shared with the filter
+     * request so the screen, the exports and the query agree on what is valid.
+     */
+    public const MONTH_PATTERN = '/^\d{4}-(0[1-9]|1[0-2])$/';
+
     public function __construct(
         private readonly ContentFieldValueService $values = new ContentFieldValueService,
         private readonly ContentAttachmentService $attachments = new ContentAttachmentService,
@@ -56,11 +62,15 @@ class ContentItemService
             ->where('content_project_id', $project->getKey())
             ->with(['pillar', 'topic', 'objectives', 'formats', 'channels']);
 
+        // `%` and `_` typed by the user are literal characters, not wildcards,
+        // so they are escaped with an explicit ESCAPE character that SQLite
+        // and MySQL both honour.
         $term = trim((string) ($filters['q'] ?? ''));
         if ($term !== '') {
-            $like = '%'.$term.'%';
+            $like = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $term).'%';
             $query->where(function (Builder $inner) use ($like): void {
-                $inner->where('title', 'like', $like)->orWhere('body', 'like', $like);
+                $inner->whereRaw("title LIKE ? ESCAPE '!'", [$like])
+                    ->orWhereRaw("body LIKE ? ESCAPE '!'", [$like]);
             });
         }
 
@@ -90,9 +100,10 @@ class ContentItemService
         }
 
         // The month is the Peru calendar month, so its UTC bounds are derived
-        // from the IANA zone instead of assuming a fixed offset.
+        // from the IANA zone instead of assuming a fixed offset. An impossible
+        // month (13, 00) is ignored here; the filter request reports it.
         $month = trim((string) ($filters['month'] ?? ''));
-        if (preg_match('/^\d{4}-\d{2}$/', $month) === 1) {
+        if (preg_match(self::MONTH_PATTERN, $month) === 1) {
             $start = PeruTime::toUtc($month.'-01 00:00:00');
             $query->where('planned_at', '>=', $start)
                 ->where('planned_at', '<', $start->addMonthNoOverflow());
@@ -102,35 +113,77 @@ class ContentItemService
     }
 
     /**
-     * The active catalog options the grid filters and the form offer, all
-     * scoped to the project.
+     * The catalog options the grid filters and the form offer, all scoped to
+     * the project.
+     *
+     * Only active options are offered, except that an edited row also gets the
+     * retired options it already stores, so its form can keep them selected
+     * (the views mark them "(Retirada)"). Without them a re-submitted form would
+     * silently drop a historical reference. The selection guard still refuses a
+     * retired option the row did not already hold.
      *
      * @return array{pillars: \Illuminate\Database\Eloquent\Collection<int, ContentPillar>, topics: \Illuminate\Database\Eloquent\Collection<int, ContentTopic>, objectives: \Illuminate\Database\Eloquent\Collection<int, ContentObjective>, formats: \Illuminate\Database\Eloquent\Collection<int, ContentFormat>, channels: \Illuminate\Database\Eloquent\Collection<int, ContentChannel>}
      */
-    public function catalogOptions(ContentProject $project): array
+    public function catalogOptions(ContentProject $project, ?ContentItem $item = null): array
     {
+        $stored = fn (string $relation): array => $item === null
+            ? []
+            : $item->{$relation}()
+                ->pluck($item->{$relation}()->getRelated()->getQualifiedKeyName())
+                ->map(fn (mixed $id): int => (int) $id)
+                ->all();
+
+        $topics = ContentTopic::query()
+            ->whereHas('pillar', fn (Builder $pillars): Builder => $pillars->where('content_project_id', $project->getKey()));
+
         return [
-            'pillars' => ContentPillar::query()
-                ->where('content_project_id', $project->getKey())
-                ->active()
-                ->get(),
-            'topics' => ContentTopic::query()
-                ->whereHas('pillar', fn (Builder $pillars): Builder => $pillars->where('content_project_id', $project->getKey()))
-                ->active()
-                ->get(),
-            'objectives' => ContentObjective::query()
-                ->where('content_project_id', $project->getKey())
-                ->active()
-                ->get(),
-            'formats' => ContentFormat::query()
-                ->where('content_project_id', $project->getKey())
-                ->active()
-                ->get(),
-            'channels' => ContentChannel::query()
-                ->where('content_project_id', $project->getKey())
-                ->active()
-                ->get(),
+            'pillars' => $this->activeOrStored(
+                ContentPillar::query()->where('content_project_id', $project->getKey()),
+                $item?->content_pillar_id !== null ? [(int) $item->content_pillar_id] : [],
+            ),
+            'topics' => $this->activeOrStored(
+                $topics,
+                $item?->content_topic_id !== null ? [(int) $item->content_topic_id] : [],
+            ),
+            'objectives' => $this->activeOrStored(
+                ContentObjective::query()->where('content_project_id', $project->getKey()),
+                $stored('objectives'),
+            ),
+            'formats' => $this->activeOrStored(
+                ContentFormat::query()->where('content_project_id', $project->getKey()),
+                $stored('formats'),
+            ),
+            'channels' => $this->activeOrStored(
+                ContentChannel::query()->where('content_project_id', $project->getKey()),
+                $stored('channels'),
+            ),
         ];
+    }
+
+    /**
+     * Active options plus the given stored ids, in catalog order.
+     *
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  Builder<TModel>  $query
+     * @param  list<int>  $storedIds
+     * @return \Illuminate\Database\Eloquent\Collection<int, TModel>
+     */
+    private function activeOrStored(Builder $query, array $storedIds): \Illuminate\Database\Eloquent\Collection
+    {
+        $table = $query->getModel()->getTable();
+
+        return $query
+            ->where(function (Builder $inner) use ($table, $storedIds): void {
+                $inner->where($table.'.is_active', true);
+
+                if ($storedIds !== []) {
+                    $inner->orWhereIn($table.'.id', $storedIds);
+                }
+            })
+            ->orderBy($table.'.sort')
+            ->orderBy($table.'.id')
+            ->get();
     }
 
     /**
@@ -294,7 +347,9 @@ class ContentItemService
                 $copy->formats()->sync($original->formats->pluck('id')->all());
                 $copy->channels()->sync($original->channels->pluck('id')->all());
 
-                $this->saveCustomValues($copy, $this->values->values($original));
+                // Copy what the source holds, as it is: a required field added
+                // after the source was created must not block its duplicate.
+                $this->saveCustomValues($copy, $this->values->values($original), enforceRequired: false);
 
                 foreach ($original->attachments as $attachment) {
                     $created = $this->attachments->copyOnto($copy, $attachment);
@@ -369,16 +424,21 @@ class ContentItemService
 
     /**
      * The addressed project's undated ideas, newest first. Same pinning as the
-     * grid query: only this project's `idea` rows, never a foreign one.
+     * grid query: only this project's `idea` rows, never a foreign one. The
+     * model's planned-date ordering means nothing for dateless rows, so it is
+     * replaced by creation order, most recent on top.
      *
      * @return Builder<ContentItem>
      */
     public function ideasQuery(ContentProject $project): Builder
     {
         return ContentItem::query()
+            ->withoutGlobalScope('ordered')
             ->ideas()
             ->where('content_project_id', $project->getKey())
-            ->with(['pillar', 'topic', 'objectives', 'formats', 'channels']);
+            ->with(['pillar', 'topic', 'objectives', 'formats', 'channels'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
     }
 
     /**
@@ -417,6 +477,9 @@ class ContentItemService
      * touched: an idea stays dateless and its editorial status only ever changes
      * through conversion, which preserves it.
      *
+     * Same concurrent-edit protection as update(): the row is locked, a stale
+     * revision refuses the write and a successful save increments it.
+     *
      * @param  array<string, mixed>  $data
      *
      * @throws ValidationException
@@ -424,6 +487,10 @@ class ContentItemService
     public function updateIdea(ContentItem $idea, array $data): ContentItem
     {
         return DB::transaction(function () use ($idea, $data): ContentItem {
+            $idea = ContentItem::query()->lockForUpdate()->findOrFail($idea->getKey());
+            $this->assertCurrentRevision($idea, $data['revision'] ?? null);
+
+            $idea->revision = ((int) $idea->revision) + 1;
             $idea->fill([
                 'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
                 'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
@@ -516,10 +583,10 @@ class ContentItemService
      *
      * @throws ValidationException
      */
-    private function saveCustomValues(ContentItem $item, array $fields): void
+    private function saveCustomValues(ContentItem $item, array $fields, bool $enforceRequired = true): void
     {
         try {
-            $this->values->save($item, $fields);
+            $this->values->save($item, $fields, $enforceRequired);
         } catch (ValidationException $exception) {
             $prefixed = [];
 

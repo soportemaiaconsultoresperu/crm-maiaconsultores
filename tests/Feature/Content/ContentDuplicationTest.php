@@ -231,18 +231,29 @@ class ContentDuplicationTest extends TestCase
         $this->assertSame([$first->path], $disk->allFiles());
     }
 
-    public function test_duplication_requires_update_permission_and_a_reachable_project(): void
+    /**
+     * Review fixes S1/S2: a plain member may duplicate (this test used to
+     * assert 403 for a member without `content_projects.update`); an archived
+     * project refuses it and a project out of reach answers 404.
+     */
+    public function test_duplication_is_open_to_members_refused_on_archived_and_404_out_of_reach(): void
     {
         $source = ContentItem::factory()->for($this->project, 'project')->create();
 
-        $reader = User::factory()->create(['is_active' => true]);
-        $reader->givePermissionTo('content_projects.view');
-        $this->project->members()->attach($reader);
+        $member = User::factory()->create(['is_active' => true]);
+        $member->givePermissionTo('content_projects.view');
+        $this->project->members()->attach($member);
 
-        $this->actingAs($reader);
+        $this->actingAs($member);
+        $this->post(route('content.projects.contents.duplicate', [$this->project, $source]))
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+        $this->assertSame(2, ContentItem::query()->count());
+
+        $this->project->archive();
         $this->post(route('content.projects.contents.duplicate', [$this->project, $source]))
             ->assertForbidden();
-        $this->assertSame(1, ContentItem::query()->count());
+        $this->assertSame(2, ContentItem::query()->count());
 
         // A reachable project the actor cannot reach answers 404, never a copy.
         $foreign = ContentProject::factory()->create();
@@ -251,7 +262,7 @@ class ContentDuplicationTest extends TestCase
         $this->post(route('content.projects.contents.duplicate', [$foreign, $foreignItem]))
             ->assertNotFound();
 
-        $this->assertSame(2, ContentItem::query()->count());
+        $this->assertSame(3, ContentItem::query()->count());
     }
 
     /** Minimal byte sequence with a real JPEG signature. */

@@ -2,7 +2,11 @@
 
 namespace App\Http\Requests\Content;
 
+use App\Services\Content\ContentItemService;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Arr;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Shared input contract for the content grid and its exports (T10).
@@ -18,6 +22,12 @@ use Illuminate\Foundation\Http\FormRequest;
  * Reachability and authorization are not decided here: the `contentProject`
  * route binding answers 404 for an unreachable project and the controller asks
  * the policy for `view`.
+ *
+ * The month must be a real `YYYY-MM` month: `2026-13` or `2026-00` is refused
+ * instead of reaching the date parser. A refused filter redirects to the grid
+ * with the remaining filters and the error, never back to the same invalid URL
+ * (which could loop) and never to an export without the filter the user asked
+ * for.
  */
 class ContentGridFilterRequest extends FormRequest
 {
@@ -33,13 +43,38 @@ class ContentGridFilterRequest extends FormRequest
     {
         return [
             'q' => ['nullable', 'string', 'max:255'],
-            'month' => ['nullable', 'string', 'max:7'],
+            'month' => ['nullable', 'string', 'regex:'.ContentItemService::MONTH_PATTERN],
             'status' => ['nullable', 'string', 'max:64'],
             'pillar' => ['nullable', 'string', 'max:64'],
             'topic' => ['nullable', 'string', 'max:64'],
             'format' => ['nullable', 'string', 'max:64'],
             'channel' => ['nullable', 'string', 'max:64'],
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'month.regex' => 'El mes indicado no es válido. Use el selector de mes (año y mes del 01 al 12).',
+            'month.string' => 'El mes indicado no es válido. Use el selector de mes (año y mes del 01 al 12).',
+        ];
+    }
+
+    /**
+     * Send the user to the grid without the refused filters, keeping the rest.
+     */
+    protected function failedValidation(Validator $validator): void
+    {
+        $project = $this->route('contentProject');
+        $query = Arr::except($this->query(), array_keys($validator->errors()->toArray()));
+        $target = route('content.projects.contents.index', $project).($query === [] ? '' : '?'.Arr::query($query));
+
+        throw (new ValidationException($validator))
+            ->errorBag($this->errorBag)
+            ->redirectTo($target);
     }
 
     /**

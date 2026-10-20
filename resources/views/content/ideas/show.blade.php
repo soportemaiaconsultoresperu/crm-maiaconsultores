@@ -33,6 +33,20 @@
                 <i class="bi bi-pencil me-1" aria-hidden="true"></i> Editar
             </a>
         @endcan
+        @can('trash', $project)
+            {{-- Ideas are content rows, so they share the content trash route. --}}
+            <x-swal-confirm
+                :action="route('content.projects.contents.destroy', [$project, $idea])"
+                method="DELETE"
+                title="¿Enviar a la papelera?"
+                text="La idea dejará de aparecer en la lista de ideas, pero conservará sus valores hasta que se vacíe la papelera. Podrá restaurarla desde la papelera."
+                type="warning"
+                confirm-text="Sí, enviar a la papelera"
+                button-class="btn-outline-warning"
+                data-testid="btn-trash-content-idea">
+                <i class="bi bi-trash me-1" aria-hidden="true"></i> Enviar a la papelera
+            </x-swal-confirm>
+        @endcan
     </div>
 
     @if ($errors->any())

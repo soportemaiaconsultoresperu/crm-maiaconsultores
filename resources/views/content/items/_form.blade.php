@@ -6,16 +6,16 @@
     $isEdit = $item !== null;
     $plannedDate = old('planned_date', $item?->plannedDate());
     $plannedTime = old('planned_time', $item?->planned_at ? \App\Support\Content\PeruTime::toPeru($item->planned_at)->format('H:i') : null);
-    $selectedObjectives = old('objectives', $item?->objectives->pluck('id')->all() ?? []);
-    $selectedFormats = old('formats', $item?->formats->pluck('id')->all() ?? []);
-    $selectedChannels = old('channels', $item?->channels->pluck('id')->all() ?? []);
 @endphp
 
 <form method="POST"
       action="{{ $isEdit ? route('content.projects.contents.update', [$project, $item]) : route('content.projects.contents.store', $project) }}"
-      @if ($isEdit) @method('PUT') @endif
-      data-testid="content-item-form">
+      data-testid="content-item-form"
+      data-swal-loading>
     @csrf
+    @if ($isEdit)
+        @method('PUT')
+    @endif
 
     {{-- Optimistic-concurrency token (T8a): the revision this form loaded. It
          is ALWAYS the row's current revision, never the flashed old input: a
@@ -41,17 +41,7 @@
                               :value="$item?->status?->value" :required="true"/>
                 </div>
 
-                <div class="col-md-4">
-                    <x-select name="content_pillar_id" label="Pilar de contenido" placeholder="Sin pilar"
-                              :options="$catalogOptions['pillars']->pluck('name', 'id')->all()"
-                              :value="$item?->content_pillar_id"/>
-                </div>
-                <div class="col-md-4">
-                    <x-select name="content_topic_id" label="Tema" placeholder="Sin tema"
-                              :options="$catalogOptions['topics']->pluck('name', 'id')->all()"
-                              :value="$item?->content_topic_id"
-                              help="El tema debe pertenecer al pilar elegido."/>
-                </div>
+                @include('content.items._catalog_fields', ['part' => 'pillar_topic', 'record' => $item, 'catalogOptions' => $catalogOptions])
 
                 <div class="col-12">
                     <x-text-input name="title" label="Gancho o título" :value="$item?->title" :required="true" maxlength="200"/>
@@ -64,36 +54,7 @@
                     <x-validation-error name="body"/>
                 </div>
 
-                <div class="col-md-6">
-                    <x-label for="objectives" label="Objetivos"/>
-                    <select name="objectives[]" id="objectives" multiple size="5"
-                            class="form-select @error('objectives') is-invalid @enderror">
-                        @foreach ($catalogOptions['objectives'] as $objective)
-                            <option value="{{ $objective->id }}" @selected(in_array($objective->id, $selectedObjectives, true))>{{ $objective->name }}</option>
-                        @endforeach
-                    </select>
-                    <x-validation-error name="objectives"/>
-                </div>
-                <div class="col-md-6">
-                    <x-label for="formats" label="Formato"/>
-                    <select name="formats[]" id="formats" multiple size="5"
-                            class="form-select @error('formats') is-invalid @enderror">
-                        @foreach ($catalogOptions['formats'] as $format)
-                            <option value="{{ $format->id }}" @selected(in_array($format->id, $selectedFormats, true))>{{ $format->name }}</option>
-                        @endforeach
-                    </select>
-                    <x-validation-error name="formats"/>
-                </div>
-                <div class="col-md-6">
-                    <x-label for="channels" label="Red social o canal"/>
-                    <select name="channels[]" id="channels" multiple size="5"
-                            class="form-select @error('channels') is-invalid @enderror">
-                        @foreach ($catalogOptions['channels'] as $channel)
-                            <option value="{{ $channel->id }}" @selected(in_array($channel->id, $selectedChannels, true))>{{ $channel->name }}</option>
-                        @endforeach
-                    </select>
-                    <x-validation-error name="channels"/>
-                </div>
+                @include('content.items._catalog_fields', ['part' => 'multi', 'record' => $item, 'catalogOptions' => $catalogOptions])
 
                 <div class="col-md-6">
                     <x-text-input name="hashtags" label="Hashtags" :value="$item?->hashtags" help="Opcional."/>

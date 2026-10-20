@@ -73,4 +73,21 @@ final class PeruTime
     {
         return self::toPeru($utcMoment)->toDateString();
     }
+
+    /**
+     * Display date (d/m/Y) of the Peru calendar day, the format every screen
+     * and export of the module shows.
+     */
+    public static function displayDate(DateTimeInterface|string $utcMoment): string
+    {
+        return self::toPeru($utcMoment)->format('d/m/Y');
+    }
+
+    /**
+     * Display date and time (d/m/Y H:i) on the Peru clock.
+     */
+    public static function displayDateTime(DateTimeInterface|string $utcMoment): string
+    {
+        return self::toPeru($utcMoment)->format('d/m/Y H:i');
+    }
 }

@@ -101,7 +101,7 @@ class ContentIdeaController extends Controller
             'project' => $contentProject,
             'idea' => $idea,
             'form' => $this->items->formData($contentProject, $idea),
-            'catalogOptions' => $this->items->catalogOptions($contentProject),
+            'catalogOptions' => $this->items->catalogOptions($contentProject, $idea),
         ]);
     }
 
@@ -109,8 +109,10 @@ class ContentIdeaController extends Controller
     {
         Gate::authorize('update', $contentProject);
 
-        $idea = $this->resolveIdea($contentProject, $contentIdea);
-        $this->items->updateIdea($idea, $request->validated());
+        $idea = $this->items->updateIdea(
+            $this->resolveIdea($contentProject, $contentIdea),
+            $request->validated(),
+        );
 
         return redirect()
             ->route('content.projects.ideas.show', [$contentProject, $idea])

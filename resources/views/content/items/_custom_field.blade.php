@@ -49,9 +49,13 @@
             @break
 
         @case(\App\Enums\Content\ContentFieldType::MultipleSelection)
+            @php $selectedOptions = array_map('strval', (array) $value); @endphp
+            {{-- A select with nothing ticked submits nothing, so this empty entry
+                 is what lets the user clear the field; the service ignores it. --}}
+            <input type="hidden" name="fields[{{ $key }}][]" value="">
             <select name="fields[{{ $key }}][]" id="{{ $id }}" multiple class="form-select{{ $invalid }}" @if ($field->required) required @endif>
                 @foreach ($field->options as $option)
-                    <option value="{{ $option->id }}" @selected(in_array($option->id, (array) $value, true))>
+                    <option value="{{ $option->id }}" @selected(in_array((string) $option->id, $selectedOptions, true))>
                         {{ $option->label }}{{ $option->is_active ? '' : ' (Retirada)' }}
                     </option>
                 @endforeach
