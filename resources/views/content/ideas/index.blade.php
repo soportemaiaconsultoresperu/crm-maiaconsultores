@@ -7,9 +7,13 @@
     // Presentation only: the create form is a mutation, so its link mirrors the
     // same `update` ability the endpoint enforces.
     $canManage = Gate::allows('update', $project);
+    // Optional standard fields the project hides (S2) get no column.
+    $shows = fn (string $field): bool => ! $project->isStandardFieldHidden($field);
+    $columnCount = 3 + count(array_intersect(['pillar', 'topic', 'hashtags', 'notes'], $project->visibleStandardFields()));
 @endphp
 
 @section('content')
+    @includeIf('content.partials._project_band', ['project' => $project])
     @include('content.projects._read_only_notice', ['project' => $project])
 
     <div class="d-flex flex-wrap gap-2 mb-3">
@@ -29,12 +33,12 @@
     <x-table title="Ideas de {{ $project->name }}" data-testid="content-ideas-table">
         @slot('headers')
             <tr>
-                <th scope="col">Pilar de contenido</th>
-                <th scope="col">Tema</th>
+                @if ($shows('pillar'))<th scope="col">Pilar de contenido</th>@endif
+                @if ($shows('topic'))<th scope="col">Tema</th>@endif
                 <th scope="col">Gancho o título</th>
                 <th scope="col">Descripción o copy</th>
-                <th scope="col">Hashtags</th>
-                <th scope="col">Notas</th>
+                @if ($shows('hashtags'))<th scope="col">Hashtags</th>@endif
+                @if ($shows('notes'))<th scope="col">Notas</th>@endif
                 <th scope="col" class="text-end">Acciones</th>
             </tr>
         @endslot
@@ -42,14 +46,14 @@
         @slot('rows')
             @forelse ($ideas as $idea)
                 <tr data-testid="content-idea-row-{{ $idea->id }}">
-                    <td>{{ $idea->pillar?->name ?? '—' }}</td>
-                    <td>{{ $idea->topic?->name ?? '—' }}</td>
+                    @if ($shows('pillar'))<td>{{ $idea->pillar?->name ?? '—' }}</td>@endif
+                    @if ($shows('topic'))<td>{{ $idea->topic?->name ?? '—' }}</td>@endif
                     <td>
                         <a href="{{ route('content.projects.ideas.show', [$project, $idea]) }}" class="fw-medium">{{ $idea->title }}</a>
                     </td>
                     <td>{{ \Illuminate\Support\Str::limit($idea->body, 80) }}</td>
-                    <td>{{ $idea->hashtags ?: '—' }}</td>
-                    <td>{{ $idea->notes ?: '—' }}</td>
+                    @if ($shows('hashtags'))<td>{{ $idea->hashtags ?: '—' }}</td>@endif
+                    @if ($shows('notes'))<td>{{ $idea->notes ?: '—' }}</td>@endif
                     <td class="text-end text-nowrap">
                         <a href="{{ route('content.projects.ideas.show', [$project, $idea]) }}" class="btn btn-sm btn-outline-secondary" title="Ver">
                             <i class="bi bi-eye me-1" aria-hidden="true"></i> Ver
@@ -68,7 +72,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="7">
+                    <td colspan="{{ $columnCount }}">
                         @include('layouts.partials.empty-state', [
                             'message' => 'Todavía no hay ideas registradas.',
                             'hint' => 'Registre la primera propuesta con el botón "Nueva idea"; se guardará sin fecha hasta que la convierta en contenido.',

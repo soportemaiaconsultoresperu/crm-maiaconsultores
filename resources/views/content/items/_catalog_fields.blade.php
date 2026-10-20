@@ -8,18 +8,25 @@
     comparison is made on strings; otherwise a failed save would re-render the
     multi-selects empty. A retired option is only present when the edited row
     already stores it, and is labelled "(Retirada)" so it stays selected.
+
+    A standard field the project hides ($project, S2) is not rendered at all, so
+    nothing is posted for it and the stored value is kept.
 --}}
 @php
     $retired = fn ($option): string => $option->is_active ? '' : ' (Retirada)';
+    $hiddenFields = $project->hiddenStandardFields();
 @endphp
 
 @if ($part === 'pillar_topic')
     @php $selectedTopic = (string) old('content_topic_id', $record?->content_topic_id); @endphp
+    @unless (in_array('pillar', $hiddenFields, true))
     <div class="col-md-4">
         <x-select name="content_pillar_id" label="Pilar de contenido" placeholder="Sin pilar"
                   :options="$catalogOptions['pillars']->mapWithKeys(fn ($pillar) => [$pillar->id => $pillar->name.$retired($pillar)])->all()"
                   :value="$record?->content_pillar_id"/>
     </div>
+    @endunless
+    @unless (in_array('topic', $hiddenFields, true))
     <div class="col-md-4">
         <x-label for="content_topic_id" label="Tema"/>
         <select name="content_topic_id" id="content_topic_id" data-topic-filter="content_pillar_id"
@@ -33,8 +40,10 @@
         <x-validation-error name="content_topic_id"/>
         @include('content.items._topic_filter')
     </div>
+    @endunless
 @else
     @foreach (['objectives' => 'Objetivos', 'formats' => 'Formato', 'channels' => 'Red social o canal'] as $group => $groupLabel)
+        @continue(in_array($group, $hiddenFields, true))
         @php
             $selected = array_map('strval', (array) old($group, $record?->{$group}->pluck('id')->all() ?? []));
         @endphp

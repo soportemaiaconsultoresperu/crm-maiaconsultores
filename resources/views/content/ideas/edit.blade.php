@@ -4,6 +4,8 @@
 @section('page-title', 'Editar idea de '.$project->name)
 
 @section('content')
+    @includeIf('content.partials._project_band', ['project' => $project])
+
     <a href="{{ route('content.projects.ideas.show', [$project, $idea]) }}" class="btn btn-outline-secondary mb-3">Volver al detalle</a>
 
     @if ($errors->any())

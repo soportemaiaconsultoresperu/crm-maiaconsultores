@@ -42,9 +42,12 @@
 
                 @include('content.items._catalog_fields', ['part' => 'multi', 'record' => $idea, 'catalogOptions' => $catalogOptions])
 
+                @unless ($project->isStandardFieldHidden('hashtags'))
                 <div class="col-md-6">
                     <x-text-input name="hashtags" label="Hashtags" :value="$idea?->hashtags" help="Opcional."/>
                 </div>
+                @endunless
+                @unless ($project->isStandardFieldHidden('notes'))
                 <div class="col-12">
                     <x-label for="notes" label="Notas"/>
                     <textarea name="notes" id="notes" rows="3"
@@ -52,6 +55,7 @@
                               placeholder="Notas internas">{{ old('notes', $idea?->notes) }}</textarea>
                     <x-validation-error name="notes"/>
                 </div>
+                @endunless
             </div>
         </div>
     </div>

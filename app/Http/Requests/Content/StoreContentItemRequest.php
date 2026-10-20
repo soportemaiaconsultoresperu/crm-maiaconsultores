@@ -40,7 +40,7 @@ class StoreContentItemRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
+        return $this->withoutHiddenFields([
             'planned_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:2000-01-01', 'before_or_equal:2099-12-31'],
             'planned_time' => ['required', 'date_format:H:i'],
             'content_pillar_id' => ['nullable', 'integer'],
@@ -57,7 +57,7 @@ class StoreContentItemRequest extends FormRequest
             'channels' => ['sometimes', 'array'],
             'channels.*' => ['integer'],
             'fields' => ['sometimes', 'array'],
-        ];
+        ]);
     }
 
     /**
@@ -73,15 +73,51 @@ class StoreContentItemRequest extends FormRequest
             app(ContentItemSelectionService::class)->assertValidSelections(
                 $this->route('contentProject'),
                 [
-                    'content_pillar_id' => $this->input('content_pillar_id'),
-                    'content_topic_id' => $this->input('content_topic_id'),
-                    'objectives' => $this->input('objectives', []),
-                    'formats' => $this->input('formats', []),
-                    'channels' => $this->input('channels', []),
+                    'content_pillar_id' => $this->visibleInput('content_pillar_id', null),
+                    'content_topic_id' => $this->visibleInput('content_topic_id', null),
+                    'objectives' => $this->visibleInput('objectives', []),
+                    'formats' => $this->visibleInput('formats', []),
+                    'channels' => $this->visibleInput('channels', []),
                 ],
                 $this->currentContentItem(),
             );
         }];
+    }
+
+    /**
+     * Drop the rules of the standard fields the project hides (S2): their
+     * submitted values are neither validated nor returned by validated(), so the
+     * service keeps whatever is stored.
+     *
+     * @param  array<string, mixed>  $rules
+     * @return array<string, mixed>
+     */
+    protected function withoutHiddenFields(array $rules): array
+    {
+        $project = $this->route('contentProject');
+
+        if ($project instanceof ContentProject) {
+            foreach ($project->hiddenStandardInputs() as $input) {
+                unset($rules[$input], $rules[$input.'.*']);
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * The submitted value of a standard input, or the default when the project
+     * hides it, so a hidden selection is never checked.
+     */
+    private function visibleInput(string $input, mixed $default): mixed
+    {
+        $project = $this->route('contentProject');
+
+        if ($project instanceof ContentProject && in_array($input, $project->hiddenStandardInputs(), true)) {
+            return $default;
+        }
+
+        return $this->input($input, $default);
     }
 
     /**

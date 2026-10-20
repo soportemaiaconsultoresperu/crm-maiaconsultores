@@ -80,22 +80,29 @@ class ContentItemService
             $query->where('status', $status);
         }
 
-        $pillarId = $this->nullableId($filters['pillar'] ?? null);
+        // A filter on a standard field the project hides is ignored (S2), so a
+        // stale URL can never narrow the grid or an export by an invisible value.
+        $hidden = $project->hiddenStandardFields();
+        $filterValue = fn (string $filter, string $field): ?int => in_array($field, $hidden, true)
+            ? null
+            : $this->nullableId($filters[$filter] ?? null);
+
+        $pillarId = $filterValue('pillar', 'pillar');
         if ($pillarId !== null) {
             $query->where('content_pillar_id', $pillarId);
         }
 
-        $topicId = $this->nullableId($filters['topic'] ?? null);
+        $topicId = $filterValue('topic', 'topic');
         if ($topicId !== null) {
             $query->where('content_topic_id', $topicId);
         }
 
-        $formatId = $this->nullableId($filters['format'] ?? null);
+        $formatId = $filterValue('format', 'formats');
         if ($formatId !== null) {
             $query->whereHas('formats', fn (Builder $formats): Builder => $formats->whereKey($formatId));
         }
 
-        $channelId = $this->nullableId($filters['channel'] ?? null);
+        $channelId = $filterValue('channel', 'channels');
         if ($channelId !== null) {
             $query->whereHas('channels', fn (Builder $channels): Builder => $channels->whereKey($channelId));
         }
@@ -258,14 +265,10 @@ class ContentItemService
                 'content_project_id' => $project->getKey(),
                 'kind' => ContentItemKind::Content,
                 'planned_at' => $this->plannedAt($data),
-                'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
-                'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
                 'status' => $data['status'],
                 'title' => $data['title'],
                 'body' => $data['body'],
-                'hashtags' => $this->nullableString($data['hashtags'] ?? null),
-                'notes' => $this->nullableString($data['notes'] ?? null),
-            ]);
+            ] + $this->optionalColumns($project, $data));
 
             $this->syncSelections($item, $data);
             $this->saveCustomValues($item, $data['fields'] ?? []);
@@ -292,14 +295,10 @@ class ContentItemService
 
             $locked->fill([
                 'planned_at' => $this->plannedAt($data),
-                'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
-                'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
                 'status' => $data['status'],
                 'title' => $data['title'],
                 'body' => $data['body'],
-                'hashtags' => $this->nullableString($data['hashtags'] ?? null),
-                'notes' => $this->nullableString($data['notes'] ?? null),
-            ]);
+            ] + $this->optionalColumns($locked->project, $data));
             $locked->revision = ((int) $locked->revision) + 1;
             $locked->save();
 
@@ -466,14 +465,10 @@ class ContentItemService
                 'content_project_id' => $project->getKey(),
                 'kind' => ContentItemKind::Idea,
                 'planned_at' => null,
-                'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
-                'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
                 'status' => ContentItemStatus::Incomplete,
                 'title' => $data['title'],
                 'body' => $data['body'],
-                'hashtags' => $this->nullableString($data['hashtags'] ?? null),
-                'notes' => $this->nullableString($data['notes'] ?? null),
-            ]);
+            ] + $this->optionalColumns($project, $data));
 
             $this->syncSelections($idea, $data);
             $this->saveCustomValues($idea, $data['fields'] ?? []);
@@ -502,13 +497,9 @@ class ContentItemService
 
             $idea->revision = ((int) $idea->revision) + 1;
             $idea->fill([
-                'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
-                'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
                 'title' => $data['title'],
                 'body' => $data['body'],
-                'hashtags' => $this->nullableString($data['hashtags'] ?? null),
-                'notes' => $this->nullableString($data['notes'] ?? null),
-            ]);
+            ] + $this->optionalColumns($idea->project, $data));
             $idea->save();
 
             $this->syncSelections($idea, $data);
@@ -579,9 +570,34 @@ class ContentItemService
      */
     private function syncSelections(ContentItem $item, array $data): void
     {
-        $item->objectives()->sync($this->ids($data['objectives'] ?? []));
-        $item->formats()->sync($this->ids($data['formats'] ?? []));
-        $item->channels()->sync($this->ids($data['channels'] ?? []));
+        $hidden = $item->project?->hiddenStandardFields() ?? [];
+
+        // A relation the project hides keeps its stored rows untouched (S2).
+        foreach (['objectives', 'formats', 'channels'] as $relation) {
+            if (! in_array($relation, $hidden, true)) {
+                $item->{$relation}()->sync($this->ids($data[$relation] ?? []));
+            }
+        }
+    }
+
+    /**
+     * The optional standard columns to write. A column the project hides is
+     * left out, so a new row stores nothing for it and an edited row keeps its
+     * stored value untouched (S2): hiding a field never deletes data.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function optionalColumns(?ContentProject $project, array $data): array
+    {
+        $columns = [
+            'content_pillar_id' => $this->nullableId($data['content_pillar_id'] ?? null),
+            'content_topic_id' => $this->nullableId($data['content_topic_id'] ?? null),
+            'hashtags' => $this->nullableString($data['hashtags'] ?? null),
+            'notes' => $this->nullableString($data['notes'] ?? null),
+        ];
+
+        return array_diff_key($columns, array_flip($project?->hiddenStandardInputs() ?? []));
     }
 
     /**

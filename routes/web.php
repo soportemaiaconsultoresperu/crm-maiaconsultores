@@ -11,6 +11,7 @@ use App\Http\Controllers\Content\ContentCalendarController;
 use App\Http\Controllers\Content\ContentCatalogController;
 use App\Http\Controllers\Content\ContentExportController;
 use App\Http\Controllers\Content\ContentFieldSchemaController;
+use App\Http\Controllers\Content\ContentStandardFieldsController;
 use App\Http\Controllers\Content\ContentIdeaController;
 use App\Http\Controllers\Content\ContentItemController;
 use App\Http\Controllers\Content\ContentTrashController;
@@ -948,6 +949,11 @@ Route::middleware(['auth', 'active'])
         // block inside the same group: the addressed project still resolves
         // through the `contentProject` binding, so an unreachable project is
         // 404 before any validation runs.
+        // Optional standard fields a project hides (S2). `fields/{fieldDefinition}`
+        // is numeric-only, so the static `fields/standard` segment never collides.
+        Route::put('projects/{contentProject}/fields/standard', [ContentStandardFieldsController::class, 'update'])
+            ->name('fields.standard.update');
+
         Route::controller(ContentFieldSchemaController::class)->group(function (): void {
             Route::get('projects/{contentProject}/fields', 'index')->name('fields.index');
 

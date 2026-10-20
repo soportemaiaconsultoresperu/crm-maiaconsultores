@@ -24,6 +24,7 @@
 @endphp
 
 @section('content')
+    @includeIf('content.partials._project_band', ['project' => $project])
     @include('content.projects._read_only_notice', ['project' => $project])
 
     <div class="d-flex flex-wrap gap-2 mb-3">
@@ -65,20 +66,30 @@
         <div class="card-body">
             <p class="text-secondary small mb-3">Esta idea todavía no tiene fecha ni horario y no aparece en el cronograma de contenidos.</p>
             <dl class="row mb-0">
+                @unless ($project->isStandardFieldHidden('pillar'))
                 <dt class="col-sm-3">Pilar de contenido</dt>
                 <dd class="col-sm-9">{{ $idea->pillar?->name ?? '—' }}</dd>
+                @endunless
 
+                @unless ($project->isStandardFieldHidden('topic'))
                 <dt class="col-sm-3">Tema</dt>
                 <dd class="col-sm-9">{{ $idea->topic?->name ?? '—' }}</dd>
+                @endunless
 
+                @unless ($project->isStandardFieldHidden('objectives'))
                 <dt class="col-sm-3">Objetivos</dt>
                 <dd class="col-sm-9">{{ $idea->objectives->pluck('name')->implode(', ') ?: '—' }}</dd>
+                @endunless
 
+                @unless ($project->isStandardFieldHidden('formats'))
                 <dt class="col-sm-3">Formato</dt>
                 <dd class="col-sm-9">{{ $idea->formats->pluck('name')->implode(', ') ?: '—' }}</dd>
+                @endunless
 
+                @unless ($project->isStandardFieldHidden('channels'))
                 <dt class="col-sm-3">Red social o canal</dt>
                 <dd class="col-sm-9">{{ $idea->channels->pluck('name')->implode(', ') ?: '—' }}</dd>
+                @endunless
 
                 <dt class="col-sm-3">Gancho o título</dt>
                 <dd class="col-sm-9">{{ $idea->title }}</dd>
@@ -86,11 +97,15 @@
                 <dt class="col-sm-3">Descripción o copy</dt>
                 <dd class="col-sm-9" style="white-space: pre-line;">{{ $idea->body }}</dd>
 
+                @unless ($project->isStandardFieldHidden('hashtags'))
                 <dt class="col-sm-3">Hashtags</dt>
                 <dd class="col-sm-9">{{ $idea->hashtags ?: '—' }}</dd>
+                @endunless
 
+                @unless ($project->isStandardFieldHidden('notes'))
                 <dt class="col-sm-3">Notas</dt>
                 <dd class="col-sm-9" style="white-space: pre-line;">{{ $idea->notes ?: '—' }}</dd>
+                @endunless
             </dl>
         </div>
     </div>

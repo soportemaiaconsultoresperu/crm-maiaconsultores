@@ -4,6 +4,8 @@
 @section('page-title', 'Campos personalizados de '.$project->name)
 
 @section('content')
+    @includeIf('content.partials._project_band', ['project' => $project])
+
     <a href="{{ route('content.projects.show', $project) }}" class="btn btn-outline-secondary mb-3">Volver al proyecto</a>
 
     <div class="alert alert-info" role="note">
@@ -16,6 +18,8 @@
             <ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
         </div>
     @endif
+
+    @include('content.fields._standard_fields', ['project' => $project])
 
     <section class="card mb-3" aria-labelledby="heading-nueva-seccion">
         <div class="card-header"><h2 class="card-title mb-0" id="heading-nueva-seccion">Nueva sección</h2></div>

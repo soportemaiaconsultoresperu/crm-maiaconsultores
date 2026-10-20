@@ -11,6 +11,9 @@
     // the same normalised filter set the controller reads.
     $exportFilters = array_filter($filters, fn ($value): bool => (string) $value !== '');
     $exportQuery = $exportFilters === [] ? '' : '?'.http_build_query($exportFilters);
+    // Optional standard fields the project hides (S2): no column and no filter.
+    $shows = fn (string $field): bool => ! $project->isStandardFieldHidden($field);
+    $columnCount = 7 + count($project->visibleStandardFields());
     $statusClasses = [
         \App\Enums\Content\ContentItemStatus::Incomplete->value => 'text-bg-secondary',
         \App\Enums\Content\ContentItemStatus::InProgress->value => 'text-bg-info',
@@ -20,6 +23,7 @@
 @endphp
 
 @section('content')
+    @includeIf('content.partials._project_band', ['project' => $project])
     @include('content.projects._read_only_notice', ['project' => $project])
 
     <div class="d-flex flex-wrap gap-2 mb-3">
@@ -78,6 +82,7 @@
                         @endforeach
                     </select>
                 </div>
+                @if ($shows('pillar'))
                 <div>
                     <label for="pillar" class="form-label mb-0 small">Pilar</label>
                     <select id="pillar" name="pillar" class="form-select form-select-sm">
@@ -87,6 +92,8 @@
                         @endforeach
                     </select>
                 </div>
+                @endif
+                @if ($shows('topic'))
                 <div>
                     <label for="topic" class="form-label mb-0 small">Tema</label>
                     <select id="topic" name="topic" class="form-select form-select-sm">
@@ -96,6 +103,8 @@
                         @endforeach
                     </select>
                 </div>
+                @endif
+                @if ($shows('formats'))
                 <div>
                     <label for="format" class="form-label mb-0 small">Formato</label>
                     <select id="format" name="format" class="form-select form-select-sm">
@@ -105,6 +114,8 @@
                         @endforeach
                     </select>
                 </div>
+                @endif
+                @if ($shows('channels'))
                 <div>
                     <label for="channel" class="form-label mb-0 small">Red social o canal</label>
                     <select id="channel" name="channel" class="form-select form-select-sm">
@@ -114,6 +125,7 @@
                         @endforeach
                     </select>
                 </div>
+                @endif
                 <div class="d-flex gap-1">
                     <button type="submit" class="btn btn-sm btn-outline-primary">Filtrar</button>
                     <a href="{{ route('content.projects.contents.index', $project) }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>
@@ -126,16 +138,16 @@
                 <th scope="col">Fecha</th>
                 <th scope="col">Día</th>
                 <th scope="col">Horario</th>
-                <th scope="col">Pilar de contenido</th>
-                <th scope="col">Tema</th>
+                @if ($shows('pillar'))<th scope="col">Pilar de contenido</th>@endif
+                @if ($shows('topic'))<th scope="col">Tema</th>@endif
                 <th scope="col">Estado</th>
-                <th scope="col">Objetivos</th>
-                <th scope="col">Formato</th>
-                <th scope="col">Red social o canal</th>
+                @if ($shows('objectives'))<th scope="col">Objetivos</th>@endif
+                @if ($shows('formats'))<th scope="col">Formato</th>@endif
+                @if ($shows('channels'))<th scope="col">Red social o canal</th>@endif
                 <th scope="col">Gancho o título</th>
                 <th scope="col">Descripción o copy</th>
-                <th scope="col">Hashtags</th>
-                <th scope="col">Notas</th>
+                @if ($shows('hashtags'))<th scope="col">Hashtags</th>@endif
+                @if ($shows('notes'))<th scope="col">Notas</th>@endif
                 <th scope="col" class="text-end">Acciones</th>
             </tr>
         @endslot
@@ -151,22 +163,22 @@
                     </td>
                     <td class="text-nowrap">{{ $content->planned_at ? \App\Support\Content\PeruTime::weekdayLabel($content->planned_at) : '—' }}</td>
                     <td class="text-nowrap">{{ $content->planned_at ? \App\Support\Content\PeruTime::toPeru($content->planned_at)->format('H:i') : '—' }}</td>
-                    <td>{{ $content->pillar?->name ?? '—' }}</td>
-                    <td>{{ $content->topic?->name ?? '—' }}</td>
+                    @if ($shows('pillar'))<td>{{ $content->pillar?->name ?? '—' }}</td>@endif
+                    @if ($shows('topic'))<td>{{ $content->topic?->name ?? '—' }}</td>@endif
                     <td>
                         <span class="badge {{ $statusClasses[$content->status->value] ?? 'text-bg-secondary' }}">
                             {{ $content->status->label() }}
                         </span>
                     </td>
-                    <td>{{ $content->objectives->pluck('name')->implode(', ') ?: '—' }}</td>
-                    <td>{{ $content->formats->pluck('name')->implode(', ') ?: '—' }}</td>
-                    <td>{{ $content->channels->pluck('name')->implode(', ') ?: '—' }}</td>
+                    @if ($shows('objectives'))<td>{{ $content->objectives->pluck('name')->implode(', ') ?: '—' }}</td>@endif
+                    @if ($shows('formats'))<td>{{ $content->formats->pluck('name')->implode(', ') ?: '—' }}</td>@endif
+                    @if ($shows('channels'))<td>{{ $content->channels->pluck('name')->implode(', ') ?: '—' }}</td>@endif
                     <td>
                         <a href="{{ route('content.projects.contents.show', [$project, $content]) }}" class="fw-medium">{{ $content->title }}</a>
                     </td>
                     <td>{{ \Illuminate\Support\Str::limit($content->body, 80) }}</td>
-                    <td>{{ $content->hashtags ?: '—' }}</td>
-                    <td>{{ $content->notes ?: '—' }}</td>
+                    @if ($shows('hashtags'))<td>{{ $content->hashtags ?: '—' }}</td>@endif
+                    @if ($shows('notes'))<td>{{ $content->notes ?: '—' }}</td>@endif
                     <td class="text-end text-nowrap">
                         <a href="{{ route('content.projects.contents.show', [$project, $content]) }}" class="btn btn-sm btn-outline-secondary" title="Ver">
                             <i class="bi bi-eye me-1" aria-hidden="true"></i> Ver
@@ -181,7 +193,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="14">
+                    <td colspan="{{ $columnCount }}">
                         @include('layouts.partials.empty-state', [
                             'message' => 'No hay contenidos que coincidan con los filtros.',
                             'hint' => 'Cree el primero con el botón "Nuevo contenido".',
