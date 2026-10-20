@@ -116,7 +116,16 @@ class ContentTrashService
         }
 
         DB::transaction(function () use ($item): void {
-            $this->discardFilesAfterCommit($this->purgeRow($item->getKey()));
+            $paths = $this->purgeRow($item->getKey());
+
+            // Restored by someone else since this request loaded the model.
+            if ($paths === null) {
+                throw ValidationException::withMessages([
+                    'purge' => 'Solo se puede eliminar definitivamente un contenido que está en la papelera.',
+                ]);
+            }
+
+            $this->discardFilesAfterCommit($paths);
         });
     }
 
@@ -137,28 +146,40 @@ class ContentTrashService
                 ->pluck('id');
 
             $paths = [];
+            $purged = 0;
             foreach ($ids as $id) {
-                array_push($paths, ...$this->purgeRow((int) $id));
+                // A row restored since the id list was read is skipped.
+                $rowPaths = $this->purgeRow((int) $id);
+                if ($rowPaths !== null) {
+                    array_push($paths, ...$rowPaths);
+                    $purged++;
+                }
             }
 
             $this->discardFilesAfterCommit($paths);
 
-            return $ids->count();
+            return $purged;
         });
     }
 
     /**
      * Remove one trashed row and everything that depends on it, inside the
-     * caller's transaction. Returns the stored file paths to discard later.
+     * caller's transaction. Returns the stored file paths to discard later,
+     * or null when the row is no longer trashed: the lock is taken on trashed
+     * rows only, so a concurrent restore can never be purged.
      *
-     * @return list<string>
+     * @return list<string>|null
      */
-    private function purgeRow(int $id): array
+    private function purgeRow(int $id): ?array
     {
         $locked = ContentItem::query()
-            ->withTrashed()
+            ->onlyTrashed()
             ->lockForUpdate()
-            ->findOrFail($id);
+            ->find($id);
+
+        if ($locked === null) {
+            return null;
+        }
 
         $paths = $this->purgeAttachments($locked);
 

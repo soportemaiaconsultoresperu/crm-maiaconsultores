@@ -269,6 +269,31 @@ class ContentTrashTest extends TestCase
         $this->assertDatabaseHas('content_items', ['id' => $content->id, 'deleted_at' => null]);
     }
 
+    public function test_purging_a_stale_trashed_model_refuses_when_the_row_was_restored_meanwhile(): void
+    {
+        $content = ContentItem::factory()->for($this->project, 'project')->create();
+        $attachment = app(ContentAttachmentService::class)->upload(
+            $content,
+            UploadedFile::fake()->createWithContent('foto.jpg', $this->jpeg()),
+        );
+        $path = (string) $attachment->path;
+        $content->delete();
+
+        // Someone restores it while this request still holds the trashed model.
+        $stale = ContentItem::query()->withTrashed()->findOrFail($content->id);
+        ContentItem::query()->withTrashed()->findOrFail($content->id)->restore();
+
+        try {
+            app(\App\Services\Content\ContentTrashService::class)->purge($stale);
+            $this->fail('A restored row must not be purged.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertArrayHasKey('purge', $exception->errors());
+        }
+
+        $this->assertDatabaseHas('content_items', ['id' => $content->id, 'deleted_at' => null]);
+        $this->assertTrue(Storage::disk(ContentAttachmentService::DISK)->exists($path));
+    }
+
     public function test_restoring_a_content_that_is_not_deleted_is_refused(): void
     {
         $content = ContentItem::factory()->for($this->project, 'project')->create();
