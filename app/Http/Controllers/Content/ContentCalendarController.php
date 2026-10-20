@@ -88,6 +88,7 @@ class ContentCalendarController extends Controller
         $selected = $this->selectedProjectIds($request);
 
         $annotations = $this->calendar->consolidatedAnnotations($user, $selected, $start, $end);
+        $contents = $this->calendar->consolidatedContentsByDay($user, $selected, $start, $end);
         $projects = $this->scope->visibleProjects($user)->orderBy('name')->orderBy('id')->get();
 
         return view('content.calendar.consolidated', [
@@ -100,6 +101,8 @@ class ContentCalendarController extends Controller
             'selected' => $selected,
             'annotations' => $this->calendar->groupAnnotationsByDay($annotations),
             'total' => $annotations->count(),
+            'contents' => $contents,
+            'contentTotal' => array_sum(array_map('count', $contents)),
         ]);
     }
 

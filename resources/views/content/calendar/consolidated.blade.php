@@ -58,6 +58,7 @@
             Mes siguiente <i class="bi bi-chevron-right ms-1" aria-hidden="true"></i>
         </a>
         <span class="badge text-bg-secondary" data-testid="content-consolidated-total">{{ $total }} fechas importantes</span>
+        <span class="badge text-bg-secondary" data-testid="content-consolidated-content-total">{{ $contentTotal }} {{ $contentTotal === 1 ? 'contenido' : 'contenidos' }}</span>
     </div>
 
     <h2 class="h5 mb-3" data-testid="content-consolidated-period">{{ $month->translatedFormat('F Y') }}</h2>
@@ -90,6 +91,7 @@
                                     $dayKey = $day->toDateString();
                                     $isCurrentMonth = $day->year === $month->year && $day->month === $month->month;
                                     $dayAnnotations = $annotations[$dayKey] ?? collect();
+                                    $dayContents = $contents[$dayKey] ?? collect();
                                 @endphp
                                 <td class="align-top {{ $isCurrentMonth ? '' : 'bg-light text-secondary' }} {{ $dayKey === $todayPeru ? 'table-warning' : '' }}"
                                     style="width: 14.28%; min-width: 9rem;"
@@ -111,6 +113,17 @@
                                             @endif
                                         </div>
                                     @endforeach
+
+                                    @foreach ($dayContents as $content)
+                                        <a href="{{ route('content.projects.contents.show', [$content->content_project_id, $content]) }}"
+                                           class="d-block small text-truncate text-decoration-none rounded px-1 mb-1 content-calendar-entry"
+                                           @style([\App\Support\Content\ProjectColor::softStyle($content->project?->color)])
+                                           title="{{ $content->project?->name }} — {{ $content->title }}"
+                                           data-testid="content-consolidated-content-{{ $content->id }}">
+                                            <span class="opacity-75">{{ \App\Support\Content\PeruTime::toPeru($content->planned_at)->format('H:i') }}</span>
+                                            {{ $content->title }}
+                                        </a>
+                                    @endforeach
                                 </td>
                             @endforeach
                         </tr>
@@ -120,9 +133,9 @@
         </div>
     </div>
 
-    @if ($annotations === [])
+    @if ($annotations === [] && $contents === [])
         <div class="alert alert-light border" data-testid="content-consolidated-empty">
-            No hay fechas importantes registradas para la selección y el mes elegidos.
+            No hay fechas importantes ni contenidos planificados para la selección y el mes elegidos.
         </div>
     @endif
 @endsection

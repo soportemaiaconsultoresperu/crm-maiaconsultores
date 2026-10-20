@@ -651,7 +651,10 @@ calendario de un proyecto. Un usuario sin este acceso recibe "acceso denegado".
 - Una etiqueta indica cuántas fechas importantes hay en la vista (*"N fechas importantes"*).
 
 Cada anotación muestra el **nombre del proyecto** con su color, el nombre de la fecha y sus notas. Esta
-vista muestra solo fechas importantes, no contenidos. Los proyectos archivados o inactivos no aparecen.
+vista también muestra los **contenidos planificados** de cada proyecto: hora y título, pintados con el
+color de su proyecto; al hacer clic se abre la ficha del contenido. Las ideas (sin fecha) y los contenidos
+en la papelera no aparecen. Arriba verá cuántas fechas importantes y cuántos contenidos hay en el mes.
+Los proyectos archivados o inactivos no aparecen.
 
 El filtro de proyectos sirve para ordenar la vista, **no para dar permisos**: un miembro nunca ve las
 anotaciones de otro proyecto.

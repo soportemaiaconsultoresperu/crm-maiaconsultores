@@ -147,13 +147,7 @@ class ContentCalendarService
         string $startPeruDate,
         string $endPeruDate,
     ): Collection {
-        $visibleIds = $this->scope->visibleProjects($user)->pluck('id')
-            ->map(fn ($id): int => (int) $id)
-            ->all();
-
-        if ($projectIds !== []) {
-            $visibleIds = array_values(array_intersect($visibleIds, $projectIds));
-        }
+        $visibleIds = $this->consolidatedProjectIds($user, $projectIds);
 
         if ($visibleIds === []) {
             return collect();
@@ -167,6 +161,62 @@ class ContentCalendarService
             ->where('annotated_at', '<', $to)
             ->with('project')
             ->get();
+    }
+
+    /**
+     * The planned contents the consolidated view may show, with the same
+     * project scope as consolidatedAnnotations(): visible projects first,
+     * narrowed by the filter. Ideas (no date) and trashed contents are left out.
+     *
+     * @param  list<int>  $projectIds
+     * @return array<string, Collection<int, ContentItem>>
+     */
+    public function consolidatedContentsByDay(
+        User $user,
+        array $projectIds,
+        string $startPeruDate,
+        string $endPeruDate,
+    ): array {
+        $visibleIds = $this->consolidatedProjectIds($user, $projectIds);
+
+        if ($visibleIds === []) {
+            return [];
+        }
+
+        [$from, $to] = $this->utcBounds($startPeruDate, $endPeruDate);
+
+        return $this->groupByPeruDate(
+            ContentItem::query()
+                ->contents()
+                ->whereIn('content_project_id', $visibleIds)
+                ->whereNotNull('planned_at')
+                ->where('planned_at', '>=', $from)
+                ->where('planned_at', '<', $to)
+                ->with('project')
+                ->orderBy('planned_at')
+                ->get(),
+            fn (ContentItem $item): string => PeruTime::date($item->planned_at),
+        );
+    }
+
+    /**
+     * Visible project ids intersected with the requested filter (empty = all).
+     * The filter can only narrow, never widen.
+     *
+     * @param  list<int>  $projectIds
+     * @return list<int>
+     */
+    private function consolidatedProjectIds(User $user, array $projectIds): array
+    {
+        $visibleIds = $this->scope->visibleProjects($user)->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        if ($projectIds !== []) {
+            $visibleIds = array_values(array_intersect($visibleIds, $projectIds));
+        }
+
+        return $visibleIds;
     }
 
     /**

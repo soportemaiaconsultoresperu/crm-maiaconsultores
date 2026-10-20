@@ -270,6 +270,54 @@ class ContentCalendarHttpTest extends TestCase
             ->assertSee('content-consolidated-empty', false);
     }
 
+    public function test_the_consolidated_view_also_shows_planned_contents_in_their_project_color(): void
+    {
+        $plagas = ContentProject::factory()->create(['name' => 'Maia Plagas', 'color' => '#00aa00']);
+
+        // 2026-07-29 02:00 UTC is 2026-07-28 21:00 in Peru.
+        $consultores = ContentItem::factory()->for($this->project, 'project')->create([
+            'planned_at' => PeruTime::toUtc('2026-07-28 21:00:00'),
+            'title' => 'Post Consultores',
+        ]);
+        ContentItem::factory()->for($plagas, 'project')->create([
+            'planned_at' => PeruTime::toUtc('2026-07-28 10:00:00'),
+            'title' => 'Post Plagas',
+        ]);
+        ContentItem::factory()->for($plagas, 'project')->create([
+            'planned_at' => PeruTime::toUtc('2026-07-10 10:00:00'),
+            'title' => 'Post en papelera',
+        ])->delete();
+        ContentItem::factory()->for($plagas, 'project')->idea()->create(['title' => 'Idea sin fecha']);
+
+        $administrator = User::factory()->create(['is_active' => true]);
+        $administrator->givePermissionTo(['content_projects.view', 'content_projects.view_all']);
+
+        $this->actingAs($administrator)
+            ->get(route('content.calendar.consolidated', ['month' => '2026-07']))
+            ->assertOk()
+            ->assertSeeInOrder([
+                'content-consolidated-cell-2026-07-28',
+                'Post Consultores',
+                'content-consolidated-cell-2026-07-29',
+            ], false)
+            ->assertSee('Post Plagas')
+            ->assertSee('21:00')
+            ->assertSee('content-consolidated-content-'.$consultores->id, false)
+            ->assertSee(route('content.projects.contents.show', [$this->project, $consultores]), false)
+            ->assertSee('#00aa00', false)
+            ->assertSee('2 contenidos')
+            ->assertDontSee('Post en papelera')
+            ->assertDontSee('Idea sin fecha')
+            ->assertDontSee('content-consolidated-empty', false);
+
+        // The project filter narrows contents too.
+        $this->actingAs($administrator)
+            ->get(route('content.calendar.consolidated', ['month' => '2026-07', 'projects' => [$plagas->id]]))
+            ->assertOk()
+            ->assertSee('Post Plagas')
+            ->assertDontSee('Post Consultores');
+    }
+
     public function test_the_calendar_renders_annotations_and_planned_contents_on_the_peru_day(): void
     {
         // 2026-03-09 02:00 UTC is 2026-03-08 21:00 in Peru.
