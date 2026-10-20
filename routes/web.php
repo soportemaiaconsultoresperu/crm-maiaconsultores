@@ -30,6 +30,7 @@ use App\Http\Controllers\CourseTalks\CourseGradeController;
 use App\Http\Controllers\CustomerInvoiceController;
 use App\Http\Controllers\CustomerProductController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\InternalActivityController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\LeadConversionController;
 use App\Http\Controllers\NotificationController;
@@ -530,6 +531,11 @@ Route::get('campaign-runs', 'index')->name('campaign_runs.index');
 Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('calendar', [CalendarController::class, 'index'])
         ->name('calendar.index');
+
+    // Internal organization activities: the "Interno" calendar layer
+    // (odd/tasks/internal-activities.md). Open to any active user; the
+    // policy enforces audience visibility and creator-only edits.
+    Route::resource('internal-activities', InternalActivityController::class);
 });
 
 /*

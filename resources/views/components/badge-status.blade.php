@@ -18,6 +18,7 @@
         'accepted' => ['Aceptada', 'text-bg-success'],
         'rejected' => ['Rechazada', 'text-bg-danger'],
         'expired' => ['Expirada', 'text-bg-warning'],
+        'internal' => ['Interna', 'text-bg-primary'],
     ];
     [$label, $class] = $badges[$status] ?? [ucfirst(str_replace('_', ' ', $status)), 'text-bg-secondary'];
 @endphp

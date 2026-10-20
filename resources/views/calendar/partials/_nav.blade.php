@@ -2,12 +2,12 @@
     Calendar navigation (RF-CAL-001..002). Renders:
     - view tabs (month | week | day | list)
     - prev / next / today anchor links
-    - filters: owner, type, subject_type, status
+    - filters: layer (todo | comercial | interno), owner, type, subject_type, status
 --}}
 @php
     $todayAnchor = now()->format('Y-m-d');
     $baseUrl = route('calendar.index');
-    $currentParams = request()->only(['view', 'owner_id', 'type_id', 'subject_type', 'status']);
+    $currentParams = request()->only(['view', 'owner_id', 'type_id', 'subject_type', 'status', 'layer']);
 @endphp
 
 <div class="card mb-3" data-testid="calendar-nav">
@@ -52,6 +52,13 @@
                 <noscript><button type="submit" class="btn btn-sm btn-outline-primary mt-1">Ir a la fecha</button></noscript>
             </div>
 
+            <div class="col-auto">
+                <select name="layer" class="form-select form-select-sm" aria-label="Capa" data-testid="calendar-layer">
+                    <option value="">Todo</option>
+                    <option value="commercial" @selected(request('layer') === 'commercial')>Comercial</option>
+                    <option value="internal" @selected(request('layer') === 'internal')>Interno</option>
+                </select>
+            </div>
             @if (! empty($owners) && (auth()->user()->can('activities.view.any') || auth()->user()->can('activities.view.team')))
                 <div class="col-auto">
                     <select name="owner_id" class="form-select form-select-sm" aria-label="Responsable">
@@ -90,6 +97,9 @@
             <div class="col-auto d-flex gap-1">
                 <button type="submit" class="btn btn-sm btn-outline-primary">Filtrar</button>
                 <a href="{{ $baseUrl }}?view={{ $view }}&anchor={{ $anchor->format('Y-m-d') }}" class="btn btn-sm btn-outline-secondary" data-calendar-navigation>Limpiar</a>
+                <a href="{{ route('internal-activities.create', ['date' => $anchor->format('Y-m-d')]) }}" class="btn btn-sm btn-outline-secondary" data-testid="btn-new-internal-activity">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i> Actividad interna
+                </a>
             </div>
         </form>
     </div>

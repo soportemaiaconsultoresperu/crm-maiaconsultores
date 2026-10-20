@@ -46,6 +46,7 @@ class CalendarController extends Controller
             'subject_type' => $request->query('subject_type'),
             'owner_id' => $request->query('owner_id'),
             'status' => $request->query('status'),
+            'layer' => in_array($request->query('layer'), ['commercial', 'internal'], true) ? $request->query('layer') : null,
         ], fn ($value) => $value !== null && $value !== '');
 
         // type_id is a controller-level filter: the DateRange query in
@@ -71,7 +72,7 @@ class CalendarController extends Controller
             'nextAnchor' => $this->navigate($view, $anchor, 1),
             'owners' => $this->ownerOptions($user),
             'types' => ActivityType::query()->where('is_active', true)->orderBy('sort')->get(),
-            'filters' => $request->only(['view', 'owner_id', 'type_id', 'subject_type', 'status']),
+            'filters' => $request->only(['view', 'owner_id', 'type_id', 'subject_type', 'status', 'layer']),
         ]);
     }
 

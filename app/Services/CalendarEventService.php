@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Activity;
 use App\Models\Customer;
 use App\Models\CustomerInvoice;
+use App\Models\InternalActivity;
 use App\Models\Lead;
 use App\Models\Opportunity;
 use App\Models\SupportTicket;
@@ -25,6 +26,73 @@ class CalendarEventService
      * @return Collection<int, CalendarEventItem>
      */
     public function events(User $user, DateRange $range, array $filters = []): Collection
+    {
+        // Calendar layer (odd/tasks/internal-activities.md): '' shows commercial
+        // and internal events, 'commercial' hides internal ones, 'internal'
+        // shows only the organization's internal activities.
+        $layer = (string) ($filters['layer'] ?? '');
+        unset($filters['layer']);
+
+        if ($layer === 'internal') {
+            return $this->internalEvents($user, $range)->sortBy('scheduled_at')->values();
+        }
+
+        $commercial = $this->commercialEvents($user, $range, $filters);
+
+        if ($layer === 'commercial' || $this->hasCommercialOnlyFilters($filters)) {
+            return $commercial;
+        }
+
+        return $commercial->merge($this->internalEvents($user, $range))->sortBy('scheduled_at')->values();
+    }
+
+    /**
+     * Internal activities carry no subject, owner, type or status, so any of
+     * those filters means the user is narrowing commercial events only.
+     *
+     * @param array<string, mixed> $filters
+     */
+    private function hasCommercialOnlyFilters(array $filters): bool
+    {
+        foreach (['type_id', 'subject_type', 'owner_id', 'status'] as $key) {
+            if (! empty($filters[$key])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return Collection<int, CalendarEventItem>
+     */
+    private function internalEvents(User $user, DateRange $range): Collection
+    {
+        return collect(InternalActivity::query()
+            ->visibleTo($user)
+            ->whereBetween('starts_at', [$range->start(), $range->end()])
+            ->with('participants:id,name')
+            ->orderBy('starts_at')
+            ->get()
+            ->map(fn (InternalActivity $activity) => new CalendarEventItem(
+                kind: 'internal',
+                id: 'internal-'.$activity->id,
+                scheduled_at: $activity->starts_at,
+                title: $activity->title,
+                status: 'internal',
+                typeLabel: 'Interno',
+                subjectLabel: $activity->location ?: '—',
+                ownerName: $activity->responsible()?->name,
+                url: route('internal-activities.show', $activity),
+            ))
+            ->all());
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @return Collection<int, CalendarEventItem>
+     */
+    private function commercialEvents(User $user, DateRange $range, array $filters): Collection
     {
         $activityItems = collect($this->activities
                 ->calendarEvents($user, $range, $filters)
