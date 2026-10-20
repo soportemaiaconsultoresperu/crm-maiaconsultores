@@ -153,7 +153,7 @@ temas, objetivos, formatos y canales iniciales. Usted puede agregar los que nece
 |---|---|---|
 | **Nombre** | Sí | Nombre visible de la marca o línea. Máximo 150 caracteres. |
 | **Identificador** | Sí | Nombre corto único, solo minúsculas, números y guiones. Ej.: `maia-consultores`. Máximo 150 caracteres. |
-| **Color** | No | Código de color, por ejemplo `#0d6efd`. Sirve para reconocer el proyecto en el calendario consolidado. |
+| **Color** | No | Elija uno de los 10 colores de la paleta, **Personalizado** (abre un selector de color) o **Sin color**. El color identifica al proyecto en todo el módulo: la franja de color arriba de cada página del proyecto, el punto de color en la lista de proyectos, los calendarios (con leyenda en el consolidado) y los encabezados del Excel y del PDF. Sin color se usa un gris neutro. |
 | **Descripción** | No | Objetivo del proyecto. Máximo 2000 caracteres. |
 
 3. Pulse **Crear proyecto**. Verá *"Proyecto "…" creado correctamente."* y la página del proyecto.
@@ -234,6 +234,24 @@ seleccionada, así que no se pierde al guardar otros cambios. Solo desaparece si
 ---
 
 ## 6. Campos personalizados (administrador)
+
+### 6.0 Campos estándar: elegir cuáles usa el proyecto
+
+En la misma pantalla **Campos personalizados** está el bloque **Campos estándar**. Ahí el
+administrador decide qué campos predeterminados usa este proyecto:
+
+- **Siempre presentes** (marcados *Obligatorio*, no se pueden quitar): fecha, horario, **Estado**,
+  **Gancho o título** y **Descripción o copy**.
+- **Opcionales** (desmarque los que el proyecto no usa): **Pilar de contenido**, **Tema**,
+  **Objetivos**, **Formato**, **Red social o canal**, **Hashtags** y **Notas**.
+
+Pulse **Guardar campos estándar**. Los campos desmarcados desaparecen del formulario de contenidos e
+ideas, de las columnas y filtros de la grilla, de las fichas y de las exportaciones.
+
+- **No se borra nada:** los datos que ya tenían esos campos se conservan y vuelven a verse si vuelve
+  a marcarlos.
+- Si oculta **Pilar de contenido**, también se oculta **Tema** (el tema depende del pilar).
+- Solo el administrador puede cambiarlo, y no en un proyecto archivado.
 
 Si el proyecto necesita datos que el formulario estándar no trae (por ejemplo "Diseñador asignado" o
 "Fecha de entrega del arte"), créelos usted mismo en **Campos personalizados**. No hace falta pedir
@@ -426,6 +444,7 @@ primeros 80 caracteres), **Hashtags**, **Notas** y **Acciones** (**Ver**, **Edit
 |---|---|
 | **Buscar** | Busca la palabra o frase en el **título y en el copy**. Sirve para encontrar por palabras sueltas, no solo por el título exacto. |
 | **Mes** | Muestra solo los contenidos de ese mes (hora de Perú). |
+| **Desde** / **Hasta** | Muestra los contenidos planificados entre esas dos fechas, **ambas incluidas** (hora de Perú). Puede usar solo una de las dos. Si también elige un mes, se muestran los que cumplen ambas condiciones. |
 | **Estado** | Uno de los cuatro estados, o *Todos*. |
 | **Pilar** | Un pilar, o *Todos*. |
 | **Tema** | Un tema, o *Todos*. |
@@ -642,20 +661,28 @@ anotaciones de otro proyecto.
 ## 15. Exportar a Excel o PDF
 
 Desde la grilla, con los filtros que ya tenga puestos, pulse **Exportar a Excel** o **Exportar a PDF**.
+Para exportar **un rango de fechas**, complete **Desde** y **Hasta** en la grilla, pulse **Filtrar** y
+luego exporte: el archivo trae solo los contenidos de ese rango, y el encabezado indica *Desde
+dd/mm/aaaa hasta dd/mm/aaaa*.
 Pueden exportar todos los que ven el proyecto, también en un proyecto archivado.
 
 - Ambas exportaciones respetan **exactamente** lo que está viendo: los mismos filtros y el mismo orden.
   Nunca incluyen contenido de otros proyectos. Las ideas no se exportan.
 - El archivo se llama `contenidos-[identificador del proyecto]-[fecha].xlsx` o `.pdf`.
 - El PDF sale en hoja A4 horizontal, con el título *Cronograma de contenidos*, los **filtros aplicados**
-  y la fecha y hora en que se generó.
+  y la fecha y hora en que se generó; el encabezado y la cabecera de la tabla usan el **color del proyecto**.
+- El Excel trae arriba un bloque con el nombre del proyecto, los filtros aplicados (incluido el rango)
+  y la fecha de generación. Debajo está la tabla: encabezados en negrita sobre el **color del proyecto**,
+  fila de encabezados **fija** al desplazarse, **filtros de Excel** en cada columna, anchos ajustados,
+  textos largos con ajuste de línea y las celdas **Atrasado** resaltadas en rojo claro.
 
 Columnas del archivo, en este orden:
 
 **Fecha** (día/mes/año), **Día**, **Horario** (24 horas, hora de Perú), **Pilar de contenido**, **Tema**,
 **Estado**, **Atrasado**, **Objetivos**, **Formato**, **Red social o canal**, **Gancho o título**,
 **Descripción o copy** (completa), **Hashtags**, **Notas** y, a continuación, **una columna por cada
-campo personalizado activo** del proyecto.
+campo personalizado activo** del proyecto. Las columnas de **campos estándar ocultos** en el proyecto
+([sección 6.0](#60-campos-estándar-elegir-cuáles-usa-el-proyecto)) no se exportan.
 
 - La columna **Atrasado** dice "Atrasado" con la misma regla que la grilla y queda vacía en el resto.
 - Un campo personalizado **desactivado** que todavía tiene datos aparece con **"(inactivo)"** en el
@@ -665,7 +692,7 @@ campo personalizado activo** del proyecto.
 
 **Límites:** el PDF admite hasta **500 contenidos** y el Excel hasta **5000**. Si su filtro devuelve más,
 no se genera el archivo: vuelve a la grilla con el mensaje *"La exportación a PDF admite hasta 500
-contenidos y este filtro devuelve N. Filtre por mes (u otro criterio) y vuelva a exportar."* Nunca
+contenidos y este filtro devuelve N. Filtre por mes, por rango de fechas (u otro criterio) y vuelva a exportar."* Nunca
 recibe un archivo recortado sin aviso.
 
 ---
@@ -759,6 +786,8 @@ Con teclado: **flecha abajo** abre el panel y recorre las opciones, **flecha arr
 | *El contenido cambió desde que lo abrió…* | Otra persona guardó antes | Ver [sección 12](#12-cuando-dos-personas-editan-a-la-vez) |
 | *La idea ya fue convertida en contenido.* | Alguien la convirtió antes | Búsquela en el cronograma |
 | *El mes indicado no es válido…* | Mes del filtro incorrecto | Use el selector de **Mes** |
+| *La fecha «Desde» no es válida…* / *La fecha «Hasta» no es válida…* | Fecha del rango incorrecta | Use el selector de fecha (años 2000 a 2099) |
+| *La fecha «Hasta» no puede ser anterior a la fecha «Desde»…* | Rango invertido | Corrija el rango y vuelva a filtrar |
 | *La exportación a PDF/Excel admite hasta…* | El filtro supera el límite | Filtre por mes y exporte de nuevo |
 | *El formato del archivo no está permitido…* | El archivo no es JPG, PNG, WEBP, MP4 ni MOV | Convierta el archivo o adjunte un enlace |
 | *El contenido real del archivo no corresponde a una imagen o video permitido…* | El archivo fue renombrado o está dañado | Exporte el archivo de nuevo desde su programa de diseño |
