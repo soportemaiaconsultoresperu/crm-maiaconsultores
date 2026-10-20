@@ -4,17 +4,25 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Courses;
 
+use App\Contracts\Email\EmailProvider;
+use App\Contracts\Email\EmailProviderFactory;
 use App\Enums\Courses\AcademicDocumentStatus;
 use App\Enums\Courses\AcademicDocumentType;
+use App\Enums\Courses\CommercialDocumentType;
 use App\Enums\Courses\DeliveryStatus;
 use App\Jobs\Courses\SendCourseDocumentEmail;
+use App\Jobs\V2\SendEmailMessage;
 use App\Models\Courses\CourseAcademicDocument;
+use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\Document;
+use App\Models\Email\EmailMessage;
+use App\Models\IntegrationAccount;
 use App\Models\Notification\OutboundDelivery;
 use App\Models\User;
 use App\Services\Courses\CourseDocumentDeliveryService;
 use App\Services\Email\EmailService;
+use App\Services\QuotationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -127,6 +135,240 @@ class CourseDocumentEmailDeliveryTest extends TestCase
         }
 
         Queue::assertPushed(\App\Jobs\V2\SendEmailMessage::class, fn ($job) => $job->messageId === $delivery->email_message_id);
+    }
+
+    public function test_certificate_email_without_a_bound_account_uses_the_smtp_fallback_and_synchronizes_sent_state(): void
+    {
+        $academic = $this->academicDocument();
+        $message = EmailMessage::query()->create([
+            'direction' => EmailMessage::DIRECTION_OUTBOUND,
+            'provider_message_id' => 'local-academic-fallback',
+            'from_email' => 'sender@example.test',
+            'subject' => 'Certificado',
+            'status' => EmailMessage::STATUS_QUEUED,
+        ]);
+        $delivery = OutboundDelivery::query()->create([
+            'channel' => OutboundDelivery::CHANNEL_MAIL,
+            'recipient_ref' => 'recipient@example.test',
+            'related_entity_type' => CourseAcademicDocument::class,
+            'related_entity_id' => $academic->id,
+            'email_message_id' => $message->id,
+            'status' => OutboundDelivery::STATUS_QUEUED,
+            'attempts' => 1,
+            'idempotency_key' => str()->random(64),
+        ]);
+        $provider = \Mockery::mock(EmailProvider::class);
+        $provider->shouldReceive('send')->once()->andReturn(['ok' => true, 'provider_message_id' => 'smtp-fallback-1']);
+        $factory = \Mockery::mock(EmailProviderFactory::class);
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
+        $factory->shouldReceive('for')->never();
+
+        (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
+
+        $this->assertSame(EmailMessage::STATUS_SENT, $message->fresh()->status);
+        $this->assertSame('smtp-fallback-1', $message->fresh()->provider_message_id);
+        $this->assertSame(OutboundDelivery::STATUS_SENT, $delivery->fresh()->status);
+        $this->assertNull($delivery->fresh()->last_error);
+        $this->assertSame(DeliveryStatus::Sent, $academic->fresh()->delivery_status);
+        $this->assertNotNull($academic->fresh()->last_sent_at);
+    }
+
+    public function test_certificate_email_with_an_active_bound_account_still_uses_the_smtp_transport(): void
+    {
+        $academic = $this->academicDocument();
+        $account = IntegrationAccount::query()->create([
+            'provider' => 'gmail',
+            'label' => 'Bound Gmail',
+            'is_shared' => true,
+            'is_active' => true,
+            'test_mode' => true,
+        ]);
+        $message = EmailMessage::query()->create([
+            'account_id' => $account->id,
+            'direction' => EmailMessage::DIRECTION_OUTBOUND,
+            'provider_message_id' => 'local-academic-active-account',
+            'from_email' => 'sender@example.test',
+            'subject' => 'Certificado',
+            'status' => EmailMessage::STATUS_QUEUED,
+        ]);
+        $delivery = OutboundDelivery::query()->create([
+            'channel' => OutboundDelivery::CHANNEL_MAIL,
+            'recipient_ref' => 'recipient@example.test',
+            'related_entity_type' => CourseAcademicDocument::class,
+            'related_entity_id' => $academic->id,
+            'email_message_id' => $message->id,
+            'status' => OutboundDelivery::STATUS_QUEUED,
+            'attempts' => 1,
+            'idempotency_key' => str()->random(64),
+        ]);
+        $provider = \Mockery::mock(EmailProvider::class);
+        $provider->shouldReceive('send')->once()->andReturn(['ok' => true, 'provider_message_id' => 'smtp-active-account']);
+        $factory = \Mockery::mock(EmailProviderFactory::class);
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
+        $factory->shouldReceive('for')->never();
+
+        (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
+
+        $this->assertSame(EmailMessage::STATUS_SENT, $message->fresh()->status);
+        $this->assertSame('smtp-active-account', $message->fresh()->provider_message_id);
+        $this->assertSame(OutboundDelivery::STATUS_SENT, $delivery->fresh()->status);
+        $this->assertSame(DeliveryStatus::Sent, $academic->fresh()->delivery_status);
+    }
+
+    public function test_certificate_email_with_an_inactive_bound_account_still_uses_the_smtp_transport(): void
+    {
+        $academic = $this->academicDocument();
+        $account = IntegrationAccount::query()->create([
+            'provider' => 'gmail',
+            'label' => 'Inactive Gmail',
+            'is_shared' => true,
+            'is_active' => false,
+            'test_mode' => true,
+        ]);
+        $message = EmailMessage::query()->create([
+            'account_id' => $account->id,
+            'direction' => EmailMessage::DIRECTION_OUTBOUND,
+            'provider_message_id' => 'local-academic-inactive-account',
+            'from_email' => 'sender@example.test',
+            'subject' => 'Certificado',
+            'status' => EmailMessage::STATUS_QUEUED,
+        ]);
+        $delivery = OutboundDelivery::query()->create([
+            'channel' => OutboundDelivery::CHANNEL_MAIL,
+            'recipient_ref' => 'recipient@example.test',
+            'related_entity_type' => CourseAcademicDocument::class,
+            'related_entity_id' => $academic->id,
+            'email_message_id' => $message->id,
+            'status' => OutboundDelivery::STATUS_QUEUED,
+            'attempts' => 1,
+            'idempotency_key' => str()->random(64),
+        ]);
+        $provider = \Mockery::mock(EmailProvider::class);
+        $provider->shouldReceive('send')->once()->andReturn(['ok' => true, 'provider_message_id' => 'smtp-inactive-account']);
+        $factory = \Mockery::mock(EmailProviderFactory::class);
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
+        $factory->shouldReceive('for')->never();
+
+        (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
+
+        $this->assertSame(EmailMessage::STATUS_SENT, $message->fresh()->status);
+        $this->assertSame('smtp-inactive-account', $message->fresh()->provider_message_id);
+        $this->assertSame(OutboundDelivery::STATUS_SENT, $delivery->fresh()->status);
+        $this->assertSame(DeliveryStatus::Sent, $academic->fresh()->delivery_status);
+    }
+
+    public function test_non_certificate_email_without_a_bound_account_keeps_the_no_bound_account_failure(): void
+    {
+        $message = EmailMessage::query()->create([
+            'direction' => EmailMessage::DIRECTION_OUTBOUND,
+            'provider_message_id' => 'local-no-account',
+            'from_email' => 'sender@example.test',
+            'subject' => 'Plain email',
+            'status' => EmailMessage::STATUS_QUEUED,
+        ]);
+        $factory = \Mockery::mock(EmailProviderFactory::class);
+        $factory->shouldReceive('make')->never();
+        $factory->shouldReceive('for')->never();
+
+        (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
+
+        $this->assertSame(EmailMessage::STATUS_FAILED, $message->fresh()->status);
+        $this->assertSame('NoBoundAccount', $message->fresh()->error_class);
+        $this->assertSame('No fue posible enviar el correo.', $message->fresh()->error_message);
+    }
+
+    public function test_non_certificate_email_with_an_inactive_bound_account_keeps_the_account_inactive_failure(): void
+    {
+        $account = IntegrationAccount::query()->create([
+            'provider' => 'gmail',
+            'label' => 'Inactive Gmail',
+            'is_shared' => true,
+            'is_active' => false,
+            'test_mode' => true,
+        ]);
+        $message = EmailMessage::query()->create([
+            'account_id' => $account->id,
+            'direction' => EmailMessage::DIRECTION_OUTBOUND,
+            'provider_message_id' => 'local-inactive-account',
+            'from_email' => 'sender@example.test',
+            'subject' => 'Plain email',
+            'status' => EmailMessage::STATUS_QUEUED,
+        ]);
+        $factory = \Mockery::mock(EmailProviderFactory::class);
+        $factory->shouldReceive('make')->never();
+        $factory->shouldReceive('for')->never();
+
+        (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
+
+        $this->assertSame(EmailMessage::STATUS_FAILED, $message->fresh()->status);
+        $this->assertSame('AccountInactive', $message->fresh()->error_class);
+        $this->assertSame('No fue posible enviar el correo.', $message->fresh()->error_message);
+    }
+
+    public function test_non_certificate_email_with_an_active_bound_account_uses_the_bound_provider(): void
+    {
+        $account = IntegrationAccount::query()->create([
+            'provider' => 'gmail',
+            'label' => 'Active Gmail',
+            'is_shared' => true,
+            'is_active' => true,
+            'test_mode' => true,
+        ]);
+        $message = EmailMessage::query()->create([
+            'account_id' => $account->id,
+            'direction' => EmailMessage::DIRECTION_OUTBOUND,
+            'provider_message_id' => 'local-active-account',
+            'from_email' => 'sender@example.test',
+            'subject' => 'Plain email',
+            'status' => EmailMessage::STATUS_QUEUED,
+        ]);
+        $provider = \Mockery::mock(EmailProvider::class);
+        $provider->shouldReceive('send')->once()->andReturn(['ok' => true, 'provider_message_id' => 'bound-provider']);
+        $factory = \Mockery::mock(EmailProviderFactory::class);
+        $factory->shouldReceive('make')->never();
+        $factory->shouldReceive('for')
+            ->once()
+            ->with(\Mockery::on(static fn (IntegrationAccount $boundAccount): bool => $boundAccount->is($account)))
+            ->andReturn($provider);
+
+        (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
+
+        $this->assertSame(EmailMessage::STATUS_SENT, $message->fresh()->status);
+        $this->assertSame('bound-provider', $message->fresh()->provider_message_id);
+    }
+
+    public function test_commercial_document_email_without_a_bound_account_cannot_use_the_smtp_fallback(): void
+    {
+        $commercial = $this->commercialDocument();
+        $message = EmailMessage::query()->create([
+            'direction' => EmailMessage::DIRECTION_OUTBOUND,
+            'provider_message_id' => 'local-commercial-no-account',
+            'from_email' => 'sender@example.test',
+            'subject' => 'Comprobante',
+            'status' => EmailMessage::STATUS_QUEUED,
+        ]);
+        $delivery = OutboundDelivery::query()->create([
+            'channel' => OutboundDelivery::CHANNEL_MAIL,
+            'recipient_ref' => 'billing@example.test',
+            'related_entity_type' => CourseCommercialDocument::class,
+            'related_entity_id' => $commercial->id,
+            'email_message_id' => $message->id,
+            'status' => OutboundDelivery::STATUS_QUEUED,
+            'attempts' => 1,
+            'idempotency_key' => str()->random(64),
+        ]);
+        $factory = \Mockery::mock(EmailProviderFactory::class);
+        $factory->shouldReceive('make')->never();
+        $factory->shouldReceive('for')->never();
+
+        (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
+
+        $this->assertSame(EmailMessage::STATUS_FAILED, $message->fresh()->status);
+        $this->assertSame('NoBoundAccount', $message->fresh()->error_class);
+        $this->assertSame(OutboundDelivery::STATUS_FAILED, $delivery->fresh()->status);
+        $this->assertSame('No fue posible enviar el correo.', $delivery->fresh()->last_error);
+        $this->assertSame(DeliveryStatus::Failed, $commercial->fresh()->delivery_status);
+        $this->assertNull($commercial->fresh()->last_sent_at);
     }
 
     public function test_it_records_a_successful_email_attempt_with_recipient_override_snapshot_and_actor_activity(): void
@@ -299,6 +541,21 @@ class CourseDocumentEmailDeliveryTest extends TestCase
      * `academic-email-document-and-precondition`, so every queued-email fixture
      * now has to carry a real private file.
      */
+    private function commercialDocument(): CourseCommercialDocument
+    {
+        return CourseCommercialDocument::query()->create([
+            'course_enrollment_id' => CourseEnrollment::factory()->create()->id,
+            'type' => CommercialDocumentType::Boleta,
+            'subtotal_amount' => '100.00',
+            'igv_rate' => '0.1800',
+            'igv_amount' => '18.00',
+            'total_amount' => '118.00',
+            'payer_name' => 'Payer',
+            'status' => 'registered',
+            'delivery_status' => DeliveryStatus::Pending,
+        ]);
+    }
+
     private function academicDocumentWithPdf(): CourseAcademicDocument
     {
         $academic = $this->academicDocument();

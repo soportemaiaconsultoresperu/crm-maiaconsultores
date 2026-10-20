@@ -9,6 +9,8 @@ use App\Models\Courses\{CourseActivity,CourseAcademicDocument,CourseCertificateT
 use App\Models\User;
 use App\Services\Courses\CertificateQrTokenService;
 use App\Services\Courses\CourseDocumentGenerationService;
+use App\Services\Courses\DomPdfRenderer;
+use App\ViewModels\Courses\CourseCertificateViewModel;
 use App\Services\DocumentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -35,7 +37,7 @@ class CourseAcademicDocumentGenerationTest extends TestCase
         $this->assertSame(CourseAcademicDocument::class, $academic->document->docable_type);
         $this->assertTrue(Storage::disk('docs')->exists($academic->document->path));
         $pdf = Storage::disk('docs')->get($academic->document->path);
-        foreach (['%PDF', 'Certificado de aprobación', 'Temario', $academic->code, '<svg'] as $expected) {
+        foreach (['%PDF', 'Certificado de aprobación', 'Temario', $academic->code, 'data:image/svg+xml;base64,'] as $expected) {
             $this->assertStringContainsString($expected, $pdf);
         }
     }
@@ -437,98 +439,57 @@ class CourseAcademicDocumentGenerationTest extends TestCase
         $this->assertStringNotContainsString('Título inyectado', $pdf);
     }
 
-    /**
-     * The owner's live scenario, asserted end to end: the activity carries a base
-     * syllabus, the delivery carries a different one, and there are ZERO sessions.
-     * Before this rule the certificate read only the sessions, so it printed no
-     * topics at all — the operator had typed a syllabus in two places and neither
-     * reached the paper.
-     */
-    public function test_the_certificate_prints_the_deliverys_own_syllabus_in_the_owners_zero_session_scenario(): void
+    public function test_certificate_syllabus_uses_sessions_even_when_the_delivery_has_a_manual_syllabus(): void
     {
         Storage::fake('docs');
         $pdfCalls = [];
         [$enrollment, $actor] = $this->enrollmentWithSyllabus(
-            baseSyllabus: ['TEMA PRINCIPAL'],
-            deliverySyllabus: ['TEMA 1'],
+            baseSyllabus: ['BASE SYLLABUS MUST NOT RENDER'],
+            deliverySyllabus: ['MANUAL DELIVERY SYLLABUS MUST NOT RENDER'],
+            sessionTopics: ['REAL SESSION TOPIC'],
         );
 
         $academic = $this->service(null, $pdfCalls)->generate($enrollment, $actor);
 
-        $this->assertSame(['TEMA 1'], array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic'));
+        $topics = array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic');
+        $this->assertSame(['REAL SESSION TOPIC'], $topics);
+        $this->assertNotContains('MANUAL DELIVERY SYLLABUS MUST NOT RENDER', $topics);
+        $this->assertNotContains('BASE SYLLABUS MUST NOT RENDER', $topics);
 
         $pdf = Storage::disk('docs')->get($academic->document->path);
-        $this->assertStringContainsString('TEMA 1', $pdf);
-        $this->assertStringNotContainsString('TEMA PRINCIPAL', $pdf);
+        $this->assertStringContainsString('REAL SESSION TOPIC', $pdf);
+        $this->assertStringNotContainsString('MANUAL DELIVERY SYLLABUS MUST NOT RENDER', $pdf);
+        $this->assertStringNotContainsString('BASE SYLLABUS MUST NOT RENDER', $pdf);
     }
 
-    /**
-     * The second branch of the chain: the delivery has no syllabus of its own
-     * (the case of a delivery created before the pre-fill existed), so the
-     * activity's base syllabus is what the certificate must print.
-     */
-    public function test_the_certificate_falls_back_to_the_activity_base_syllabus_when_the_delivery_has_none_of_its_own(): void
+    public function test_certificate_syllabus_is_empty_when_the_enrollments_edition_has_no_sessions(): void
     {
         Storage::fake('docs');
         $pdfCalls = [];
         [$enrollment, $actor] = $this->enrollmentWithSyllabus(
-            baseSyllabus: ['TEMA PRINCIPAL', 'TEMA SECUNDARIO'],
-            deliverySyllabus: [],
+            baseSyllabus: ['BASE SYLLABUS MUST NOT RENDER'],
+            deliverySyllabus: ['MANUAL DELIVERY SYLLABUS MUST NOT RENDER'],
+            sessionTopics: [],
         );
 
         $academic = $this->service(null, $pdfCalls)->generate($enrollment, $actor);
 
-        $this->assertSame(['TEMA PRINCIPAL', 'TEMA SECUNDARIO'], array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic'));
+        $this->assertSame([], $pdfCalls[0]['data']['certificate']->syllabus);
 
-            $pdf = Storage::disk('docs')->get($academic->document->path);
-            $this->assertStringContainsString('TEMA PRINCIPAL', $pdf);
-            $this->assertStringContainsString('TEMA SECUNDARIO', $pdf);
-        }
-    
-        /**
-         * The order the branches are tried in is a decision, not an accident: a delivery
-         * that already lists its own sessions holds a more specific record of what it
-         * taught than the activity's reusable template does. So the sessions win and the
-         * template is NOT printed over them.
-         *
-         * This is the case the other order would have broken: a delivery that lists its
-         * sessions AND belongs to an activity with a base syllabus would have started
-         * printing the generic template, silently changing what an already-issued
-         * certificate shows. The test above pins the mirror case, where the delivery has
-         * no sessions of its own and the template is legitimately the only thing left.
-         */
-        public function test_a_delivery_that_lists_its_sessions_is_not_overwritten_by_the_activity_template(): void
-        {
-            Storage::fake('docs');
-            $pdfCalls = [];
-            [$enrollment, $actor] = $this->enrollmentWithSyllabus(
-                baseSyllabus: ['TEMA DEL MOLDE'],
-                deliverySyllabus: [],
-                sessionTopics: ['Marco normativo'],
-            );
-    
-            $this->service(null, $pdfCalls)->generate($enrollment, $actor);
-    
-            $topics = array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic');
-    
-            $this->assertSame(['Marco normativo'], $topics);
-            $this->assertNotContains('TEMA DEL MOLDE', $topics);
-        }
+        $pdf = Storage::disk('docs')->get($academic->document->path);
+        $this->assertStringContainsString('Temario', $pdf);
+        $this->assertStringContainsString('Clase', $pdf);
+        $this->assertStringNotContainsString('MANUAL DELIVERY SYLLABUS MUST NOT RENDER', $pdf);
+        $this->assertStringNotContainsString('BASE SYLLABUS MUST NOT RENDER', $pdf);
+    }
 
-    /**
-     * The third branch is the one that rendered before this rule existed, and it
-     * must keep rendering exactly the same row shape: `class` from the session
-     * order, the session's own topic, its teacher (or the house speaker) and the
-     * session date. This is the lock on "a delivery created before this change
-     * does not regress".
-     */
     public function test_certificate_session_speaker_prefers_fk_teacher_then_legacy_text_then_company(): void
     {
         Storage::fake('docs');
         $pdfCalls = [];
         [$enrollment, $actor] = $this->enrollmentWithSyllabus(
-            baseSyllabus: [],
-            deliverySyllabus: [],
+            baseSyllabus: ['BASE SYLLABUS MUST NOT RENDER'],
+            deliverySyllabus: ['MANUAL DELIVERY SYLLABUS MUST NOT RENDER'],
             sessionTopics: ['Asignada', 'Legado', 'Casa'],
         );
         $teacher = CourseEditionTeacher::query()->create([
@@ -547,27 +508,104 @@ class CourseAcademicDocumentGenerationTest extends TestCase
             ['Docente FK', 'Docente legado', 'Maia Consultores'],
             array_column($pdfCalls[0]['data']['certificate']->syllabus, 'speaker'),
         );
+        $this->assertSame(['Asignada', 'Legado', 'Casa'], array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic'));
     }
 
-    public function test_the_certificate_keeps_todays_session_row_shape_when_neither_the_delivery_nor_the_activity_has_a_syllabus(): void
+    public function test_certificate_syllabus_uses_only_the_enrollments_own_edition_sessions(): void
     {
         Storage::fake('docs');
         $pdfCalls = [];
         [$enrollment, $actor] = $this->enrollmentWithSyllabus(
-            baseSyllabus: [],
-            deliverySyllabus: [],
-            sessionTopics: ['Marco normativo'],
+            baseSyllabus: ['BASE SYLLABUS MUST NOT RENDER'],
+            deliverySyllabus: ['MANUAL DELIVERY SYLLABUS MUST NOT RENDER'],
+            sessionTopics: ['OWN EDITION SESSION'],
         );
+        $foreignEdition = CourseEdition::factory()->for($enrollment->edition->activity, 'activity')->create([
+            'starts_on' => '2026-08-01',
+            'ends_on' => '2026-08-02',
+            'validations_completed_at' => now(),
+            'responsible_user_id' => $actor->id,
+            'syllabus_override_json' => ['FOREIGN MANUAL SYLLABUS MUST NOT RENDER'],
+        ]);
+        CourseSession::factory()->for($foreignEdition, 'edition')->create([
+            'topic' => 'FOREIGN EDITION SESSION MUST NOT RENDER',
+            'sort_order' => 1,
+        ]);
 
-        $this->service(null, $pdfCalls)->generate($enrollment, $actor);
+        $academic = $this->service(null, $pdfCalls)->generate($enrollment->fresh(), $actor);
 
-        $session = $enrollment->edition->sessions()->orderBy('sort_order')->firstOrFail();
-        $this->assertSame([[
-            'class' => 'Clase '.$session->sort_order,
-            'topic' => 'Marco normativo',
-            'speaker' => (string) $session->teacher_name,
-            'date' => $session->session_date->format('d.m.y'),
-        ]], $pdfCalls[0]['data']['certificate']->syllabus);
+        $topics = array_column($pdfCalls[0]['data']['certificate']->syllabus, 'topic');
+        $this->assertSame(['OWN EDITION SESSION'], $topics);
+        $this->assertNotContains('FOREIGN EDITION SESSION MUST NOT RENDER', $topics);
+
+        $pdf = Storage::disk('docs')->get($academic->document->path);
+        $this->assertStringContainsString('OWN EDITION SESSION', $pdf);
+        $this->assertStringNotContainsString('FOREIGN EDITION SESSION MUST NOT RENDER', $pdf);
+        $this->assertStringNotContainsString('FOREIGN MANUAL SYLLABUS MUST NOT RENDER', $pdf);
+        $this->assertStringNotContainsString('MANUAL DELIVERY SYLLABUS MUST NOT RENDER', $pdf);
+        $this->assertStringNotContainsString('BASE SYLLABUS MUST NOT RENDER', $pdf);
+    }
+
+    public function test_reference_certificate_html_has_two_intended_page_sections_and_embedded_maia_logo_payload(): void
+    {
+        $html = view('course-talks.certificates.reference', [
+            'certificate' => $this->sampleCertificateViewModel(),
+        ])->render();
+        $logoPayload = 'data:image/png;base64,'.base64_encode(file_get_contents(public_path('images/logo-maia.png')));
+
+        $this->assertSame(1, substr_count($html, '<section class="page certificate-page">'));
+        $this->assertSame(1, substr_count($html, '<section class="page syllabus-page">'));
+        $this->assertSame(2, substr_count($html, '<section class="page '));
+        $this->assertStringContainsString('@page { margin: 0; size: A4 landscape; }', $html);
+        $this->assertSame(2, substr_count($html, '<div class="inner-card">'));
+        $this->assertSame(2, substr_count($html, 'src="'.$logoPayload.'"'));
+        $this->assertStringContainsString('Participant Name', $html);
+        $this->assertStringContainsString('Compact Activity', $html);
+        $this->assertStringContainsString('01-04.07.26', $html);
+        $this->assertStringContainsString('24 horas académicas', $html);
+        $this->assertStringNotContainsString('<svg>QR</svg>', $html);
+        $this->assertStringContainsString('src="data:image/svg+xml;base64,'.base64_encode('<svg>QR</svg>').'"', $html);
+        $this->assertStringContainsString('CERT-123', $html);
+        $this->assertStringContainsString('Topic One', $html);
+        $this->assertStringContainsString('Topic Two', $html);
+    }
+
+    public function test_reference_certificate_html_matches_reference_visual_contract_and_keeps_qr_on_page_one_bottom_left(): void
+    {
+        $html = view('course-talks.certificates.reference', [
+            'certificate' => $this->sampleCertificateViewModel(),
+        ])->render();
+
+        $this->assertStringContainsString('.certificate-page { background: #d7d9ff; page-break-after: always; }', $html);
+        $this->assertStringContainsString('.syllabus-page { background: #dcefff; }', $html);
+        $this->assertStringContainsString('.inner-card { background: #fbfdff; border-radius: 26pt;', $html);
+        $this->assertStringContainsString('.doctype { color: #137fc3;', $html);
+        $this->assertStringContainsString('.activity { color: #137fc3;', $html);
+        $this->assertStringContainsString('.participant .rule { border-top: 1.1pt solid #65758e;', $html);
+        $this->assertStringContainsString('Por haber participado en el:', $html);
+        $this->assertStringContainsString('Organizado por Maia Consultores, desarrollado en modalidad Virtual,', $html);
+        $this->assertStringContainsString('.syllabus-title { color: #137fc3;', $html);
+        $this->assertStringContainsString('.table-wrap { border: 1pt solid #8ab8d8; border-radius: 13pt;', $html);
+        $this->assertStringContainsString('<th class="speaker">Ponente</th>', $html);
+        $this->assertStringContainsString('<div class="page-one-qr" aria-label="Código QR de verificación">', $html);
+        $this->assertStringContainsString('.logo { display: block; position: absolute; right: 42pt; top: 31pt; width: 92pt; }', $html);
+        $this->assertStringContainsString('.certificate-content { left: 72pt; position: absolute; right: 72pt; text-align: center; top: 76pt; }', $html);
+        $this->assertStringContainsString('.page-one-qr { bottom: 37pt; left: 51pt; position: absolute; width: 72pt; }', $html);
+        $this->assertStringContainsString('.qr-frame { background: #ffffff; border: 1.6pt solid #102647; border-radius: 4pt; height: 72pt; padding: 5pt; width: 72pt; }', $html);
+        $this->assertStringContainsString('.qr-image { display: block; height: 60pt; width: 60pt; }', $html);
+        $this->assertStringNotContainsString('bottom: -', $html);
+        $this->assertMatchesRegularExpression('/<div class="page-one-qr"[^>]*>\s*<div class="qr-frame"><img class="qr-image" src="data:image\/svg\+xml;base64,[^"]+" alt="Código QR de verificación"><\/div>\s*<\/div>/s', $html);
+    }
+
+    public function test_reference_certificate_renders_exactly_two_landscape_a4_pdf_pages_with_dompdf(): void
+    {
+        $pdf = (new DomPdfRenderer())->render('course-talks.certificates.reference', [
+            'certificate' => $this->sampleCertificateViewModel(),
+        ]);
+
+        $this->assertSame(2, preg_match_all('/\/Type\s*\/Page\b/', $pdf));
+        $this->assertMatchesRegularExpression('/\/MediaBox\s*\[0(?:\.0+)?\s+0(?:\.0+)?\s+841\.\d+\s+595\.\d+\]/', $pdf);
+        $this->assertDoesNotMatchRegularExpression('/\/MediaBox\s*\[0(?:\.0+)?\s+0(?:\.0+)?\s+595\.\d+\s+841\.\d+\]/', $pdf);
     }
 
     /**
@@ -610,6 +648,32 @@ class CourseAcademicDocumentGenerationTest extends TestCase
             'payment_status' => PaymentStatus::Paid,
             'final_result' => FinalResult::Approved,
         ]), $actor];
+    }
+
+
+    private function sampleCertificateViewModel(): CourseCertificateViewModel
+    {
+        return new CourseCertificateViewModel(
+            title: 'Certificate Title',
+            introText: 'Awards this certificate to',
+            participant: 'Participant Name',
+            activity: 'Compact Activity',
+            modality: 'virtual',
+            dateRange: '01-04.07.26',
+            academicHours: '24',
+            issueLocationDate: 'Lima, 4 de julio de 2026',
+            certificateCode: 'CERT-123',
+            qrSvg: '<svg>QR</svg>',
+            signatures: [
+                ['name' => 'Signature One', 'role' => 'Academic Direction'],
+                ['name' => 'Signature Two', 'role' => 'Academic Coordination'],
+            ],
+            syllabus: [
+                ['class' => 'Clase 1', 'topic' => 'Topic One', 'speaker' => 'Speaker One', 'date' => '01.07.26'],
+                ['class' => 'Clase 2', 'topic' => 'Topic Two', 'speaker' => 'Speaker Two', 'date' => '02.07.26'],
+            ],
+            company: 'Maia Consultores',
+        );
     }
 
     private function service(?CertificateQrTokenService $qrTokens = null, ?array &$pdfCalls = null): CourseDocumentGenerationService

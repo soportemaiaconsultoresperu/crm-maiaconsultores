@@ -397,6 +397,30 @@ class CourseEnrollmentHttpTest extends TestCase
         $this->assertDatabaseCount('course_enrollments', 1);
     }
 
+    public function test_individual_enrollment_can_return_to_create_for_adding_another_participant(): void
+    {
+        $this->storeIndividual([
+            'participant_source' => 'new',
+            'enrollment_action' => 'enroll_and_add_another',
+        ] + $this->minimumParticipant([
+            'first_name' => 'Otra',
+            'last_name' => 'Persona',
+            'document_number' => '87654321',
+            'email' => 'otra@example.test',
+        ]))
+            ->assertRedirect($this->createUrl())
+            ->assertSessionHas('status')
+            ->assertSessionMissing('_old_input');
+
+        $this->assertDatabaseHas('course_participants', [
+            'first_name' => 'Otra',
+            'last_name' => 'Persona',
+            'document_number_norm' => '87654321',
+            'email_norm' => 'otra@example.test',
+        ]);
+        $this->assertDatabaseCount('course_enrollments', 1);
+    }
+
     public function test_individual_enrollment_reuses_an_existing_participant(): void
     {
         $participant = CourseParticipant::factory()->create(['first_name' => 'Elena', 'last_name' => 'Paz']);
@@ -420,6 +444,9 @@ class CourseEnrollmentHttpTest extends TestCase
 
         $this->storeIndividual(['participant_source' => 'desconocido'])
             ->assertSessionHasErrors('participant_source');
+
+        $this->storeIndividual(['participant_source' => 'contact', 'enrollment_action' => 'desconocida'])
+            ->assertSessionHasErrors('enrollment_action');
 
         $this->storeIndividual(['participant_source' => 'contact'])
             ->assertSessionHasErrors('contact_id');

@@ -87,8 +87,12 @@ class CourseEnrollmentController extends Controller
             return back()->withInput()->withErrors($this->fieldErrors($exception));
         }
 
+        $redirectRoute = $request->shouldReturnToCreate()
+            ? 'course-talks.enrollments.create'
+            : 'course-talks.enrollments.index';
+
         return redirect()
-            ->route('course-talks.enrollments.index', $edition)
+            ->route($redirectRoute, $edition)
             ->with('status', 'Participante inscrito correctamente.');
     }
 
