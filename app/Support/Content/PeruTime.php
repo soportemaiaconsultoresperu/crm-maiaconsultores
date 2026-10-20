@@ -35,6 +35,23 @@ final class PeruTime
     }
 
     /**
+     * UTC instant at which the given Peru calendar day (Y-m-d) starts.
+     */
+    public static function dayStartUtc(string $peruDate): CarbonImmutable
+    {
+        return CarbonImmutable::parse($peruDate, self::TIMEZONE)->startOfDay()->utc();
+    }
+
+    /**
+     * UTC instant at which the day after the given Peru calendar day starts,
+     * the exclusive upper bound of an inclusive day range.
+     */
+    public static function nextDayStartUtc(string $peruDate): CarbonImmutable
+    {
+        return CarbonImmutable::parse($peruDate, self::TIMEZONE)->startOfDay()->addDay()->utc();
+    }
+
+    /**
      * Interpret a stored UTC instant and return it on the Peru clock.
      */
     public static function toPeru(DateTimeInterface|string $utcMoment): CarbonImmutable

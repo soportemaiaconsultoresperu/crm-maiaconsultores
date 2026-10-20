@@ -3,8 +3,13 @@
     the heading row is repeated by Dompdf on every page, each row keeps together,
     and the applied filters and the project name are stated in the document.
     Cells already arrive neutralised by ContentCellSanitizer, so a value a user
-    typed can never render as executable content.
+    typed can never render as executable content. The header band and the table
+    head use the project colour with the readable text colour (S1.4).
 --}}
+@php
+    $headerColor = \App\Support\Content\ProjectColor::resolve($project->color);
+    $headerText = \App\Support\Content\ProjectColor::textColor($headerColor);
+@endphp
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -21,24 +26,25 @@
             line-height: 1.35;
         }
         .header {
-            border-bottom: 2px solid #2563eb;
-            padding-bottom: 8px;
+            background: {{ $headerColor }};
+            color: {{ $headerText }};
+            padding: 8px 10px;
             margin-bottom: 10px;
         }
-        .title { margin: 0; font-size: 15px; color: #0f172a; }
-        .project { margin: 2px 0 0; font-size: 11px; font-weight: 700; color: #2563eb; }
-        .meta { margin-top: 5px; font-size: 8px; color: #475569; }
+        .title { margin: 0; font-size: 15px; color: {{ $headerText }}; }
+        .project { margin: 2px 0 0; font-size: 11px; font-weight: 700; color: {{ $headerText }}; }
+        .meta { margin-top: 5px; font-size: 8px; color: {{ $headerText }}; }
         .filters { margin: 0; padding: 0; list-style: none; }
         .filters li { display: inline-block; margin-right: 12px; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         thead { display: table-header-group; }
         th {
-            background: #2563eb;
-            color: #ffffff;
+            background: {{ $headerColor }};
+            color: {{ $headerText }};
             text-align: left;
             font-size: 7.5px;
             padding: 4px 4px;
-            border: 1px solid #1d4ed8;
+            border: 1px solid {{ $headerColor }};
             word-wrap: break-word;
         }
         td {

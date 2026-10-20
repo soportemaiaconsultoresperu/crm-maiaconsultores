@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Content;
 
-use App\Exports\ArrayExport;
+use App\Exports\Content\ContentGridExcelExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Content\ContentGridFilterRequest;
 use App\Models\Content\ContentProject;
@@ -29,8 +29,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
  * filtered query the screen uses, so the exported set cannot drift from the
  * on-screen set. The filter payload is read through ContentGridFilterRequest,
  * the same request the grid uses, so no second interpretation of the filters
- * exists. Excel goes through the repository's generic ArrayExport; the PDF goes
- * through Dompdf in landscape, mirroring the existing PDF surfaces.
+ * exists. Excel goes through ContentGridExcelExport (title block, project
+ * colour header, frozen header, auto filter); the PDF goes through Dompdf in
+ * landscape, mirroring the existing PDF surfaces. Both state the applied
+ * filters, including the Desde/Hasta range.
  *
  * Both formats are capped (`config('content.export.*')`) so a full history
  * cannot exhaust memory: an oversized set is refused before it is loaded and
@@ -60,9 +62,12 @@ class ContentExportController extends Controller
         }
 
         return Excel::download(
-            new ArrayExport(
+            new ContentGridExcelExport(
+                $contentProject,
                 $this->export->headings($contentProject),
                 $this->export->rows($contentProject, $filters),
+                $this->export->filterSummary($contentProject, $filters),
+                PeruTime::toPeru(CarbonImmutable::now())->format('d/m/Y H:i'),
             ),
             $this->filename($contentProject, 'xlsx'),
         );
@@ -105,7 +110,7 @@ class ContentExportController extends Controller
         return redirect()
             ->route('content.projects.contents.index', ['contentProject' => $project] + array_filter($filters, fn (string $value): bool => $value !== ''))
             ->with('error', sprintf(
-                'La exportación a %s admite hasta %d contenidos y este filtro devuelve %d. Filtre por mes (u otro criterio) y vuelva a exportar.',
+                'La exportación a %s admite hasta %d contenidos y este filtro devuelve %d. Filtre por mes, por rango de fechas (u otro criterio) y vuelva a exportar.',
                 $format,
                 $limit,
                 $total,

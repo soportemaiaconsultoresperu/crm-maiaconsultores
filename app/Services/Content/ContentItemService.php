@@ -44,6 +44,26 @@ class ContentItemService
      */
     public const MONTH_PATTERN = '/^\d{4}-(0[1-9]|1[0-2])$/';
 
+    /**
+     * A grid range bound (Desde/Hasta): a `YYYY-MM-DD` Peru calendar date in the
+     * years 2000-2099. Impossible days (30 February) are refused by checkdate.
+     */
+    public const DATE_PATTERN = '/^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/';
+
+    /**
+     * Whether a value is a valid grid range bound.
+     */
+    public static function isRangeDate(mixed $value): bool
+    {
+        if (! is_string($value) || preg_match(self::DATE_PATTERN, $value) !== 1) {
+            return false;
+        }
+
+        [$year, $month, $day] = array_map('intval', explode('-', $value));
+
+        return checkdate($month, $day, $year);
+    }
+
     public function __construct(
         private readonly ContentFieldValueService $values = new ContentFieldValueService,
         private readonly ContentAttachmentService $attachments = new ContentAttachmentService,
@@ -53,7 +73,7 @@ class ContentItemService
     /**
      * The addressed project's contents, with the grid search and filters.
      *
-     * @param  array{q?: mixed, month?: mixed, status?: mixed, pillar?: mixed, topic?: mixed, format?: mixed, channel?: mixed}  $filters
+     * @param  array{q?: mixed, month?: mixed, from?: mixed, to?: mixed, status?: mixed, pillar?: mixed, topic?: mixed, format?: mixed, channel?: mixed}  $filters
      * @return Builder<ContentItem>
      */
     public function query(ContentProject $project, array $filters = []): Builder
@@ -115,6 +135,19 @@ class ContentItemService
             $start = PeruTime::toUtc($month.'-01 00:00:00');
             $query->where('planned_at', '>=', $start)
                 ->where('planned_at', '<', $start->addMonthNoOverflow());
+        }
+
+        // Desde/Hasta are inclusive Peru calendar days and combine with the
+        // month (both apply). An invalid bound is ignored here; the filter
+        // request reports it.
+        $from = trim((string) ($filters['from'] ?? ''));
+        if (self::isRangeDate($from)) {
+            $query->where('planned_at', '>=', PeruTime::dayStartUtc($from));
+        }
+
+        $to = trim((string) ($filters['to'] ?? ''));
+        if (self::isRangeDate($to)) {
+            $query->where('planned_at', '<', PeruTime::nextDayStartUtc($to));
         }
 
         return $query;

@@ -304,7 +304,16 @@ class ContentExportTest extends TestCase
         $sheets = Excel::toArray($reader, $tmp);
         @unlink($tmp);
 
-        return $sheets[0] ?? [];
+        // The styled export has a title block above the table; the table
+        // starts at the heading row ("Fecha" is always the first column).
+        $rows = $sheets[0] ?? [];
+        foreach ($rows as $index => $row) {
+            if (($row[0] ?? null) === 'Fecha') {
+                return array_values(array_slice($rows, $index));
+            }
+        }
+
+        return [];
     }
 
     /**

@@ -73,6 +73,17 @@
                     <label for="month" class="form-label mb-0 small">Mes</label>
                     <input type="month" id="month" name="month" value="{{ $filters['month'] }}" class="form-control form-control-sm">
                 </div>
+                {{-- Inclusive Peru calendar days; they combine with the month (S4). --}}
+                <div>
+                    <label for="from" class="form-label mb-0 small">Desde</label>
+                    <input type="date" id="from" name="from" value="{{ $filters['from'] }}" class="form-control form-control-sm"
+                           min="2000-01-01" max="2099-12-31" data-testid="content-items-filter-from">
+                </div>
+                <div>
+                    <label for="to" class="form-label mb-0 small">Hasta</label>
+                    <input type="date" id="to" name="to" value="{{ $filters['to'] }}" class="form-control form-control-sm"
+                           min="2000-01-01" max="2099-12-31" data-testid="content-items-filter-to">
+                </div>
                 <div>
                     <label for="status" class="form-label mb-0 small">Estado</label>
                     <select id="status" name="status" class="form-select form-select-sm">

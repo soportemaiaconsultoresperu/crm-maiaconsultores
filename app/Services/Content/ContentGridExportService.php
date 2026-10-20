@@ -34,6 +34,9 @@ use Illuminate\Support\Collection;
  * that names another project's catalog id can only narrow this project's rows,
  * never widen the export across projects.
  *
+ * A standard field the project hides (S2) has no column in either export, so
+ * the exported columns mirror the grid's; the stored data is untouched.
+ *
  * Every cell goes through ContentCellSanitizer before it can reach a
  * spreadsheet: headings (custom field labels are user text), grid text,
  * catalog names and custom values alike.
@@ -41,25 +44,27 @@ use Illuminate\Support\Collection;
 class ContentGridExportService
 {
     /**
-     * Grid columns, in the on-screen order. The Acciones column is not data.
+     * Grid columns, in the on-screen order, each paired with the hideable
+     * standard field it shows (null for a column that can never be hidden).
+     * The Acciones column is not data.
      *
-     * @var list<string>
+     * @var list<array{0: string, 1: ?string}>
      */
-    private const GRID_HEADINGS = [
-        'Fecha',
-        'Día',
-        'Horario',
-        'Pilar de contenido',
-        'Tema',
-        'Estado',
-        'Atrasado',
-        'Objetivos',
-        'Formato',
-        'Red social o canal',
-        'Gancho o título',
-        'Descripción o copy',
-        'Hashtags',
-        'Notas',
+    private const GRID_COLUMNS = [
+        ['Fecha', null],
+        ['Día', null],
+        ['Horario', null],
+        ['Pilar de contenido', 'pillar'],
+        ['Tema', 'topic'],
+        ['Estado', null],
+        ['Atrasado', null],
+        ['Objetivos', 'objectives'],
+        ['Formato', 'formats'],
+        ['Red social o canal', 'channels'],
+        ['Gancho o título', null],
+        ['Descripción o copy', null],
+        ['Hashtags', 'hashtags'],
+        ['Notas', 'notes'],
     ];
 
     public function __construct(
@@ -84,7 +89,7 @@ class ContentGridExportService
 
         return array_map(
             [ContentCellSanitizer::class, 'sanitize'],
-            array_merge(self::GRID_HEADINGS, $labels),
+            array_merge(array_column($this->gridColumns($project), 0), $labels),
         );
     }
 
@@ -115,7 +120,7 @@ class ContentGridExportService
             ->query($project, $filters)
             ->with(['fieldValues.definition', 'fieldValues.selectedOptions'])
             ->get()
-            ->map(fn (ContentItem $item): array => $this->mapRow($item, $definitions))
+            ->map(fn (ContentItem $item): array => $this->mapRow($project, $item, $definitions))
             ->all();
     }
 
@@ -142,22 +147,28 @@ class ContentGridExportService
             $summary[] = 'Mes: '.$month;
         }
 
+        $range = $this->rangeStatement($filters);
+        if ($range !== null) {
+            $summary[] = $range;
+        }
+
         $status = (string) ($filters['status'] ?? '');
         if (in_array($status, ContentItemStatus::values(), true)) {
             $summary[] = 'Estado: '.(ContentItemStatus::labels()[$status] ?? $status);
         }
 
+        // A filter on a hidden field is ignored by the query, so it is not stated.
         $catalogs = [
-            'pillar' => ['Pilar de contenido', ContentPillar::class],
-            'topic' => ['Tema', ContentTopic::class],
-            'format' => ['Formato', ContentFormat::class],
-            'channel' => ['Red social o canal', ContentChannel::class],
+            'pillar' => ['Pilar de contenido', ContentPillar::class, 'pillar'],
+            'topic' => ['Tema', ContentTopic::class, 'topic'],
+            'format' => ['Formato', ContentFormat::class, 'formats'],
+            'channel' => ['Red social o canal', ContentChannel::class, 'channels'],
         ];
 
-        foreach ($catalogs as $key => [$label, $class]) {
+        foreach ($catalogs as $key => [$label, $class, $field]) {
             $id = (int) ($filters[$key] ?? 0);
 
-            if ($id <= 0) {
+            if ($id <= 0 || $project->isStandardFieldHidden($field)) {
                 continue;
             }
 
@@ -165,6 +176,47 @@ class ContentGridExportService
         }
 
         return $summary;
+    }
+
+    /**
+     * "Desde dd/mm/yyyy hasta dd/mm/yyyy" (or just one bound) for a valid
+     * Desde/Hasta filter, null when no valid bound is applied.
+     *
+     * @param  array<string, string>  $filters
+     */
+    private function rangeStatement(array $filters): ?string
+    {
+        $bound = function (string $key) use ($filters): ?string {
+            $value = trim((string) ($filters[$key] ?? ''));
+
+            return ContentItemService::isRangeDate($value)
+                ? CarbonImmutable::createFromFormat('Y-m-d', $value)->format('d/m/Y')
+                : null;
+        };
+
+        $from = $bound('from');
+        $to = $bound('to');
+
+        return match (true) {
+            $from !== null && $to !== null => 'Desde '.$from.' hasta '.$to,
+            $from !== null => 'Desde '.$from,
+            $to !== null => 'Hasta '.$to,
+            default => null,
+        };
+    }
+
+    /**
+     * The grid columns the project shows: every column whose standard field is
+     * not hidden.
+     *
+     * @return list<array{0: string, 1: ?string}>
+     */
+    private function gridColumns(ContentProject $project): array
+    {
+        return array_values(array_filter(
+            self::GRID_COLUMNS,
+            fn (array $column): bool => $column[1] === null || ! $project->isStandardFieldHidden($column[1]),
+        ));
     }
 
     /**
@@ -204,27 +256,32 @@ class ContentGridExportService
      * @param  Collection<int, ContentFieldDefinition>  $definitions
      * @return list<mixed>
      */
-    private function mapRow(ContentItem $item, Collection $definitions): array
+    private function mapRow(ContentProject $project, ContentItem $item, Collection $definitions): array
     {
         $planned = $item->planned_at !== null ? PeruTime::toPeru($item->planned_at) : null;
         $values = $this->values->values($item);
 
-        $row = [
-            $planned?->format('d/m/Y') ?? '—',
-            $planned !== null ? PeruTime::weekdayLabel($item->planned_at) : '—',
-            $planned?->format('H:i') ?? '—',
-            $item->pillar?->name ?? '—',
-            $item->topic?->name ?? '—',
-            $item->status->label(),
-            $item->isOverdue() ? 'Atrasado' : '',
-            $this->joinNames($item->objectives),
-            $this->joinNames($item->formats),
-            $this->joinNames($item->channels),
-            $item->title,
-            $item->body,
-            $item->hashtags ?? '—',
-            $item->notes ?? '—',
+        $cells = [
+            'Fecha' => $planned?->format('d/m/Y') ?? '—',
+            'Día' => $planned !== null ? PeruTime::weekdayLabel($item->planned_at) : '—',
+            'Horario' => $planned?->format('H:i') ?? '—',
+            'Pilar de contenido' => $item->pillar?->name ?? '—',
+            'Tema' => $item->topic?->name ?? '—',
+            'Estado' => $item->status->label(),
+            'Atrasado' => $item->isOverdue() ? 'Atrasado' : '',
+            'Objetivos' => $this->joinNames($item->objectives),
+            'Formato' => $this->joinNames($item->formats),
+            'Red social o canal' => $this->joinNames($item->channels),
+            'Gancho o título' => $item->title,
+            'Descripción o copy' => $item->body,
+            'Hashtags' => $item->hashtags ?? '—',
+            'Notas' => $item->notes ?? '—',
         ];
+
+        $row = array_map(
+            fn (array $column): mixed => $cells[$column[0]],
+            $this->gridColumns($project),
+        );
 
         foreach ($definitions as $definition) {
             $row[] = $this->fieldValue($definition, $values[$definition->key] ?? null);
