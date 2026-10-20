@@ -25,7 +25,7 @@ Estado: **v1 (B01)**.
 ## 4. Datos sensibles
 
 - Logs: nivel por entorno; nunca loguear contraseñas ni documentos. Revisión final en B09 (RNF-SEG-003).
-- Credenciales solo por `.env` (gitignored). `.env.example` con placeholders vacíos. Usuario admin nace de `ADMIN_NAME/ADMIN_EMAIL/ADMIN_PASSWORD` del entorno; el seeder lanza error si faltan (fail-fast, sin defaults en repositorio).
+- Credenciales solo por `.env` (gitignored). `.env.example` con placeholders vacíos. Usuario admin nace de `ADMIN_NAME/ADMIN_EMAIL/ADMIN_PASSWORD` del entorno; el seeder lanza error si faltan (fail-fast). Única excepción: con `APP_ENV=local` y las tres variables vacías, usa la credencial de desarrollo `admin@maia.local` / `Maia2026!` (`AdminUserSeeder::LOCAL_*`). Esa credencial es pública por estar en el repositorio: nunca la uses en un entorno accesible desde afuera.
 - Montos `DECIMAL(14,2)`, sin float (RNF-DAT-002).
 
 ## 5. Archivos (ADR-011, se materializa en B06)
