@@ -14,12 +14,16 @@ Branch: `feat/internal-activities`. Unrelated uncommitted changes in the working
 - S8 Permissions "Cualquier usuario": any active user can create; only the creator or an admin can edit/delete.
 
 ## Tasks
-- [ ] T1 S1-S4,S8 — model, migration, audience + participants, CRUD, policy, calendar layer + filter, tests. Route: inline. Commit: —
-- [ ] T2 S5 — recurrence (rule fields, read-time expansion into calendar), tests. Route: inline. Commit: —
-- [ ] T3 S6 — notifications on create/update + scheduled reminder, tests. Route: inline. Commit: —
-- [ ] T4 S7 — Google Calendar sync for participants with a connected account, tests. Route: inline. Commit: —
+- [x] T1 S1-S4,S8 — model, migration, audience + participants, CRUD, policy, calendar layer + filter, tests. Route: inline. Commit: 103f63a
+- [x] T2 S5 — recurrence (rule fields, read-time expansion into calendar), tests. Route: inline. Commit: fefc9b6
+- [x] T3 S6 — notifications on create/update + scheduled reminder, tests. Route: inline. Commit: d5beace
+- [x] T4 S7 — Google Calendar sync for participants with a connected account, tests. Route: worker. Commit: be449af
 
 ## Log
 - L1 User: "lo que quiero es crear un modulo pero para proyectar actividades de todo tipo de manera interna en la organizacion y que esta se pueda ver en el calendario y aasi sea mas facil ser mapeados por todo el personal"
 - L2 Answers: visibilidad = Por audiencia; calendario = "cual me recomiendas??" -> recommended same calendar with "Interno" layer; alcance v1 = participantes, recurrencia, notificaciones, sync Google; crear = cualquier usuario. Branch: new branch from current, leave uncommitted changes untouched.
 - L3 Discovery: users have no area/department field, so audience = all | roles (spatie) | users. CalendarEventService merges event kinds into CalendarEventItem; tests run on sqlite :memory:; PHP at /c/laragon/bin/php/php-8.3.16-Win32-vs16-x64/php.
+- L4 T1 done (103f63a): 10/10 InternalActivityTest. Full suite 1667/1682; the 13 failures fail identically on the base commit (pre-existing, unrelated: admin settings, automations banners, email correlation, Gmail, Google webhook, invoices, academic docs). Calendar requires calendar.view (admin/supervisor/vendedor only); internal activities also have their own list open to every active user.
+- L5 T2 done (fefc9b6): 6/6 recurrence tests; calendar+module 80/81 (only the pre-existing webhook failure).
+- L6 T3 done (d5beace): 4/4 notification tests; Notif|InternalActivity|Schedule 76/76. Reminder command internal-activities:notify-upcoming scheduled hourly.
+- L7 T4 done (be449af, gentle-ai-worker): 6/6 InternalActivityGoogleSyncTest; InternalActivity|GoogleCalendar|Calendar 90/91 (only the pre-existing webhook failure). Known limits: removed-participant delete targets the account's current default calendar; Google-side edits are not synced back.
