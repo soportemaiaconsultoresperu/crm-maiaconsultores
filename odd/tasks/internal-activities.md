@@ -27,3 +27,4 @@ Branch: `feat/internal-activities`. Unrelated uncommitted changes in the working
 - L5 T2 done (fefc9b6): 6/6 recurrence tests; calendar+module 80/81 (only the pre-existing webhook failure).
 - L6 T3 done (d5beace): 4/4 notification tests; Notif|InternalActivity|Schedule 76/76. Reminder command internal-activities:notify-upcoming scheduled hourly.
 - L7 T4 done (be449af, gentle-ai-worker): 6/6 InternalActivityGoogleSyncTest; InternalActivity|GoogleCalendar|Calendar 90/91 (only the pre-existing webhook failure). Known limits: removed-participant delete targets the account's current default calendar; Google-side edits are not synced back.
+- L8 User: "si claro" (grant calendar to all roles). Done (e7d6c4e): calendar opened to every active user instead of per-role calendar.view, so custom/future roles are covered; commercial events stay owner-scoped (pinned by test). Calendar|InternalActivity 91/92 (pre-existing webhook failure).
