@@ -211,6 +211,31 @@ class InternalActivityTest extends TestCase
             ->assertSee('calendar-event-internal', false);
     }
 
+    public function test_any_active_user_with_a_custom_role_opens_the_calendar_and_only_sees_own_commercial_activities(): void
+    {
+        $role = Role::create(['name' => 'contabilidad', 'guard_name' => 'web']);
+        $staff = User::factory()->create(['is_active' => true]);
+        $staff->assignRole($role);
+        $this->assertFalse($staff->can('calendar.view'));
+
+        $this->createAs($this->seller);
+        $lead = \App\Models\Lead::factory()->forOwner($this->seller)->create();
+        app(\App\Services\ActivityService::class)->create([
+            'subject_type' => 'lead',
+            'subject_id' => $lead->id,
+            'type_id' => \App\Models\ActivityType::query()->where('slug', 'llamada')->value('id'),
+            'title' => 'Llamada comercial ajena',
+            'scheduled_at' => '2026-10-21 10:00',
+            'owner_id' => $this->seller->id,
+        ], $this->seller);
+
+        $this->actingAs($staff)
+            ->get(route('calendar.index', ['view' => 'list', 'anchor' => '2026-10-21']))
+            ->assertOk()
+            ->assertSee('Capacitación interna')
+            ->assertDontSee('Llamada comercial ajena');
+    }
+
     public function test_calendar_without_layer_param_still_lists_commercial_activities(): void
     {
         $this->actingAs($this->seller)
