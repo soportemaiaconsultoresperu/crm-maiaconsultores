@@ -24,6 +24,8 @@
 @endphp
 
 @section('content')
+    @include('content.projects._read_only_notice', ['project' => $project])
+
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a href="{{ route('content.projects.ideas.index', $project) }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1" aria-hidden="true"></i> Volver a las ideas
@@ -39,7 +41,7 @@
                 :action="route('content.projects.contents.destroy', [$project, $idea])"
                 method="DELETE"
                 title="¿Enviar a la papelera?"
-                text="La idea dejará de aparecer en la lista de ideas, pero conservará sus valores hasta que se vacíe la papelera. Podrá restaurarla desde la papelera."
+                text="La idea dejará de aparecer en la lista de ideas, pero conservará sus valores hasta que se elimine definitivamente o se vacíe la papelera. Podrá restaurarla desde la papelera."
                 type="warning"
                 confirm-text="Sí, enviar a la papelera"
                 button-class="btn-outline-warning"

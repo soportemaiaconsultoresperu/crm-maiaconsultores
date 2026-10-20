@@ -43,14 +43,14 @@ class ContentProjectPolicy
     /**
      * Opening the module list. Narrowing to the projects the user may actually
      * see is `view()` / the scope resolver the listing query uses. Being a
-     * member of at least one project (archived included) is enough to see the
+     * member of at least one project (archived or inactive included) is enough to see the
      * module, so members reach it without any module permission.
      */
     public function viewAny(User $user): bool
     {
         return $user->can('content_projects.view')
             || $user->can('content_projects.view_all')
-            || $this->scope->visibleProjects($user, includeArchived: true)->exists();
+            || $this->scope->visibleProjects($user, includeArchived: true, includeInactive: true)->exists();
     }
 
     /**

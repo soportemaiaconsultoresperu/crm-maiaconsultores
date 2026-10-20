@@ -36,7 +36,7 @@
                 @csrf
 
                 <p class="small text-secondary">
-                    Marcá los usuarios que deben pertenecer al proyecto. Al guardar, la lista reemplaza la membresía actual.
+                    Marque los usuarios que deben pertenecer al proyecto. Al guardar, la lista reemplaza la membresía actual.
                 </p>
 
                 <div class="mb-3" style="max-height: 16rem; overflow-y: auto;">
@@ -60,7 +60,7 @@
                 </button>
             </form>
         @else
-            <p class="small text-secondary mb-0">No tenés permiso para modificar la membresía de este proyecto.</p>
+            <p class="small text-secondary mb-0">No tiene permiso para modificar la membresía de este proyecto.</p>
         @endcan
     </div>
 </div>

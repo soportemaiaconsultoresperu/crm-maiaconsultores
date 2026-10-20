@@ -127,7 +127,7 @@ class ContentFieldSchemaHttpTest extends TestCase
         $this->post(route('content.fields.options.state', [$this->project, $list->id, $option->id]), ['is_active' => false])->assertRedirect();
         $this->assertFalse($option->fresh()->is_active);
         $this->get(route('content.fields.index', $this->project))->assertOk()
-            ->assertSee('Retirada')
+            ->assertSee('Inactiva')
             ->assertSee('Instagram oficial');
     }
 
@@ -282,8 +282,8 @@ class ContentFieldSchemaHttpTest extends TestCase
         $this->assertNotNull(ContentFieldDefinition::find($list->id));
         $this->assertNotNull(ContentFieldOption::find($option->id));
         $this->get(route('content.fields.index', $this->project))->assertOk()
-            ->assertSee('Retirada')
-            ->assertSee('Retirado');
+            ->assertSee('Inactiva')
+            ->assertSee('Inactivo');
 
         // A retired section slug and option slug stay reserved.
         $this->postJson(route('content.fields.sections.store', $this->project),

@@ -59,7 +59,7 @@ class ContentCatalogController extends Controller
         $request->boolean('is_active') ? $option->reactivate() : $option->deactivate();
 
         return $this->backToCatalog($contentProject, $request->boolean('is_active')
-            ? 'Opción reactivada correctamente.' : 'Opción retirada. Sus referencias históricas se conservan.');
+            ? 'Opción reactivada correctamente.' : 'Opción desactivada. Sus referencias históricas se conservan.');
     }
 
     public function reorder(ManageContentCatalogRequest $request, ContentProject $contentProject, string $catalogGroup, string $catalogOption): RedirectResponse

@@ -10,6 +10,8 @@
 @endphp
 
 @section('content')
+    @include('content.projects._read_only_notice', ['project' => $project])
+
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a href="{{ route('content.projects.contents.index', $project) }}" class="btn btn-outline-secondary" data-testid="btn-content-idea-schedule">
             <i class="bi bi-calendar3 me-1" aria-hidden="true"></i> Ver cronograma

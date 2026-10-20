@@ -105,7 +105,7 @@ class ContentExportController extends Controller
         return redirect()
             ->route('content.projects.contents.index', ['contentProject' => $project] + array_filter($filters, fn (string $value): bool => $value !== ''))
             ->with('error', sprintf(
-                'La exportación a %s admite hasta %d contenidos y este filtro devuelve %d. Filtra por mes (u otro criterio) y vuelve a exportar.',
+                'La exportación a %s admite hasta %d contenidos y este filtro devuelve %d. Filtre por mes (u otro criterio) y vuelva a exportar.',
                 $format,
                 $limit,
                 $total,

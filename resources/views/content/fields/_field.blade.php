@@ -4,7 +4,7 @@
 <div class="border rounded p-3 mb-3" data-field="{{ $field->id }}">
     <p class="mb-2">
         <strong>{{ $field->label }}</strong>
-        <span class="badge {{ $field->is_active ? 'text-bg-success' : 'text-bg-secondary' }}">{{ $field->is_active ? 'Activo' : 'Retirado' }}</span>
+        <span class="badge {{ $field->is_active ? 'text-bg-success' : 'text-bg-secondary' }}">{{ $field->is_active ? 'Activo' : 'Inactivo' }}</span>
         @if ($field->required)<span class="badge text-bg-info">Obligatorio</span>@endif
     </p>
 
@@ -28,7 +28,7 @@
             <select id="section-{{ $prefix }}" name="content_field_section_id" class="form-select mb-2">
                 <option value="">Sin sección</option>
                 @foreach ($sections as $candidate)
-                    <option value="{{ $candidate->id }}" @selected($field->content_field_section_id === $candidate->id)>{{ $candidate->name }}{{ $candidate->is_active ? '' : ' (Retirada)' }}</option>
+                    <option value="{{ $candidate->id }}" @selected($field->content_field_section_id === $candidate->id)>{{ $candidate->name }}{{ $candidate->is_active ? '' : ' (Inactiva)' }}</option>
                 @endforeach
             </select>
 
@@ -67,7 +67,7 @@
             <div class="border rounded p-2 mb-2" data-field-option="{{ $option->id }}">
                 <p class="mb-2">
                     <strong>{{ $option->label }}</strong> <code>{{ $option->slug }}</code>
-                    <span class="badge {{ $option->is_active ? 'text-bg-success' : 'text-bg-secondary' }}">{{ $option->is_active ? 'Activa' : 'Retirada' }}</span>
+                    <span class="badge {{ $option->is_active ? 'text-bg-success' : 'text-bg-secondary' }}">{{ $option->is_active ? 'Activa' : 'Inactiva' }}</span>
                 </p>
                 <div class="d-flex flex-wrap gap-3">
                     <form method="POST" action="{{ route('content.fields.options.update', [$project, $field->id, $option->id]) }}">
@@ -87,7 +87,7 @@
                     <form method="POST" action="{{ route('content.fields.options.state', [$project, $field->id, $option->id]) }}" class="align-self-end">
                         @csrf
                         <input type="hidden" name="is_active" value="{{ $option->is_active ? 0 : 1 }}">
-                        <button class="btn {{ $option->is_active ? 'btn-outline-warning' : 'btn-outline-success' }}" type="submit">{{ $option->is_active ? 'Retirar' : 'Reactivar' }}</button>
+                        <button class="btn {{ $option->is_active ? 'btn-outline-warning' : 'btn-outline-success' }}" type="submit">{{ $option->is_active ? 'Desactivar' : 'Reactivar' }}</button>
                     </form>
                 </div>
             </div>

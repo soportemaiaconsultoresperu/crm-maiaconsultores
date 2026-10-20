@@ -107,11 +107,18 @@ Arriba de la lista:
 
 - **Nuevo proyecto** — solo para el administrador.
 - **Calendario consolidado** — solo para quien tiene acceso a esa vista (por defecto, el administrador).
-- La casilla **Incluir archivados** y los botones **Filtrar** / **Limpiar**: por defecto la lista solo
-  muestra proyectos activos; marque la casilla y pulse **Filtrar** para ver también los archivados (y
-  los marcados como inactivos).
+- Las casillas **Incluir archivados** e **Incluir inactivos** y los botones **Filtrar** / **Limpiar**:
+  por defecto la lista solo muestra proyectos activos. Marque **Incluir archivados** para ver también los
+  archivados, o **Incluir inactivos** para ver también los inactivos (cada casilla agrega solo su grupo;
+  marque las dos para ver todos), y pulse **Filtrar**.
 
-Si la lista está vacía verá *"No hay proyectos de contenido visibles para tu usuario."*: todavía no lo
+| Estado | Qué significa | ¿Se puede trabajar en él? |
+|---|---|---|
+| **Activo** | En uso normal. | Sí. |
+| **Inactivo** | Pausado desde **Editar** (campo **Estado**). Sale de la lista por defecto y del calendario consolidado. | Sí: sus miembros pueden seguir creando y editando contenidos. |
+| **Archivado** | Retirado con **Archivar**. Sale de la lista por defecto y del calendario consolidado. | No: queda en **solo lectura** hasta que se reactive ([sección 17](#17-proyectos-archivados-solo-lectura)). |
+
+Si la lista está vacía verá *"No hay proyectos de contenido visibles para su usuario."*: todavía no lo
 asignaron a ningún proyecto.
 
 ### La página del proyecto
@@ -168,7 +175,8 @@ La lista marcada **reemplaza** a la anterior: para quitar a alguien, desmarque s
 
 Con **Editar** puede cambiar nombre, identificador, color, descripción y **Estado** (*Activo* /
 *Inactivo*). Pulse **Guardar cambios**. Un proyecto *Inactivo* deja de aparecer en la lista por
-defecto (se ve marcando **Incluir archivados**) y no figura en el calendario consolidado.
+defecto (se ve marcando **Incluir inactivos**) y no figura en el calendario consolidado, pero sigue
+siendo editable. Si lo que quiere es cerrar el proyecto y que nadie lo modifique, use **Archivar**.
 
 ### 4.4 Archivar y reactivar
 
@@ -192,7 +200,7 @@ En la página del proyecto pulse **Administrar catálogos**. Verá cinco bloques
 | **Formatos** | Imagen, carrusel, reel, video, historia… |
 | **Canales** | Facebook, Instagram, TikTok, YouTube, LinkedIn, WhatsApp… |
 
-Cada opción muestra su nombre, su identificador y una etiqueta **Activa** o **Retirada** (en los temas,
+Cada opción muestra su nombre, su identificador y una etiqueta **Activa** o **Inactiva** (en los temas,
 también el pilar al que pertenece).
 
 ### Crear una opción
@@ -203,7 +211,7 @@ Al final de cada bloque, en **Crear opción**:
 |---|---|---|
 | **Pilar** (solo en Temas) | Sí | El pilar al que pertenece el tema. |
 | **Nombre** | Sí | Lo que verá el equipo. Máximo 150 caracteres. |
-| **Identificador** | Sí | Minúsculas, números y guiones. **No se puede cambiar después** y no puede repetirse, ni siquiera con una opción retirada. |
+| **Identificador** | Sí | Minúsculas, números y guiones. **No se puede cambiar después** y no puede repetirse, ni siquiera con una opción inactiva. |
 | **Orden** | Sí | Número que define la posición en las listas (los menores van primero). |
 
 Pulse **Crear opción**.
@@ -214,12 +222,12 @@ Pulse **Crear opción**.
 |---|---|---|
 | Renombrar | Cambie **Nombre** y pulse **Guardar nombre** | Cambia cómo se lee en todos los contenidos; el identificador no cambia. |
 | Reordenar | Cambie **Orden** y pulse **Guardar orden** | Cambia la posición en las listas. |
-| Retirar | Pulse **Desactivar** | La opción pasa a **Retirada**: ya no se ofrece para contenidos nuevos. |
+| Desactivar | Pulse **Desactivar** | La opción pasa a **Inactiva**: ya no se ofrece para contenidos ni ideas nuevos. |
 | Volver a usar | Pulse **Reactivar** | La opción vuelve a ofrecerse. |
 
 Un tema no se puede mover a otro pilar: si lo necesita en otro pilar, cree un tema nuevo allí.
 
-**Por qué se retira y no se borra:** las opciones retiradas **se conservan** en los contenidos que ya
+**Por qué se desactiva y no se borra:** las opciones inactivas **se conservan** en los contenidos que ya
 las usaban. Al editar uno de esos contenidos, la opción aparece con la marca **"(Retirada)"** y sigue
 seleccionada, así que no se pierde al guardar otros cambios. Solo desaparece si usted la desmarca.
 
@@ -272,7 +280,12 @@ Qué acepta cada tipo:
 En los campos *Selección única* y *Selección múltiple* aparece el bloque **Opciones de la lista**.
 Para agregar una, use **Nueva opción** (**Etiqueta**, **Identificador**, **Orden**) y pulse
 **Crear opción**. Cada opción se puede renombrar (**Guardar etiqueta**), reordenar (**Guardar orden**)
-y **Retirar** / **Reactivar**.
+y **Desactivar** / **Reactivar**. Una opción inactiva sigue la misma regla que las de los catálogos: ya
+no se ofrece en contenidos ni ideas nuevos, y en los que ya la tenían aparece marcada **"(Retirada)"** y
+sigue seleccionada hasta que usted la quite.
+
+En esta pantalla, secciones y opciones muestran la etiqueta **Activa** o **Inactiva**, y los campos
+**Activo** o **Inactivo**.
 
 ### 6.4 Modificar un campo
 
@@ -286,7 +299,7 @@ Qué pasa al desactivar:
 
 - Un campo desactivado deja de pedirse en los contenidos nuevos, pero **sigue visible** en los
   contenidos que ya tenían un valor cargado, y ese valor se exporta ([sección 15](#15-exportar-a-excel-o-pdf)).
-- Nada se elimina de forma definitiva: los elementos retirados se conservan y siguen visibles en esta
+- Nada se elimina de forma definitiva: los elementos inactivos se conservan y siguen visibles en esta
   pantalla.
 
 ---
@@ -522,9 +535,21 @@ y si es *Archivo* subido o *Enlace*), **Tamaño** y **Acciones**:
 - **Descargar** (solo archivos subidos): el sistema comprueba que usted tenga acceso al proyecto y
   entrega el archivo; según la configuración del servidor, puede abrirse mediante un enlace temporal.
   Los archivos **no son públicos**: solo se descargan desde aquí.
-- **Retirar**: confirme *"¿Retirar este adjunto?"*. El adjunto deja de mostrarse y deja de contar para el
-  límite de 10. El archivo no se borra del servidor, pero la pantalla no ofrece un botón para volver a
-  mostrarlo: si lo necesita de nuevo, vuelva a subirlo.
+- **Retirar**: confirme *"¿Retirar este adjunto?"*. El adjunto deja de mostrarse en la lista y deja de
+  contar para el límite de 10. El archivo no se borra del servidor: pasa al bloque **Adjuntos retirados**.
+
+### Adjuntos retirados
+
+Debajo de la lista aparece el bloque **Adjuntos retirados** cuando el contenido tiene alguno. Cada uno
+muestra su nombre (o su dirección), la etiqueta *Retirado*, **Descargar** (si es un archivo subido) y
+**Restaurar adjunto**:
+
+- **Restaurar adjunto** lo devuelve a la lista con su archivo y su número de orden anterior. Pueden
+  usarlo el administrador y los miembros del proyecto. Verá *"Adjunto restaurado correctamente."*
+- Si el contenido ya tiene 10 adjuntos, no se restaura: retire otro antes.
+- Restaurar un contenido desde la papelera **no** restaura sus adjuntos retirados: se restauran uno a
+  uno desde aquí.
+- En un proyecto archivado el bloque se ve, pero sin el botón **Restaurar adjunto**.
 
 > **Archivos pesados:** si al subir un archivo grande aparece una página de error del servidor en lugar
 > de un mensaje del módulo, el servidor todavía no acepta ese tamaño. Avise a sistemas. Mientras tanto,
@@ -640,7 +665,7 @@ campo personalizado activo** del proyecto.
 
 **Límites:** el PDF admite hasta **500 contenidos** y el Excel hasta **5000**. Si su filtro devuelve más,
 no se genera el archivo: vuelve a la grilla con el mensaje *"La exportación a PDF admite hasta 500
-contenidos y este filtro devuelve N. Filtra por mes (u otro criterio) y vuelve a exportar."* Nunca
+contenidos y este filtro devuelve N. Filtre por mes (u otro criterio) y vuelva a exportar."* Nunca
 recibe un archivo recortado sin aviso.
 
 ---
@@ -655,17 +680,18 @@ Si elimina un contenido o una idea por error, no se pierde.
 - **Idea**: en su ficha, **Enviar a la papelera** → **Sí, enviar a la papelera**.
 
 Deja de aparecer en el cronograma o en la lista de ideas, pero conserva sus valores, sus selecciones,
-sus campos personalizados y sus archivos.
+sus campos personalizados y sus archivos hasta que alguien lo elimine definitivamente o vacíe la
+papelera (cualquier miembro del proyecto o el administrador).
 
 ### Abrir la papelera
 
 Desde la grilla, botón **Papelera**. La tabla *"Contenidos eliminados de [proyecto]"* tiene las columnas
-**Título**, **Tipo** (*Contenido* o *Idea*), **Fecha planificada**, **Eliminado el** y **Acciones**. Los
-eliminados más recientes aparecen primero.
+**Título**, **Tipo** (*Contenido* o *Idea*), **Fecha planificada** (día/mes/año y hora de Perú; *—* en
+una idea), **Eliminado el** y **Acciones**. Los eliminados más recientes aparecen primero.
 
 | Acción | Resultado |
 |---|---|
-| **Restaurar** | Vuelve a su lugar con sus textos, campos y adjuntos, y el sistema lo lleva a su ficha (de idea o de contenido). |
+| **Restaurar** | Vuelve a su lugar con sus textos, campos y adjuntos, y el sistema lo lleva a su ficha (de idea o de contenido). Los adjuntos que ya estaban retirados siguen retirados ([sección 11](#11-archivos-y-enlaces)). |
 | **Eliminar definitivamente** | Pide confirmación (*"¿Eliminar definitivamente?"*). Borra ese elemento con sus valores y sus archivos. **Es irreversible.** |
 | **Vaciar papelera** | Pide confirmación (*"¿Vaciar la papelera?"*). Borra de una vez **todo** lo que hay en la papelera de ese proyecto, con sus archivos. **Es irreversible.** |
 
@@ -677,8 +703,9 @@ la papelera. Estas acciones no están disponibles en un proyecto archivado.
 
 ## 17. Proyectos archivados: solo lectura
 
-Cuando el administrador archiva un proyecto, en la página del proyecto, en el calendario y en la
-papelera aparece el aviso:
+Cuando el administrador archiva un proyecto, en la página del proyecto, en la grilla del cronograma,
+en las fichas de contenidos e ideas, en la lista de ideas, en el calendario y en la papelera aparece el
+aviso:
 
 > **Archivado — solo lectura.** Puede consultar y exportar la información, pero no se aceptan cambios
 > hasta que el proyecto se reactive.
@@ -686,7 +713,7 @@ papelera aparece el aviso:
 | Se puede | No se puede (nadie, ni el administrador) |
 |---|---|
 | Ver el proyecto, la grilla, las fichas, las ideas, el calendario y la papelera | Crear, editar, reprogramar, duplicar o convertir |
-| Descargar archivos | Adjuntar, ordenar o retirar adjuntos |
+| Descargar archivos | Adjuntar, ordenar, retirar o restaurar adjuntos |
 | Exportar a Excel y PDF | Agregar, editar o eliminar fechas importantes |
 | | Enviar a la papelera, restaurar, eliminar definitivamente, vaciar papelera |
 | | Cambiar catálogos, campos, datos del proyecto o miembros |
@@ -764,10 +791,14 @@ administrador que lo cree en **Administrar catálogos**.
 Es intencional: el tipo queda fijo para no perder los datos ya cargados. Cree un campo nuevo y desactive
 el anterior.
 
-**Una opción retirada sigue apareciendo en contenidos viejos.**
-Es correcto: se conserva el historial, pero ya no se ofrece para contenidos nuevos.
+**Una opción desactivada sigue apareciendo en contenidos viejos.**
+Es correcto: se conserva el historial, pero ya no se ofrece para contenidos ni ideas nuevos. Vale para
+las opciones de los catálogos y para las de los campos personalizados de selección.
 
-**Edité un contenido y temo perder una opción retirada.**
+**Un proyecto no aparece en la lista, pero no lo archivaron.**
+Probablemente está *Inactivo*. Marque **Incluir inactivos** y pulse **Filtrar**.
+
+**Edité un contenido y temo perder una opción desactivada.**
 No se pierde: al editar, aparece marcada "(Retirada)" y sigue seleccionada. Solo se quita si usted la
 desmarca.
 
@@ -839,6 +870,5 @@ Para evitar expectativas equivocadas:
 - No trae métricas de rendimiento de las publicaciones.
 - No envía notificaciones ni recordatorios de las publicaciones o fechas importantes.
 - Las ideas no admiten adjuntos.
-- Un adjunto retirado no se puede volver a mostrar desde la pantalla.
 - Los archivos grandes pueden fallar al subirse hasta que sistemas ajuste el tamaño máximo de carga del
   servidor ([sección 11](#11-archivos-y-enlaces)).

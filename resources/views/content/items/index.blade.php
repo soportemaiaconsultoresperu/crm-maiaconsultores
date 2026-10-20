@@ -20,6 +20,8 @@
 @endphp
 
 @section('content')
+    @include('content.projects._read_only_notice', ['project' => $project])
+
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a href="{{ route('content.projects.show', $project) }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1" aria-hidden="true"></i> Volver al proyecto

@@ -21,7 +21,7 @@
                     @endphp
                     <div class="border rounded p-3 mb-3" data-catalog-option="{{ $key }}-{{ $option->id }}">
                         <p><strong>{{ $option->name }}</strong> <code>{{ $option->slug }}</code>
-                            <span class="badge {{ $option->is_active ? 'text-bg-success' : 'text-bg-secondary' }}">{{ $option->is_active ? 'Activa' : 'Retirada' }}</span>
+                            <span class="badge {{ $option->is_active ? 'text-bg-success' : 'text-bg-secondary' }}">{{ $option->is_active ? 'Activa' : 'Inactiva' }}</span>
                             @if ($key === 'topics')
                                 — Pilar: {{ $groups['pillars']['options']->firstWhere('id', $option->content_pillar_id)?->name }}
                             @endif
@@ -61,7 +61,7 @@
                             <select id="new-pillar" name="content_pillar_id" class="form-select" required>
                                 <option value="">Seleccione un pilar</option>
                                 @foreach ($groups['pillars']['options'] as $pillar)
-                                    <option value="{{ $pillar->id }}">{{ $pillar->name }}{{ $pillar->is_active ? '' : ' (Retirado)' }}</option>
+                                    <option value="{{ $pillar->id }}">{{ $pillar->name }}{{ $pillar->is_active ? '' : ' (Inactivo)' }}</option>
                                 @endforeach
                             </select>
                         </div>

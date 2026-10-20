@@ -33,8 +33,9 @@ use Illuminate\Support\Facades\Gate;
  *
  * Archiving is a lifecycle flag (`archived_at`), not deletion: an archived
  * project stays readable to its members, and only leaves the DEFAULT listing.
- * `?include_archived=1` brings it back into the list without touching its
- * reachability.
+ * `?include_archived=1` brings archived projects back into the list and
+ * `?include_inactive=1` brings inactive (never archived) ones, each without the
+ * other and without touching reachability.
  */
 class ContentProjectController extends Controller
 {
@@ -44,17 +45,18 @@ class ContentProjectController extends Controller
     }
 
     /**
-     * The projects this user may list, paginated. Archived projects are left
-     * out unless the user explicitly asks for them.
+     * The projects this user may list, paginated. Archived and inactive
+     * projects are left out unless the user explicitly asks for each.
      */
     public function index(Request $request): View
     {
         Gate::authorize('viewAny', ContentProject::class);
 
         $includeArchived = $request->boolean('include_archived');
+        $includeInactive = $request->boolean('include_inactive');
 
         $projects = $this->scope
-            ->visibleProjects($request->user(), $includeArchived)
+            ->visibleProjects($request->user(), $includeArchived, $includeInactive)
             ->withCount('members')
             ->orderBy('name')
             ->orderBy('id')
@@ -63,7 +65,7 @@ class ContentProjectController extends Controller
 
         return view('content.projects.index', [
             'projects' => $projects,
-            'filters' => ['include_archived' => $includeArchived],
+            'filters' => ['include_archived' => $includeArchived, 'include_inactive' => $includeInactive],
         ]);
     }
 

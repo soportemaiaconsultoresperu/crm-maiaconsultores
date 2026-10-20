@@ -8,7 +8,7 @@ dinámicos**, y Maia Consultores, Maia Plagas y Maia Residuos se cargan como dat
 
 - Proyectos de contenido configurables: crear, editar, archivar, reactivar y asignar miembros.
 - Catálogos por proyecto: pilares, temas (dependientes del pilar), objetivos, formatos y canales.
-  Las opciones se crean, renombran, ordenan y **retiran**; nunca se borran, para no romper
+  Las opciones se crean, renombran, ordenan y **desactivan**; nunca se borran, para no romper
   referencias históricas.
 - Campos y secciones personalizados por proyecto: texto, texto largo, fecha, número, selección
   simple y múltiple. Crear un campo **no requiere código ni columnas nuevas** en la base.
@@ -50,6 +50,14 @@ secciones personalizados, miembros, edición y archivo/reactivación del proyect
 **Proyecto archivado = solo lectura.** Se puede ver y exportar. Toda escritura (contenidos, ideas,
 adjuntos, anotaciones, papelera/restaurar/eliminar/vaciar, catálogos y campos) se rechaza hasta
 que el proyecto se reactive. La vista consolidada del calendario sigue excluyendo los archivados.
+El aviso "Archivado — solo lectura" aparece en la página del proyecto, la grilla, la lista y las
+fichas de ideas, las fichas de contenidos, el calendario y la papelera.
+
+**Proyecto inactivo ≠ archivado.** *Inactivo* (`is_active` apagado desde **Editar**) solo saca el
+proyecto de la lista por defecto y del calendario consolidado: sigue siendo editable. *Archivado*
+(`archived_at`) además lo deja en solo lectura. La lista de proyectos tiene un filtro para cada uno:
+**Incluir archivados** agrega solo los archivados e **Incluir inactivos** solo los inactivos no
+archivados.
 
 ## Reglas de negocio acordadas
 
@@ -60,13 +68,15 @@ que el proyecto se reactive. La vista consolidada del calendario sigue excluyend
 | Duplicar | Copia textos, selecciones, campos personalizados y adjuntos, agrega " (copia)" al título, quita la fecha y vuelve el estado a Incompleto. El original no se modifica y los archivos copiados son independientes. Funciona aunque después se haya agregado un campo obligatorio que el original no tenía; cualquier error se muestra al usuario. |
 | Reprogramar | Cambia fecha y hora; el contenido aparece en el mes correspondiente. |
 | Edición simultánea | Cada guardado lleva un testigo de revisión. Si otra persona guardó antes, el segundo ve un aviso y **no se sobrescribe** nada. |
-| Opciones retiradas | Se conservan en lo histórico y no pueden elegirse para contenidos o ideas nuevos. Al editar, el formulario muestra la opción guardada marcada "(Retirada)" y la mantiene seleccionada, así que editar otra cosa no la pierde. Retirar una opción reserva su identificador. |
+| Opciones desactivadas | Vale para opciones de catálogo y opciones de campos personalizados de selección única o múltiple. Se conservan en lo histórico y no se ofrecen ni se aceptan en contenidos o ideas nuevos (el servidor rechaza una opción inactiva que el elemento no tenía guardada). Al editar, el formulario muestra la opción guardada marcada "(Retirada)" y la mantiene seleccionada, así que editar otra cosa no la pierde. Duplicar copia la opción tal cual. Desactivar una opción reserva su identificador. |
+| Desactivar / Reactivar | Catálogos, secciones, campos y opciones de campo usan los botones **Desactivar** / **Reactivar** y la etiqueta **Activa/Inactiva** (o **Activo/Inactivo** en campos). La marca "(Retirada)" queda solo para una opción inactiva guardada en un contenido o idea. |
 | Pilar y tema | El selector de tema se filtra en el navegador según el pilar elegido; el servidor sigue validando que el tema pertenezca al pilar. |
 | Horario | Se ingresa y se muestra en `America/Lima`; se guarda en UTC. La zona horaria global del CRM **no** se modifica. Las fechas se muestran como `d/m/Y H:i` (grilla, papelera, exportación y PDF). |
 | Atrasado | Un contenido no publicado está **Atrasado** desde el instante peruano planificado. Una hora 00:00 explícita atrasa desde ese mismo instante (no hay gracia de "solo fecha"). Nunca si ya está Publicado; una idea sin fecha nunca está atrasada. |
 | Validaciones | La fecha planificada debe estar entre los años 2000 y 2099. Los campos personalizados numéricos aceptan como máximo 12 dígitos enteros y 2 decimales (columna `decimal(14,2)`). Un mes de filtro inválido (p. ej. `2026-13`) nunca causa un error 500. |
 | Ideas | La lista de ideas muestra primero las más recientes. La búsqueda trata `%` y `_` como texto literal. Las ideas tienen la misma protección de edición simultánea que los contenidos. |
 | Adjuntos | Se agregan desde la **ficha** del contenido, después de guardarlo: al crear un contenido, el sistema lleva a su ficha con la sección de adjuntos visible. |
+| Adjuntos retirados | Retirar solo marca la fila; el archivo se conserva. La ficha lista los **Adjuntos retirados** con **Restaurar adjunto** (habilidad `trash`: administradores y miembros; rechazado en proyectos archivados). Restaurar respeta el límite de 10 bajo el mismo bloqueo que una subida. Restaurar un contenido desde la papelera no restaura sus adjuntos retirados. |
 
 ## Exportaciones
 

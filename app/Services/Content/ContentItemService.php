@@ -6,6 +6,7 @@ use App\Enums\Content\ContentItemKind;
 use App\Enums\Content\ContentItemStatus;
 use App\Models\Content\ContentChannel;
 use App\Models\Content\ContentFieldDefinition;
+use App\Models\Content\ContentFieldOption;
 use App\Models\Content\ContentFieldSection;
 use App\Models\Content\ContentFormat;
 use App\Models\Content\ContentItem;
@@ -190,7 +191,9 @@ class ContentItemService
      * The project's custom fields as the form needs them: grouped by section
      * (plus the ungrouped ones) and paired with the item's stored values. An
      * inactive field stays visible on an item that already holds a value, so a
-     * retired field never hides data.
+     * retired field never hides data. Selection options follow the catalog
+     * rule: an inactive option is offered only to the item that already stores
+     * it (the views mark it "(Retirada)"), never to a new content or idea.
      *
      * @return array{
      *     sections: \Illuminate\Database\Eloquent\Collection<int, ContentFieldSection>,
@@ -216,6 +219,13 @@ class ContentItemService
             ->orderBy('sort')
             ->orderBy('id')
             ->get();
+
+        foreach ($definitions as $definition) {
+            $storedOptionIds = array_map('intval', (array) ($values[$definition->key] ?? []));
+            $definition->setRelation('options', $definition->options->filter(
+                fn (ContentFieldOption $option): bool => $option->is_active || in_array((int) $option->id, $storedOptionIds, true),
+            )->values());
+        }
 
         $sections = ContentFieldSection::query()
             ->where('content_project_id', $project->getKey())

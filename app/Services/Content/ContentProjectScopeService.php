@@ -37,13 +37,18 @@ class ContentProjectScopeService
      * The projects the user may list: the ones they are assigned to, or every
      * project when the user holds `content_projects.view_all`.
      *
+     * By default only projects in normal use are listed (active, not
+     * archived). Archived projects (`archived_at` set) and inactive ones
+     * (`is_active` off, never archived) are two separate opt-ins, so asking for
+     * one never brings the other along.
+     *
      * Returns a query builder, not a collection, so paginated listings,
      * filters and exports all apply the scope to the same SQL instead of
      * materialising rows first.
      *
      * @return Builder<ContentProject>
      */
-    public function visibleProjects(User $user, bool $includeArchived = false): Builder
+    public function visibleProjects(User $user, bool $includeArchived = false, bool $includeInactive = false): Builder
     {
         $query = ContentProject::query();
 
@@ -53,9 +58,23 @@ class ContentProjectScopeService
             });
         }
 
-        if (! $includeArchived) {
-            $query->active();
+        if ($includeArchived && $includeInactive) {
+            return $query;
         }
+
+        $query->where(function (Builder $states) use ($includeArchived, $includeInactive): void {
+            $states->where(fn (Builder $active): Builder => $active->active());
+
+            if ($includeArchived) {
+                $states->orWhereNotNull('archived_at');
+            }
+
+            if ($includeInactive) {
+                $states->orWhere(fn (Builder $inactive): Builder => $inactive
+                    ->where('is_active', false)
+                    ->whereNull('archived_at'));
+            }
+        });
 
         return $query;
     }

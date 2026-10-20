@@ -220,14 +220,16 @@ class ContentAttachmentHttpTest extends TestCase
             ->assertRedirect();
 
         // The row is retired (soft deleted) but not gone, and no code path has
-        // touched the file: the content can recover both when it is restored.
+        // touched the file: "Restaurar adjunto" can bring both back.
         $this->assertSoftDeleted('content_attachments', ['id' => $attachment->id]);
         $this->assertSame(1, ContentAttachment::withTrashed()->count());
         $this->assertTrue(Storage::disk(ContentAttachmentService::DISK)->exists($path));
 
+        // It leaves the active list and is shown only among the retired ones.
         $this->get(route('content.projects.contents.show', [$this->project, $item]))
             ->assertOk()
-            ->assertDontSee('foto.jpg');
+            ->assertDontSee('data-testid="content-attachment-'.$attachment->id.'"', false)
+            ->assertSee('data-testid="content-attachment-retired-'.$attachment->id.'"', false);
     }
 
     public function test_download_is_authorized_for_a_member_and_404_for_a_non_member_or_foreign_project(): void

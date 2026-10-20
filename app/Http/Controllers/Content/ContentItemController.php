@@ -93,6 +93,7 @@ class ContentItemController extends Controller
             'item' => $item,
             'form' => $this->items->formData($contentProject, $item),
             'attachments' => $item->attachments,
+            'retiredAttachments' => $item->attachments()->onlyTrashed()->get(),
             'attachmentLimits' => $this->attachments->limits(),
         ]);
     }

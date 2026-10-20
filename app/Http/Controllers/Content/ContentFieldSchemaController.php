@@ -159,7 +159,7 @@ class ContentFieldSchemaController extends Controller
 
         return $this->backToSchema($contentProject, $request->boolean('is_active')
             ? 'Opción reactivada correctamente.'
-            : 'Opción retirada. Sus referencias históricas se conservan.');
+            : 'Opción desactivada. Sus referencias históricas se conservan.');
     }
 
     public function reorderOption(ManageContentFieldOptionRequest $request, ContentProject $contentProject, string $fieldDefinition, string $fieldOption): RedirectResponse

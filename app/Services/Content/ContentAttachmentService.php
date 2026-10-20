@@ -43,8 +43,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *
  * There is deliberately no automatic purge path. Retiring an attachment only
  * soft-deletes its row and trashing a content only soft-deletes its content
- * row: the physical file stays on disk in both cases so the content can
- * recover it. Physical files are removed only in explicit, transactional
+ * row: the physical file stays on disk in both cases, so a retired attachment
+ * can be restored on its own (`restore()`) and a restored content keeps it. Physical files are removed only in explicit, transactional
  * cases: `discardStoredFile()` cleans up a file this service stored for an
  * upload whose row could not be inserted, or copied for a duplication that
  * then rolled back, so neither leaves an orphan, and the operator purge
@@ -258,6 +258,26 @@ class ContentAttachmentService
             'mime_type' => $format['mime'] ?? null,
             'size_bytes' => null,
         ]);
+    }
+
+    /**
+     * Bring a retired attachment back onto its content. The row and its file
+     * were kept on retire, so this only clears the soft delete. A restored
+     * attachment counts again toward the per-content ceiling, so the check runs
+     * under the same content row lock as an upload or a link.
+     *
+     * @throws ValidationException when the content is already full
+     */
+    public function restore(ContentItem $item, ContentAttachment $attachment): ContentAttachment
+    {
+        return DB::transaction(function () use ($item, $attachment): ContentAttachment {
+            ContentItem::query()->withTrashed()->lockForUpdate()->findOrFail($item->getKey());
+
+            $this->assertCapacity($item, 'attachment');
+            $attachment->restore();
+
+            return $attachment;
+        });
     }
 
     /**

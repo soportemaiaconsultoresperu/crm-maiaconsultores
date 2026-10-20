@@ -23,7 +23,7 @@
         <select id="section-{{ $prefix }}" name="content_field_section_id" class="form-select">
             <option value="">Sin sección</option>
             @foreach ($sections as $candidate)
-                <option value="{{ $candidate->id }}" @selected($section && $candidate->id === $section->id)>{{ $candidate->name }}{{ $candidate->is_active ? '' : ' (Retirada)' }}</option>
+                <option value="{{ $candidate->id }}" @selected($section && $candidate->id === $section->id)>{{ $candidate->name }}{{ $candidate->is_active ? '' : ' (Inactiva)' }}</option>
             @endforeach
         </select>
     </div>

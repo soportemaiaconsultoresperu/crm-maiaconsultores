@@ -20,9 +20,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *
  * Reachability is not decided here: the `contentProject` route binding already
  * answers 404 for a project the user may not reach, before validation or the
- * policy run. On top of that, the download asks the policy for `view` and every
- * mutation asks for `update`, so a reachable member without the mutation
- * ability is refused with 403 while still able to read.
+ * policy run. On top of that, the download asks the policy for `view`, every
+ * mutation asks for `update` and restoring a retired attachment asks for
+ * `trash` (like restoring a content), so a reachable member without the
+ * mutation ability is refused with 403 while still able to read.
  *
  * Child ids are resolved inside the addressed project AND content, so an
  * attachment of another project (or of another content) is a 404 and can never
@@ -30,7 +31,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *
  * Nothing is served from a public path: an upload is streamed only by
  * `download()` through the private disk. Retiring only soft-deletes the row and
- * leaves the file on disk.
+ * leaves the file on disk, so `restore()` brings the same attachment back.
  */
 class ContentAttachmentController extends Controller
 {
@@ -76,7 +77,21 @@ class ContentAttachmentController extends Controller
         $item = $this->resolveItem($contentProject, $contentItem);
         $this->resolveAttachment($item, $attachment)->retire();
 
-        return $this->back($contentProject, $item, 'Adjunto retirado. El archivo se conserva y puede restaurarse con el contenido.');
+        return $this->back($contentProject, $item, 'Adjunto retirado. El archivo se conserva y puede recuperarlo con "Restaurar adjunto" en la lista de adjuntos retirados.');
+    }
+
+    public function restore(ContentProject $contentProject, string $contentItem, string $attachment): RedirectResponse
+    {
+        Gate::authorize('trash', $contentProject);
+
+        $item = $this->resolveItem($contentProject, $contentItem);
+        $row = ContentAttachment::query()
+            ->onlyTrashed()
+            ->where('content_item_id', $item->getKey())
+            ->findOrFail((int) $attachment);
+        $this->attachments->restore($item, $row);
+
+        return $this->back($contentProject, $item, 'Adjunto restaurado correctamente.');
     }
 
     public function download(ContentProject $contentProject, string $contentItem, string $attachment): StreamedResponse|RedirectResponse

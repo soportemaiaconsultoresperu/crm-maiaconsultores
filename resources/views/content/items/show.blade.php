@@ -31,6 +31,8 @@
 @endphp
 
 @section('content')
+    @include('content.projects._read_only_notice', ['project' => $project])
+
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a href="{{ route('content.projects.contents.index', $project) }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1" aria-hidden="true"></i> Volver al cronograma
@@ -52,7 +54,7 @@
                 :action="route('content.projects.contents.destroy', [$project, $item])"
                 method="DELETE"
                 title="¿Mover a la papelera?"
-                text="El contenido dejará de aparecer en el cronograma y en las ideas, pero conservará sus valores y sus archivos hasta que un administrador vacíe la papelera."
+                text="El contenido dejará de aparecer en el cronograma y en las ideas, pero conservará sus valores y sus archivos hasta que se elimine definitivamente o se vacíe la papelera. Podrá restaurarlo desde la papelera."
                 type="warning"
                 confirm-text="Sí, mover a la papelera"
                 button-class="btn-outline-warning"
@@ -181,6 +183,7 @@
         'project' => $project,
         'item' => $item,
         'attachments' => $attachments,
+        'retiredAttachments' => $retiredAttachments,
         'attachmentLimits' => $attachmentLimits,
     ])
 @endsection

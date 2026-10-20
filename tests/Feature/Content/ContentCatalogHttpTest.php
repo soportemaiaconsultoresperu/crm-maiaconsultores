@@ -64,7 +64,7 @@ class ContentCatalogHttpTest extends TestCase
             $this->post(route('content.catalogs.state', $parameters), ['is_active' => false] + $parent)->assertRedirect();
             $this->assertFalse($option->fresh()->is_active);
             $this->assertFalse($model::query()->active()->whereKey($option->id)->exists());
-            $this->get(route('content.catalogs.index', $this->project))->assertOk()->assertSee('Retirada');
+            $this->get(route('content.catalogs.index', $this->project))->assertOk()->assertSee('Inactiva');
             $this->postJson(route('content.catalogs.store', [$this->project, $group]), $this->payload($group))
                 ->assertUnprocessable()->assertJsonValidationErrors('slug');
             $this->post(route('content.catalogs.state', $parameters), ['is_active' => true] + $parent)->assertRedirect();

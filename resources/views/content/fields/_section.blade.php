@@ -4,7 +4,7 @@
 <section class="card mb-3" aria-labelledby="heading-{{ $prefix }}" data-field-section="{{ $section->id }}">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h2 class="card-title mb-0" id="heading-{{ $prefix }}">{{ $section->name }}</h2>
-        <span class="badge {{ $section->is_active ? 'text-bg-success' : 'text-bg-secondary' }}">{{ $section->is_active ? 'Activa' : 'Retirada' }}</span>
+        <span class="badge {{ $section->is_active ? 'text-bg-success' : 'text-bg-secondary' }}">{{ $section->is_active ? 'Activa' : 'Inactiva' }}</span>
     </div>
     <div class="card-body">
         <p>Identificador fijo: <code>{{ $section->slug }}</code></p>

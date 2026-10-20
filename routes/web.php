@@ -1021,6 +1021,8 @@ Route::middleware(['auth', 'active'])
                 ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.reorder');
             Route::post('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/retire', 'retire')
                 ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.retire');
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/restore', 'restore')
+                ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.restore');
             Route::get('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/download', 'download')
                 ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.download');
         });

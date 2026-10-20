@@ -61,7 +61,9 @@
                             <span class="badge text-bg-secondary">Contenido</span>
                         @endif
                     </td>
-                    <td class="text-nowrap">{{ $content->plannedDate() ?? '—' }}</td>
+                    <td class="text-nowrap" data-testid="content-trash-planned-at-{{ $content->id }}">
+                        {{ $content->planned_at ? \App\Support\Content\PeruTime::displayDateTime($content->planned_at) : '—' }}
+                    </td>
                     <td class="text-nowrap" data-testid="content-trash-deleted-at-{{ $content->id }}">
                         {{ $content->deleted_at ? \App\Support\Content\PeruTime::toPeru($content->deleted_at)->format('d/m/Y H:i') : '—' }}
                     </td>

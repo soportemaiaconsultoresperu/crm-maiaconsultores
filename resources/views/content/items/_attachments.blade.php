@@ -1,6 +1,7 @@
 {{--
     Attachments panel (T7) for a content item. Expected data:
-    $project, $item, $attachments (ordered active rows), $attachmentLimits.
+    $project, $item, $attachments (ordered active rows), $attachmentLimits and,
+    optionally, $retiredAttachments (retired rows that can be restored).
 
     Spanish copy only. The accepted formats and limits come from
     ContentAttachmentService::limits(), so the screen can never drift from what
@@ -9,6 +10,10 @@
 @php
     $megabytes = fn (int $bytes): string => rtrim(rtrim(number_format($bytes / 1048576, 1, '.', ''), '0'), '.');
     $canUpdate = auth()->user()?->can('update', $project) ?? false;
+    // Restoring a retired attachment mirrors the `trash` ability, like
+    // restoring a content (members included, refused on an archived project).
+    $canRestore = auth()->user()?->can('trash', $project) ?? false;
+    $retiredAttachments ??= collect();
 @endphp
 
 <div class="card mt-3" id="attachments" data-testid="content-attachments">
@@ -108,7 +113,7 @@
                                         @if ($canUpdate)
                                             <form method="POST"
                                                   action="{{ route('content.projects.contents.attachments.retire', [$project, $item, $attachment]) }}"
-                                                  onsubmit="return confirm('¿Retirar este adjunto? El archivo se conserva y podrá restaurarse con el contenido.');">
+                                                  onsubmit="return confirm('¿Retirar este adjunto? El archivo se conserva y podrá recuperarlo con «Restaurar adjunto».');">
                                                 @csrf
                                                 <button type="submit" class="btn btn-sm btn-outline-warning">Retirar</button>
                                             </form>
@@ -120,6 +125,38 @@
                     </tbody>
                 </table>
             </div>
+        @endif
+
+        @if ($retiredAttachments->isNotEmpty())
+            <h4 class="h6 mt-3">Adjuntos retirados</h4>
+            <p class="text-muted small">
+                Un adjunto retirado no se muestra en el contenido ni cuenta para el máximo, pero conserva su archivo.
+                Puede volver a usarlo con «Restaurar adjunto» mientras haya espacio para un adjunto más.
+            </p>
+            <ul class="list-group mb-3" data-testid="content-attachments-retired">
+                @foreach ($retiredAttachments as $retired)
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-2" data-testid="content-attachment-retired-{{ $retired->id }}">
+                        <span class="text-break">
+                            {{ $retired->original_name ?: $retired->url }}
+                            <span class="badge text-bg-secondary ms-1">Retirado</span>
+                        </span>
+                        <span class="d-inline-flex gap-1">
+                            @if ($retired->isUpload())
+                                <a href="{{ route('content.projects.contents.attachments.download', [$project, $item, $retired]) }}"
+                                   class="btn btn-sm btn-outline-secondary">Descargar</a>
+                            @endif
+                            @if ($canRestore)
+                                <form method="POST" action="{{ route('content.projects.contents.attachments.restore', [$project, $item, $retired]) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-sm btn-outline-success" data-testid="content-attachment-restore-{{ $retired->id }}">
+                                        <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i> Restaurar adjunto
+                                    </button>
+                                </form>
+                            @endif
+                        </span>
+                    </li>
+                @endforeach
+            </ul>
         @endif
 
         @if ($canUpdate)

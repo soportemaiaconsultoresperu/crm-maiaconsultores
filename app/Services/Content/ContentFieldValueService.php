@@ -24,6 +24,8 @@ use Illuminate\Validation\ValidationException;
  * - a required field must hold a non-empty value;
  * - a single-selection option and every multiple-selection option must belong
  *   to that exact definition, narrowing the T5 table-level vocabulary rule;
+ * - an inactive option is accepted only when the item already stores it (like
+ *   a retired catalog option), so a new content or idea can never choose it;
  * - an empty entry clears the stored row instead of persisting a blank one.
  *
  * The service is the only writer of `content_field_values`; callers never write
@@ -91,7 +93,7 @@ class ContentFieldValueService
      * the row. Required fields must have a value either in the payload or
      * already stored, unless `$enforceRequired` is false: a duplicate copies the
      * source's values as they are, even when a required field was added after
-     * the source was created.
+     * the source was created, and a stored inactive option is copied too.
      *
      * @param  array<string, mixed>  $values
      *
@@ -129,7 +131,7 @@ class ContentFieldValueService
                     continue;
                 }
 
-                $this->store($item, $definition, $value);
+                $this->store($item, $definition, $value, allowRetiredOptions: ! $enforceRequired);
             }
 
             foreach ($definitions as $definition) {
@@ -149,10 +151,12 @@ class ContentFieldValueService
     /**
      * Validate and persist one value for one definition. The definition must
      * belong to the item's project and the value must satisfy its type rules.
+     * An inactive option is refused unless the item already stores it, or the
+     * caller copies stored values verbatim (`$allowRetiredOptions`).
      *
      * @throws ValidationException
      */
-    public function store(ContentItem $item, ContentFieldDefinition $definition, mixed $value): ContentFieldValue
+    public function store(ContentItem $item, ContentFieldDefinition $definition, mixed $value, bool $allowRetiredOptions = false): ContentFieldValue
     {
         $this->assertDefinitionBelongsToItem($item, $definition);
 
@@ -162,7 +166,7 @@ class ContentFieldValueService
             $value = array_values(array_filter($value, fn (mixed $entry): bool => ! $this->isEmpty($entry)));
         }
 
-        $this->assertValidValue($definition, $value);
+        $this->assertValidValue($definition, $value, $allowRetiredOptions ? null : $this->storedOptionIds($item, $definition));
 
         $row = ContentFieldValue::query()->firstOrNew([
             'content_item_id' => $item->getKey(),
@@ -260,7 +264,11 @@ class ContentFieldValueService
     /**
      * @throws ValidationException
      */
-    private function assertValidValue(ContentFieldDefinition $definition, mixed $value): void
+    /**
+     * @param  list<int>|null  $keptOptionIds  inactive options still accepted (the ones
+     *                                       already stored); null accepts every option
+     */
+    private function assertValidValue(ContentFieldDefinition $definition, mixed $value, ?array $keptOptionIds): void
     {
         $type = $definition->type;
         $key = $definition->key;
@@ -286,7 +294,7 @@ class ContentFieldValueService
         }
 
         if ($type === ContentFieldType::SingleSelection) {
-            $this->assertOptionBelongsToDefinition($definition, (int) $value, $key);
+            $this->assertOptionBelongsToDefinition($definition, (int) $value, $key, $keptOptionIds);
 
             return;
         }
@@ -298,29 +306,60 @@ class ContentFieldValueService
             )->validate();
 
             foreach ($this->optionIds($value) as $optionId) {
-                $this->assertOptionBelongsToDefinition($definition, $optionId, $key);
+                $this->assertOptionBelongsToDefinition($definition, $optionId, $key, $keptOptionIds);
             }
         }
     }
 
     /**
      * Narrow the vocabulary rule: an option is valid only when it belongs to
-     * this exact definition, not merely to the options table.
+     * this exact definition, not merely to the options table, and an inactive
+     * option only when it is one of the kept ids.
+     *
+     * @param  list<int>|null  $keptOptionIds
      *
      * @throws ValidationException
      */
-    private function assertOptionBelongsToDefinition(ContentFieldDefinition $definition, int $optionId, string $key): void
+    private function assertOptionBelongsToDefinition(ContentFieldDefinition $definition, int $optionId, string $key, ?array $keptOptionIds): void
     {
-        $belongs = ContentFieldOption::query()
+        $option = ContentFieldOption::query()
             ->where('content_field_definition_id', $definition->getKey())
-            ->whereKey($optionId)
-            ->exists();
+            ->find($optionId);
 
-        if (! $belongs) {
+        if ($option === null) {
             throw ValidationException::withMessages([
                 $key => 'La opción no pertenece al campo.',
             ]);
         }
+
+        if (! $option->is_active && $keptOptionIds !== null && ! in_array($optionId, $keptOptionIds, true)) {
+            throw ValidationException::withMessages([
+                $key => 'La opción "'.$option->label.'" está inactiva y no puede elegirse.',
+            ]);
+        }
+    }
+
+    /**
+     * The option ids the item currently stores for a selection definition.
+     *
+     * @return list<int>
+     */
+    private function storedOptionIds(ContentItem $item, ContentFieldDefinition $definition): array
+    {
+        $row = ContentFieldValue::query()
+            ->where('content_item_id', $item->getKey())
+            ->where('content_field_definition_id', $definition->getKey())
+            ->first();
+
+        if ($row === null) {
+            return [];
+        }
+
+        return match ($definition->type) {
+            ContentFieldType::SingleSelection => $row->content_field_option_id !== null ? [(int) $row->content_field_option_id] : [],
+            ContentFieldType::MultipleSelection => $row->selectedOptions()->pluck('content_field_options.id')->map(fn (mixed $id): int => (int) $id)->all(),
+            default => [],
+        };
     }
 
     private function readValue(ContentFieldDefinition $definition, ContentFieldValue $row): mixed

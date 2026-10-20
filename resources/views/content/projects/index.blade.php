@@ -34,6 +34,11 @@
                            @checked($filters['include_archived'])>
                     <label class="form-check-label" for="include_archived">Incluir archivados</label>
                 </div>
+                <div class="form-check mb-0">
+                    <input type="checkbox" class="form-check-input" id="include_inactive" name="include_inactive" value="1"
+                           @checked($filters['include_inactive'])>
+                    <label class="form-check-label" for="include_inactive">Incluir inactivos</label>
+                </div>
                 <button type="submit" class="btn btn-sm btn-outline-primary">Filtrar</button>
                 <a href="{{ route('content.projects.index') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>
             </form>
@@ -80,7 +85,7 @@
                 <tr>
                     <td colspan="5">
                         @include('layouts.partials.empty-state', [
-                            'message' => 'No hay proyectos de contenido visibles para tu usuario.',
+                            'message' => 'No hay proyectos de contenido visibles para su usuario.',
                             'hint' => 'Los proyectos se muestran sólo a sus miembros.',
                         ])
                     </td>
