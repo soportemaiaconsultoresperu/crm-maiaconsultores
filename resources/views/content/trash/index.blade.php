@@ -12,6 +12,7 @@
 @endphp
 
 @section('content')
+    @include('content.partials._project_band', ['project' => $project])
     @include('content.projects._read_only_notice', ['project' => $project])
 
     <div class="d-flex flex-wrap gap-2 mb-3">

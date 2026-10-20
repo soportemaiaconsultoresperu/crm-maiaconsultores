@@ -25,6 +25,28 @@ class UpdateContentProjectRequest extends FormRequest
     }
 
     /**
+     * Same colour picker normalization as StoreContentProjectRequest.
+     */
+    protected function prepareForValidation(): void
+    {
+        if (! $this->has('color')) {
+            return;
+        }
+
+        $color = $this->input('color');
+
+        if ($color === 'custom') {
+            $color = $this->input('color_custom');
+        }
+
+        if (is_string($color)) {
+            $color = trim($color) === '' ? null : strtolower(trim($color));
+        }
+
+        $this->merge(['color' => $color]);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function rules(): array
@@ -41,7 +63,7 @@ class UpdateContentProjectRequest extends FormRequest
                 Rule::unique('content_projects', 'slug')->ignore($projectId),
             ],
             'description' => ['nullable', 'string', 'max:2000'],
-            'color' => ['nullable', 'string', 'max:16'],
+            'color' => ['nullable', 'string', 'regex:/^#[0-9a-f]{6}$/'],
             'is_active' => ['nullable', 'boolean'],
         ];
     }
@@ -56,6 +78,8 @@ class UpdateContentProjectRequest extends FormRequest
             'slug.required' => 'Indique un identificador para el proyecto.',
             'slug.regex' => 'El identificador sólo admite minúsculas, números y guiones (ej. maia-consultores).',
             'slug.unique' => 'Ya existe un proyecto con ese identificador.',
+            'color.string' => 'Elija un color válido en formato hexadecimal (ej. #1d4ed8).',
+            'color.regex' => 'Elija un color válido en formato hexadecimal (ej. #1d4ed8).',
         ];
     }
 }

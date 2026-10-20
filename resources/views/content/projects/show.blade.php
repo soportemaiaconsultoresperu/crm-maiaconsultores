@@ -4,6 +4,7 @@
 @section('page-title', $project->name)
 
 @section('content')
+    @include('content.partials._project_band', ['project' => $project])
     @include('content.projects._read_only_notice', ['project' => $project])
 
     <div class="d-flex flex-wrap gap-2 mb-3">
@@ -74,7 +75,10 @@
 
                         @if ($project->color)
                             <dt class="col-sm-3">Color</dt>
-                            <dd class="col-sm-9"><code>{{ $project->color }}</code></dd>
+                            <dd class="col-sm-9">
+                                <span class="content-project-swatch me-1" @style(['background-color: '.\App\Support\Content\ProjectColor::resolve($project->color)]) aria-hidden="true"></span>
+                                <code>{{ $project->color }}</code>
+                            </dd>
                         @endif
 
                         <dt class="col-sm-3">Descripción</dt>

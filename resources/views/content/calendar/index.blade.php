@@ -11,9 +11,12 @@
     $monthKey = $month->format('Y-m');
     $todayPeru = \App\Support\Content\PeruTime::date(\Carbon\CarbonImmutable::now());
     $emptyMonth = $annotations === [] && $contents === [];
+    // Planned contents are painted with the project colour (S1.3).
+    $contentStyle = \App\Support\Content\ProjectColor::softStyle($project->color);
 @endphp
 
 @section('content')
+    @include('content.partials._project_band', ['project' => $project])
     @include('content.projects._read_only_notice', ['project' => $project])
 
     <div class="d-flex flex-wrap gap-2 mb-3">
@@ -112,9 +115,10 @@
                                     @endforeach
 
                                     @foreach ($dayContents as $content)
-                                        <div class="small text-truncate" data-testid="content-calendar-content-{{ $content->id }}" title="{{ $content->title }}">
+                                        <div class="small text-truncate content-calendar-entry" @style([$contentStyle])
+                                             data-testid="content-calendar-content-{{ $content->id }}" title="{{ $content->title }}">
                                             @if ($content->planned_at)
-                                                <span class="text-secondary">{{ \App\Support\Content\PeruTime::toPeru($content->planned_at)->format('H:i') }}</span>
+                                                <span class="opacity-75">{{ \App\Support\Content\PeruTime::toPeru($content->planned_at)->format('H:i') }}</span>
                                             @endif
                                             {{ $content->title }}
                                         </div>

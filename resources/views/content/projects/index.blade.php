@@ -58,6 +58,9 @@
             @forelse ($projects as $project)
                 <tr data-testid="content-project-row-{{ $project->id }}">
                     <td>
+                        <span class="content-project-swatch me-1"
+                              @style(['background-color: '.\App\Support\Content\ProjectColor::resolve($project->color)])
+                              aria-hidden="true" data-testid="content-project-marker-{{ $project->id }}"></span>
                         <a href="{{ route('content.projects.show', $project) }}" class="fw-medium">{{ $project->name }}</a>
                     </td>
                     <td><code>{{ $project->slug }}</code></td>

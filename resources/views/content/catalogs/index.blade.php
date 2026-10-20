@@ -4,6 +4,7 @@
 @section('page-title', 'Catálogos de '.$project->name)
 
 @section('content')
+    @include('content.partials._project_band', ['project' => $project])
     <a href="{{ route('content.projects.show', $project) }}" class="btn btn-outline-secondary mb-3">Volver al proyecto</a>
     <p>Las opciones retiradas conservan sus referencias históricas. El identificador no cambia al renombrar una opción.</p>
     @if ($errors->any())

@@ -88,11 +88,15 @@ class ContentCalendarController extends Controller
         $selected = $this->selectedProjectIds($request);
 
         $annotations = $this->calendar->consolidatedAnnotations($user, $selected, $start, $end);
+        $projects = $this->scope->visibleProjects($user)->orderBy('name')->orderBy('id')->get();
 
         return view('content.calendar.consolidated', [
             'month' => $month,
             'grid' => $grid,
-            'projects' => $this->scope->visibleProjects($user)->orderBy('name')->orderBy('id')->get(),
+            'projects' => $projects,
+            // The colour legend lists the projects the view covers: the visible
+            // subset the filter asked for, or every visible project.
+            'legend' => $selected === [] ? $projects : $projects->whereIn('id', $selected)->values(),
             'selected' => $selected,
             'annotations' => $this->calendar->groupAnnotationsByDay($annotations),
             'total' => $annotations->count(),

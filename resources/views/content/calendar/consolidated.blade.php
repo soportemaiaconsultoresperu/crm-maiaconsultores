@@ -62,6 +62,16 @@
 
     <h2 class="h5 mb-3" data-testid="content-consolidated-period">{{ $month->translatedFormat('F Y') }}</h2>
 
+    @if ($legend->isNotEmpty())
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3" data-testid="content-consolidated-legend">
+            <span class="small text-secondary">Proyectos:</span>
+            @foreach ($legend as $legendProject)
+                <span class="badge" @style([\App\Support\Content\ProjectColor::solidStyle($legendProject->color)])
+                      data-testid="content-consolidated-legend-{{ $legendProject->id }}">{{ $legendProject->name }}</span>
+            @endforeach
+        </div>
+    @endif
+
     <div class="card mb-3" data-testid="content-consolidated">
         <div class="card-body p-0">
             <table class="table table-bordered mb-0">
@@ -90,15 +100,14 @@
                                     @foreach ($dayAnnotations as $annotation)
                                         @php
                                             $projectColor = $annotation->project?->color;
-                                            $badgeStyle = is_string($projectColor) && preg_match('/^#[0-9A-Fa-f]{3,8}$/', $projectColor) === 1
-                                                ? ['background-color: '.$projectColor, 'color: #fff']
-                                                : [];
                                         @endphp
-                                        <div class="small border rounded p-1 mb-1" data-testid="content-consolidated-annotation-{{ $annotation->id }}">
-                                            <span class="badge {{ $badgeStyle === [] ? 'text-bg-secondary' : '' }}" @style($badgeStyle) data-testid="content-consolidated-project-{{ $annotation->content_project_id }}">{{ $annotation->project?->name }}</span>
+                                        <div class="small rounded p-1 mb-1 content-calendar-entry"
+                                             @style([\App\Support\Content\ProjectColor::softStyle($projectColor)])
+                                             data-testid="content-consolidated-annotation-{{ $annotation->id }}">
+                                            <span class="badge" @style([\App\Support\Content\ProjectColor::solidStyle($projectColor)]) data-testid="content-consolidated-project-{{ $annotation->content_project_id }}">{{ $annotation->project?->name }}</span>
                                             <div class="fw-medium">{{ $annotation->name }}</div>
                                             @if ($annotation->notes)
-                                                <div class="text-secondary">{{ $annotation->notes }}</div>
+                                                <div class="opacity-75">{{ $annotation->notes }}</div>
                                             @endif
                                         </div>
                                     @endforeach

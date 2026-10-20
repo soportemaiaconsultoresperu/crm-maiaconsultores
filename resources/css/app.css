@@ -1718,3 +1718,45 @@ textarea.form-control {
 	min-height: calc(1.5em + 0.5rem + 2px);
 	font-size: 0.875rem;
 }
+
+/* Content projects — colour identity (S1) */
+.content-project-band {
+	padding: 0.5rem 0.75rem;
+	border-left: 0.375rem solid;
+	border-radius: var(--bs-border-radius);
+}
+
+.content-project-swatch {
+	display: inline-block;
+	flex-shrink: 0;
+	width: 0.875rem;
+	height: 0.875rem;
+	border-radius: 50%;
+	vertical-align: middle;
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.content-color-swatch {
+	display: inline-block;
+	width: 1.75rem;
+	height: 1.75rem;
+	border-radius: 50%;
+	cursor: pointer;
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.btn-check:checked + .content-color-swatch {
+	box-shadow: 0 0 0 2px var(--bs-body-bg), 0 0 0 4px var(--bs-emphasis-color);
+}
+
+.btn-check:focus-visible + .content-color-swatch {
+	outline: 2px solid var(--bs-primary);
+	outline-offset: 3px;
+}
+
+.content-calendar-entry {
+	margin-bottom: 0.25rem;
+	padding: 0.125rem 0.25rem;
+	border-left: 0.25rem solid;
+	border-radius: var(--bs-border-radius-sm);
+}
