@@ -68,7 +68,7 @@
                             />
                             <x-text-input
                                 name="password_confirmation"
-                                label="Confirma la nueva contraseña"
+                                label="Confirme la nueva contraseña"
                                 type="password"
                                 autocomplete="new-password"
                                 required

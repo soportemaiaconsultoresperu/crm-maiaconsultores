@@ -83,7 +83,7 @@
                         @endif
                     </dl>
                 @else
-                    <p class="text-muted mb-0 small">Cuando resuelvas, cierres, reabras o canceles el ticket, el texto ingresado quedará visible acá.</p>
+                    <p class="text-muted mb-0 small">Cuando resuelva, cierre, reabra o cancele el ticket, el texto ingresado quedará visible aquí.</p>
                 @endif
             </div>
         </div>
@@ -179,7 +179,7 @@
                         <button class="btn btn-outline-primary" data-swal-confirm data-swal-title="{{ $ticket->responsible_id ? 'Reasignar responsable' : 'Asignar responsable' }}" data-swal-text="Se actualizará el responsable del ticket." data-swal-type="question">{{ $ticket->responsible_id ? 'Reasignar' : 'Asignar' }}</button>
                     </form>
                 @else
-                    <p class="text-muted mb-0">No tenés permiso para asignar este ticket.</p>
+                    <p class="text-muted mb-0">No tiene permiso para asignar este ticket.</p>
                 @endif
             </div>
         </div>

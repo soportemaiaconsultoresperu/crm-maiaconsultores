@@ -51,9 +51,9 @@
                     </div>
                     <div class="modal-body">
                         <p class="text-secondary small">
-                            Subí un archivo <strong>XLSX, XLS o CSV</strong> con las columnas en este orden:
+                            Suba un archivo <strong>XLSX, XLS o CSV</strong> con las columnas en este orden:
                             <code>Código, Tipo, Nombre, Categoría, Descripción, Precio, Moneda, Impuesto, Activo</code>.
-                            Si no tenés el archivo, <a href="{{ route('products.template') }}">descargá la plantilla</a> primero.
+                            Si no tiene el archivo, <a href="{{ route('products.template') }}">descargue la plantilla</a> primero.
                             Máximo 10&nbsp;MB.
                         </p>
                         <input type="file" name="file"

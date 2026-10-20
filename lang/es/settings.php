@@ -44,7 +44,7 @@ return [
         ],
         'prices_include_tax' => [
             'label' => 'Los precios ya incluyen IGV',
-            'help'  => 'Marcá esta opción si los precios del catálogo de productos ya incluyen el impuesto.',
+            'help'  => 'Marque esta opción si los precios del catálogo de productos ya incluyen el impuesto.',
         ],
 
         // ── quotations ─────────────────────────────────────────────────────

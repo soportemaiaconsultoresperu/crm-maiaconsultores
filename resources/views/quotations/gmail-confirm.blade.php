@@ -12,12 +12,12 @@
             @csrf
             <div class="card-body">
                 <div class="alert alert-info">
-                    Revisá los datos antes de confirmar. Gmail confirmará aceptación para envío, no entrega ni lectura.
+                    Revise los datos antes de confirmar. Gmail confirmará aceptación para envío, no entrega ni lectura.
                 </div>
 
                 @if($recipient['ambiguous'])
                     <div class="alert alert-warning" data-testid="recipient-ambiguous">
-                        Hay más de un correo posible. Indicá el destinatario manualmente.
+                        Hay más de un correo posible. Indique el destinatario manualmente.
                     </div>
                 @endif
 

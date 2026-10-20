@@ -57,7 +57,7 @@
         'webhook' => 'bi-broadcast',
     ];
     $selectedTriggerBase = class_basename($trigger_event ?: '');
-    $selectedTriggerLabel = $selectedTriggerBase ? ($triggerLabels[$selectedTriggerBase] ?? $selectedTriggerBase) : 'Elegí un evento para empezar';
+    $selectedTriggerLabel = $selectedTriggerBase ? ($triggerLabels[$selectedTriggerBase] ?? $selectedTriggerBase) : 'Elija un evento para empezar';
     $conditionGroupCount = is_countable($groups ?? []) ? count($groups) : 0;
     $actionCount = is_countable($actions ?? []) ? count($actions) : 0;
 @endphp
@@ -68,7 +68,7 @@
             <div class="row g-4 align-items-center">
                 <div class="col-xl-7">
                     <p class="automation-eyebrow mb-2">Constructor visual de automatizaciones</p>
-                    <h2 class="h3 mb-2">Diseñá el flujo como lo explicaría tu equipo comercial</h2>
+                    <h2 class="h3 mb-2">Diseñe el flujo como lo explicaría su equipo comercial</h2>
                     <p class="text-secondary mb-0">Inspirado en un constructor por nodos, pero simplificado para CRM: <strong>cuando ocurre un evento</strong>, <strong>si se cumplen condiciones</strong>, <strong>entonces se ejecutan acciones</strong>.</p>
                 </div>
                 <div class="col-xl-5">
@@ -124,7 +124,7 @@
                         </div>
                         <div class="col-12">
                             <label for="rule-description" class="form-label">Descripción para el equipo</label>
-                            <textarea id="rule-description" name="description" rows="2" class="form-control @error('description') is-invalid @enderror" wire:model="description" placeholder="Explicá en una frase qué problema resuelve esta automatización."></textarea>
+                            <textarea id="rule-description" name="description" rows="2" class="form-control @error('description') is-invalid @enderror" wire:model="description" placeholder="Explique en una frase qué problema resuelve esta automatización."></textarea>
                             <x-validation-error name="description" />
                         </div>
                     </div>
@@ -137,7 +137,7 @@
                             <div>
                                 <p class="automation-eyebrow mb-1">Nodo 1 · CUANDO</p>
                                 <h3 class="h5 mb-1">Evento que inicia la automatización</h3>
-                                <p class="text-secondary small mb-0">Elegí el hecho del CRM que pone la regla en marcha.</p>
+                                <p class="text-secondary small mb-0">Elija el hecho del CRM que pone la regla en marcha.</p>
                             </div>
                         </div>
                         <div class="automation-node-fields mt-3">
@@ -145,7 +145,7 @@
                                 <div class="col-lg-6">
                                     <label for="rule-trigger" class="form-label">Evento que inicia la automatización</label>
                                     <select id="rule-trigger" name="trigger_event" class="form-select @error('trigger_event') is-invalid @enderror" wire:model.live="trigger_event" required>
-                                        <option value="">— Elegí qué tiene que pasar —</option>
+                                        <option value="">— Elija qué tiene que pasar —</option>
                                         @foreach ($this->triggers as $fqcn)
                                             @php
                                                 $base = class_basename($fqcn);
@@ -166,7 +166,7 @@
                                         <input type="radio" id="mode-live" name="mode" value="live" class="btn-check" wire:model="ruleMode">
                                         <label for="mode-live" class="btn btn-outline-primary">Producción</label>
                                     </div>
-                                    <div class="form-text">En prueba podés validar sin afectar datos reales. En producción se ejecuta automáticamente.</div>
+                                    <div class="form-text">En prueba puede validar sin afectar datos reales. En producción se ejecuta automáticamente.</div>
                                     <x-validation-error name="mode" />
                                 </div>
                                 <div class="col-lg-3">
@@ -195,7 +195,7 @@
                             <div>
                                 <p class="automation-eyebrow mb-1">Nodo 2 · SI</p>
                                 <h3 class="h5 mb-1">Condiciones del negocio</h3>
-                                <p class="text-secondary small mb-0">Filtrá cuándo sí debe actuar. Ejemplo: origen = Facebook Ads y nivel de interés = alto.</p>
+                                <p class="text-secondary small mb-0">Filtre cuándo sí debe actuar. Ejemplo: origen = Facebook Ads y nivel de interés = alto.</p>
                             </div>
                         </div>
                         <div class="automation-node-fields mt-3">
@@ -254,7 +254,7 @@
                             <div>
                                 <p class="automation-eyebrow mb-1">Nodo 3 · ENTONCES</p>
                                 <h3 class="h5 mb-1">Acciones que ejecuta el CRM</h3>
-                                <p class="text-secondary small mb-0">Definí qué debe hacer el CRM y en qué orden. Cada tarjeta es una acción del flujo.</p>
+                                <p class="text-secondary small mb-0">Defina qué debe hacer el CRM y en qué orden. Cada tarjeta es una acción del flujo.</p>
                             </div>
                         </div>
                         <div class="automation-node-fields mt-3">
@@ -305,12 +305,12 @@
                                                     <div class="col-lg-3">
                                                         <label class="form-label small mb-1" for="action-channel-{{ $index }}">Dónde se ejecuta</label>
                                                         <input type="text" id="action-channel-{{ $index }}" class="form-control form-control-sm" name="actions[{{ $index }}][channel]" wire:model="actions.{{ $index }}.channel" placeholder="Ej. CRM, correo, WhatsApp">
-                                                        <div class="form-text">Mantené el canal que usará esta acción; no cambia a quién impacta.</div>
+                                                        <div class="form-text">Mantenga el canal que usará esta acción; no cambia a quién impacta.</div>
                                                     </div>
                                                     <div class="col-lg-3">
                                                         <label class="form-label small mb-1" for="action-recipient-{{ $index }}">Quién recibe o queda asignado</label>
                                                         <input type="text" id="action-recipient-{{ $index }}" class="form-control form-control-sm" name="actions[{{ $index }}][recipient_strategy]" wire:model="actions.{{ $index }}.recipient_strategy" placeholder="Ej. responsable actual, usuario, equipo">
-                                                        <div class="form-text">Usá una descripción de negocio; cada acción puede ajustar el destino en sus datos.</div>
+                                                        <div class="form-text">Use una descripción de negocio; cada acción puede ajustar el destino en sus datos.</div>
                                                     </div>
                                                     <div class="col-lg-2">
                                                         <div class="automation-action-toggle">

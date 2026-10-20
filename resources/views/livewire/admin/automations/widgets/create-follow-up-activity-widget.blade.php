@@ -23,7 +23,7 @@
             class="form-control form-control-sm @error('next_scheduled_at') is-invalid @enderror"
             wire:model="next_scheduled_at">
         @if ($this->hasMissingRequiredField())
-            <div class="text-danger small mt-1">Indicá cuándo debe crearse el próximo seguimiento.</div>
+            <div class="text-danger small mt-1">Indique cuándo debe crearse el próximo seguimiento.</div>
         @endif
     </div>
     <div class="col-md-3">

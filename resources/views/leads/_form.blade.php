@@ -32,7 +32,7 @@
             <div>
                 <p class="text-uppercase text-secondary small mb-1">Prospectos</p>
                 <h2 class="h4 mb-1">{{ $lead === null ? 'Registrar nuevo prospecto' : 'Actualizar prospecto '.$lead->code }}</h2>
-                <p class="text-secondary mb-0">Capturá datos comerciales, contacto, ubicación y seguimiento en un formulario ordenado.</p>
+                <p class="text-secondary mb-0">Capture datos comerciales, contacto, ubicación y seguimiento en un formulario ordenado.</p>
             </div>
             <span class="dashboard-kpi-icon text-bg-primary" aria-hidden="true"><i class="bi bi-person-vcard"></i></span>
         </div>
@@ -82,7 +82,7 @@
                 <div class="col-md-12" data-show-when="juridica">
                     <hr>
                     <h4 class="h6">Contacto principal</h4>
-                    <p class="text-secondary small">Registrá a la persona de contacto de la empresa. Nombres, apellidos y al menos un medio de contacto son obligatorios.</p>
+                    <p class="text-secondary small">Registre a la persona de contacto de la empresa. Nombres, apellidos y al menos un medio de contacto son obligatorios.</p>
                     <div class="row g-3">
                         <div class="col-md-4">
                             <x-text-input name="primary_contact[first_name]" label="Nombres" :value="old('primary_contact.first_name', $lead?->primaryContact?->first_name)" :required="true"/>

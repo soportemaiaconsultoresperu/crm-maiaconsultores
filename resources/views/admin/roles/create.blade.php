@@ -7,7 +7,7 @@
     <form method="POST" action="{{ route('admin.roles.store') }}" class="card">
         @csrf
         <div class="card-body">
-            <x-text-input name="name" label="Nombre del rol" required help="Usa nombres cortos en minúsculas (ej. 'coordinador')."/>
+            <x-text-input name="name" label="Nombre del rol" required help="Use nombres cortos en minúsculas (ej. 'coordinador')."/>
 
             <h4 class="h6 mt-4">Permisos del rol</h4>
             <div class="row">

@@ -213,8 +213,8 @@ class TeamService
 
         if ($team->supervisor_id !== null && (int) $team->supervisor_id === (int) $member->id) {
             throw new InvalidOperationException(
-                "No puedes quitar a {$member->name} del equipo {$team->name}: es su único supervisor. ".
-                'Asigna primero otro supervisor con setSupervisor().'
+                "No puede quitar a {$member->name} del equipo {$team->name}: es su único supervisor. ".
+                'Asigne primero otro supervisor con setSupervisor().'
             );
         }
 

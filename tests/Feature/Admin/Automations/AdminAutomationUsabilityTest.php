@@ -83,7 +83,7 @@ class AdminAutomationUsabilityTest extends TestCase
         $response->assertSee('Papelera');
         $response->assertSee(route('admin.automations.destroy', $rule), false);
         $response->assertSee('Acciones configuradas');
-        $response->assertSee('Podés probarla sin afectar datos reales');
+        $response->assertSee('Puede probarla sin afectar datos reales');
         $response->assertSee('Simular ahora');
         $response->assertSee('simulate-action-'.$action->id, false);
     }

@@ -22,7 +22,7 @@
     <div class="row g-3" data-testid="google-integrations-page">
         <div class="col-12">
             <div class="alert alert-info mb-0">
-                Gmail y Google Calendar usan una única identidad Google conectada a tu usuario del CRM.
+                Gmail y Google Calendar usan una única identidad Google conectada a su usuario del CRM.
             </div>
         </div>
 
@@ -81,7 +81,7 @@
 
                     @if ($services['calendar'] && $calendarInitialSyncCount > 0)
                         <div class="alert alert-warning mt-3 mb-0" data-testid="calendar-initial-sync-confirmation">
-                            Se crearán {{ $calendarInitialSyncCount }} eventos futuros en Google Calendar. ¿Querés continuar?
+                            Se crearán {{ $calendarInitialSyncCount }} eventos futuros en Google Calendar. ¿Quiere continuar?
                         </div>
                     @endif
                 </div>

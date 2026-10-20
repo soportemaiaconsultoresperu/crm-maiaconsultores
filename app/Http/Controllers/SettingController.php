@@ -126,7 +126,7 @@ class SettingController extends Controller
                     'mimetypes:image/jpeg,image/png,image/webp',
                 ],
             ], [
-                'logo.required' => 'Seleccioná un archivo de imagen.',
+                'logo.required' => 'Seleccione un archivo de imagen.',
                 'logo.file'     => 'El archivo enviado no es válido.',
                 'logo.max'      => 'El logo no puede superar los 2 MB.',
                 'logo.mimes'    => 'El logo debe ser JPG, PNG o WEBP.',

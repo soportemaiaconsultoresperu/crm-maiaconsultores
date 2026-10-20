@@ -68,7 +68,7 @@ class MessageList extends Component
         }
 
         if (trim($this->body) === '') {
-            session()->flash('error', 'Escribe un mensaje antes de enviar.');
+            session()->flash('error', 'Escriba un mensaje antes de enviar.');
 
             return;
         }
@@ -81,7 +81,7 @@ class MessageList extends Component
         }
 
         if (Gate::forUser(Auth::user())->denies('whatsapp.send')) {
-            session()->flash('error', 'No tienes permiso para enviar mensajes.');
+            session()->flash('error', 'No tiene permiso para enviar mensajes.');
 
             return;
         }

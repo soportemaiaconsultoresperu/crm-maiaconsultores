@@ -42,12 +42,12 @@
         <div>
             <p class="text-uppercase text-secondary small mb-1">Reglas automáticas</p>
             <p class="text-muted mb-1">
-                Administrá automatizaciones con lenguaje de negocio: <strong>CUANDO</strong> ocurre un evento,
+                Administre automatizaciones con lenguaje de negocio: <strong>CUANDO</strong> ocurre un evento,
                 <strong>SI</strong> cumple condiciones, <strong>ENTONCES</strong> el CRM realiza acciones.
                 @if ($trashView ?? false)
-                    Estás viendo la <strong>papelera</strong>; desde acá podés restaurar reglas eliminadas.
+                    Está viendo la <strong>papelera</strong>; desde aquí puede restaurar reglas eliminadas.
                 @else
-                    Usá “Prueba segura” para validar una regla antes de pasarla a producción.
+                    Use “Prueba segura” para validar una regla antes de pasarla a producción.
                 @endif
             </p>
         </div>
@@ -194,7 +194,7 @@
                                                 class="btn btn-sm btn-outline-secondary"
                                                 data-swal-confirm
                                                 data-swal-title="Duplicar automatización"
-                                                data-swal-text="Se creará una copia para que puedas ajustarla sin modificar la original."
+                                                data-swal-text="Se creará una copia para que pueda ajustarla sin modificar la original."
                                                 data-swal-type="question"
                                                 data-swal-confirm-text="Sí, duplicar">
                                             Duplicar
@@ -228,7 +228,7 @@
                         @if ($trashView ?? false)
                             No hay automatizaciones en la papelera.
                         @else
-                            Todavía no hay automatizaciones. Creá la primera con la receta CUANDO / SI / ENTONCES.
+                            Todavía no hay automatizaciones. Cree la primera con la receta CUANDO / SI / ENTONCES.
                         @endif
                     </td>
                 </tr>

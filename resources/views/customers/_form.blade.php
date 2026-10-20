@@ -87,7 +87,7 @@
                         <x-label for="ubigeo_filter_departamento" label="Buscar departamento"/>
                         <input type="text" id="ubigeo_filter_departamento"
                                class="form-control form-control-sm mb-1"
-                               placeholder="Escribí para filtrar (25 departamentos)…"
+                               placeholder="Escriba para filtrar (25 departamentos)…"
                                data-target="ubigeo_departamento">
                         <x-label for="ubigeo_departamento" label="Departamento"/>
                         <select name="ubigeo_departamento" id="ubigeo_departamento" class="form-select" data-testid="ubigeo-departamento">
@@ -103,7 +103,7 @@
                         <x-label for="ubigeo_filter_provincia" label="Buscar provincia"/>
                         <input type="text" id="ubigeo_filter_provincia"
                                class="form-control form-control-sm mb-1"
-                               placeholder="Escribí para filtrar (196 provincias)…"
+                               placeholder="Escriba para filtrar (196 provincias)…"
                                data-target="ubigeo_provincia">
                         <x-label for="ubigeo_provincia" label="Provincia"/>
                         <select name="ubigeo_provincia" id="ubigeo_provincia" class="form-select" data-testid="ubigeo-provincia">
@@ -119,7 +119,7 @@
                         <x-label for="ubigeo_filter_distrito" label="Buscar distrito"/>
                         <input type="text" id="ubigeo_filter_distrito"
                                class="form-control form-control-sm mb-1"
-                               placeholder="Escribí para filtrar (1892 distritos)…"
+                               placeholder="Escriba para filtrar (1892 distritos)…"
                                data-target="ubigeo_code">
                         <x-label for="ubigeo_code" label="Distrito"/>
                         <select name="ubigeo_code" id="ubigeo_code" class="form-select" data-testid="ubigeo-distrito">

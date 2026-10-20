@@ -209,7 +209,7 @@ class AdminHttpTest extends TestCase
         $this->assertTrue($this->admin->refresh()->is_active);
 
         $error = (string) $response->getSession()->get('errors')->first('is_active');
-        $this->assertStringContainsString('No puedes desactivarte a ti mismo', $error);
+        $this->assertStringContainsString('No puede desactivarse a sí mismo', $error);
     }
 
     public function test_admin_can_deactivate_another_user(): void

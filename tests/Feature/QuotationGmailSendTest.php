@@ -64,7 +64,7 @@ class QuotationGmailSendTest extends TestCase
         $this->actingAs($this->actor)
             ->get('/quotations/'.$quotation->id.'/gmail-confirm')
             ->assertRedirect()
-            ->assertSessionHas('error', 'Conectá Gmail para enviar esta cotización desde el sistema.');
+            ->assertSessionHas('error', 'Conecte Gmail para enviar esta cotización desde el sistema.');
     }
 
     public function test_gmail_confirm_suggests_responsible_contact_and_template_without_default_copies(): void
@@ -113,7 +113,7 @@ class QuotationGmailSendTest extends TestCase
         $this->actingAs($this->actor)
             ->post('/quotations/'.$quotation->id.'/gmail-send', $this->gmailPayload(['to' => 'bad-email']))
             ->assertRedirect()
-            ->assertSessionHas('error', 'Conectá Gmail para enviar esta cotización desde el sistema.');
+            ->assertSessionHas('error', 'Conecte Gmail para enviar esta cotización desde el sistema.');
 
         $this->googleAccount();
         $this->actingAs($this->actor)

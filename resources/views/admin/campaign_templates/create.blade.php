@@ -43,7 +43,7 @@
             <div class="card-header"><h3 class="card-title mb-0">Pasos de la campaña</h3></div>
             <div class="card-body">
                 <p class="text-secondary small mb-3">
-                    Cada paso representa una acción que se ejecutará para cada contacto. Define el orden (día relativo desde el inicio), hora, e instrucciones.
+                    Cada paso representa una acción que se ejecutará para cada contacto. Defina el orden (día relativo desde el inicio), hora, e instrucciones.
                 </p>
                 <div id="steps-container" data-testid="steps-container" data-action-types='@json($actionTypesJs)'>
                     @foreach ($steps as $i => $step)

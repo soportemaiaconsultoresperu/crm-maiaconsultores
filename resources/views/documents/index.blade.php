@@ -9,7 +9,7 @@
             <div>
                 <p class="text-uppercase text-secondary small mb-1">Gestión documental</p>
                 <h2 class="h4 mb-1">Documentos del CRM</h2>
-                <p class="text-secondary mb-0">Consultá, descargá o eliminá archivos adjuntos a prospectos, clientes, oportunidades, cotizaciones y actividades.</p>
+                <p class="text-secondary mb-0">Consulte, descargue o elimine archivos adjuntos a prospectos, clientes, oportunidades, cotizaciones y actividades.</p>
             </div>
             <span class="dashboard-kpi-icon dashboard-kpi-icon-blue" aria-hidden="true"><i class="bi bi-folder2-open"></i></span>
         </div>
@@ -17,7 +17,7 @@
 
     <x-table id="documents-index" title="Últimos documentos" data-testid="documents-index-table">
         <x-slot:filters>
-            <p class="small text-secondary mb-0">Se muestran los últimos documentos disponibles según tus permisos.</p>
+            <p class="small text-secondary mb-0">Se muestran los últimos documentos disponibles según sus permisos.</p>
         </x-slot:filters>
         <x-slot:headers>
             <tr>
@@ -92,7 +92,7 @@
                     <td colspan="7">
                         @include('layouts.partials.empty-state', [
                             'message' => 'No hay documentos disponibles.',
-                            'hint' => 'Subí archivos desde la ficha de un prospecto, cliente, oportunidad, cotización o actividad.',
+                            'hint' => 'Suba archivos desde la ficha de un prospecto, cliente, oportunidad, cotización o actividad.',
                         ])
                     </td>
                 </tr>

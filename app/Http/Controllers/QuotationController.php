@@ -264,7 +264,7 @@ class QuotationController extends Controller
 
         $account = $this->gmailAccountFor($request->user());
         if ($account === null) {
-            return back()->with('error', 'Conectá Gmail para enviar esta cotización desde el sistema.');
+            return back()->with('error', 'Conecte Gmail para enviar esta cotización desde el sistema.');
         }
 
         $quotation->load(['lead', 'customer.contacts', 'contact', 'owner', 'items.tax']);
@@ -291,7 +291,7 @@ class QuotationController extends Controller
 
         $account = $this->gmailAccountFor($request->user());
         if ($account === null) {
-            return back()->with('error', 'Conectá Gmail para enviar esta cotización desde el sistema.')->withInput();
+            return back()->with('error', 'Conecte Gmail para enviar esta cotización desde el sistema.')->withInput();
         }
 
         $validated = $request->validate([

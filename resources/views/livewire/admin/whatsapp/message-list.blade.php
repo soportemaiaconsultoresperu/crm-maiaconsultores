@@ -50,7 +50,7 @@
                 <textarea wire:model="body"
                           class="form-control @error('body') is-invalid @enderror"
                           rows="3"
-                          placeholder="Escribe un mensaje libre…"
+                          placeholder="Escriba un mensaje libre…"
                           data-testid="message-body"></textarea>
                 @error('body')
                     <div class="invalid-feedback">{{ $message }}</div>
@@ -77,7 +77,7 @@
         </div>
     @else
         <div class="alert alert-secondary mt-3 mb-0">
-            Tu rol no permite enviar mensajes; solo lectura.
+            Su rol no permite enviar mensajes; solo lectura.
         </div>
     @endif
 </div>
