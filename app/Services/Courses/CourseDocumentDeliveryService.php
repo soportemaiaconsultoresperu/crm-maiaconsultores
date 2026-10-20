@@ -69,7 +69,7 @@ class CourseDocumentDeliveryService
         // controlled temporary/read route the design allows as the email payload.
         // The emailed link is valid for days, not minutes: it is opened hours or
         // days after the message was sent.
-        $documentUrl = $this->secureAcademicDocumentUrl($academic, $this->emailDocumentLinkMinutes());
+        $documentUrl = $this->secureAcademicDocumentUrl($academic, $this->documentLinkMinutes());
 
         try {
             $delivery = DB::transaction(function () use ($academic, $recipient, $operationKey, $email, $actor, $documentUrl): OutboundDelivery {
@@ -156,11 +156,16 @@ class CourseDocumentDeliveryService
         ];
     }
 
-    public function secureAcademicDocumentUrl(CourseAcademicDocument $academic, int $minutes = 60): string
+    /**
+     * The signed link to the document. Without an explicit lifetime it lasts as
+     * long as the delivered links (email and WhatsApp alike, 7 days by default);
+     * an in-module "Ver PDF" link asks for a short one.
+     */
+    public function secureAcademicDocumentUrl(CourseAcademicDocument $academic, ?int $minutes = null): string
     {
         $this->assertDeliverableAcademicDocument($academic);
 
-        return URL::temporarySignedRoute('certificates.documents.show', now()->addMinutes($minutes), [
+        return URL::temporarySignedRoute('certificates.documents.show', now()->addMinutes($minutes ?? $this->documentLinkMinutes()), [
             'academicDocument' => $academic->id,
         ]);
     }
@@ -412,7 +417,7 @@ class CourseDocumentDeliveryService
         // route the design allows as the email payload. The emailed link is valid
         // for days, not minutes: it is opened hours or days after the message was
         // sent.
-        $documentUrl = $this->secureCommercialDocumentUrl($commercial, $this->emailDocumentLinkMinutes());
+        $documentUrl = $this->secureCommercialDocumentUrl($commercial, $this->documentLinkMinutes());
 
         try {
             $delivery = DB::transaction(function () use ($commercial, $recipient, $operationKey, $email, $actor, $documentUrl): OutboundDelivery {
@@ -538,11 +543,12 @@ class CourseDocumentDeliveryService
         return ['delivery' => $delivery->fresh(), 'phone' => $delivery->recipient_ref, 'text' => $text, 'url' => 'https://wa.me/'.$delivery->recipient_ref.'?text='.rawurlencode($text)];
     }
 
-    public function secureCommercialDocumentUrl(CourseCommercialDocument $commercial, int $minutes = 60): string
+    /** Same lifetime rule as {@see secureAcademicDocumentUrl()}. */
+    public function secureCommercialDocumentUrl(CourseCommercialDocument $commercial, ?int $minutes = null): string
     {
         $this->assertStreamableCommercialDocument($commercial);
 
-        return URL::temporarySignedRoute('commercial-documents.documents.show', now()->addMinutes($minutes), [
+        return URL::temporarySignedRoute('commercial-documents.documents.show', now()->addMinutes($minutes ?? $this->documentLinkMinutes()), [
             'commercialDocument' => $commercial->id,
         ]);
     }
@@ -677,13 +683,14 @@ class CourseDocumentDeliveryService
     }
 
     /**
-     * An emailed link is opened hours or days after the message was sent, so the
-     * WhatsApp 60-minute window would be broken for email. The default lives in
-     * `config/courses.php` next to the other course defaults; the route keeps
+     * A delivered link is opened hours or days after the message was sent, by
+     * email or by WhatsApp alike, so both channels share one lifetime (7 days by
+     * default; the WhatsApp link used to expire after an hour). The default lives
+     * in `config/courses.php` next to the other course defaults; the route keeps
      * re-validating document currency and revocation, so a live link still stops
      * serving a document that was annulled or replaced afterwards.
      */
-    private function emailDocumentLinkMinutes(): int
+    private function documentLinkMinutes(): int
     {
         return max(1, (int) config('courses.email_document_link_minutes', 10080));
     }

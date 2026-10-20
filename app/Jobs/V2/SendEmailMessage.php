@@ -151,7 +151,7 @@ class SendEmailMessage implements ShouldQueue
 
     private function resolveProvider(EmailMessage $message, \App\Contracts\Email\EmailProviderFactory $factory): ?EmailProvider
     {
-        if ($this->isSingleAcademicDocumentDelivery($message)) {
+        if ($this->isSingleCourseDocumentDelivery($message)) {
             return $factory->make('smtp');
         }
 
@@ -171,7 +171,13 @@ class SendEmailMessage implements ShouldQueue
         return $factory->for($account);
     }
 
-    private function isSingleAcademicDocumentDelivery(EmailMessage $message): bool
+    /**
+     * Course documents (certificates and comprobantes alike) are sent by the
+     * system SMTP account, whether or not the message is bound to a user's mail
+     * account: the course module queues them without choosing one, and a
+     * comprobante used to fail with `NoBoundAccount` on every attempt.
+     */
+    private function isSingleCourseDocumentDelivery(EmailMessage $message): bool
     {
         $deliveries = OutboundDelivery::query()
             ->where('email_message_id', $message->id)
@@ -182,7 +188,7 @@ class SendEmailMessage implements ShouldQueue
             return false;
         }
 
-        return $deliveries->first()->related_entity_type === CourseAcademicDocument::class;
+        return $this->correlatedCourseDocumentClass((string) $deliveries->first()->related_entity_type) !== null;
     }
 
     /**

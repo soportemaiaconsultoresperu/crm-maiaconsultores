@@ -67,7 +67,11 @@
         $logoPath = public_path('images/logo-maia.png');
         $logoPayload = is_file($logoPath) ? 'data:image/png;base64,'.base64_encode(file_get_contents($logoPath)) : '';
         $qrPayload = $certificate->qrSvg !== '' ? 'data:image/svg+xml;base64,'.base64_encode($certificate->qrSvg) : '';
-        $modality = ucfirst($certificate->modality);
+        // Generation passes the Spanish label; a raw enum value (an older caller or a
+        // hand-built view model) is still translated so the case name never prints.
+        $modality = \App\Enums\Courses\CourseModality::tryFrom(mb_strtolower(trim($certificate->modality), 'UTF-8'))?->label()
+            ?? $certificate->modality;
+        $syllabusTitle ??= 'CERTIFICADO';
         $certificateTitle = trim((string) $certificate->title);
         $visibleCertificateTitle = mb_strtolower($certificateTitle, 'UTF-8') === mb_strtolower('Certificado de aprobación', 'UTF-8')
             ? 'CERTIFICADO'
@@ -123,7 +127,7 @@
             @endif
 
             <div class="syllabus-content">
-                <h2 class="syllabus-title">CERTIFICADO</h2>
+                <h2 class="syllabus-title">{{ $syllabusTitle }}</h2>
                 <p class="syllabus-statement">
                     Se deja constancia de que <strong>{{ $certificate->participant }}</strong> participó en
                     <strong>{{ $certificate->activity }}</strong>, realizado del {{ $certificate->dateRange }}

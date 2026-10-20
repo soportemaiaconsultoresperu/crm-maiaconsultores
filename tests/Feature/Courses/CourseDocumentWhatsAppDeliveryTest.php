@@ -177,10 +177,11 @@ class CourseDocumentWhatsAppDeliveryTest extends TestCase
     }
 
     /**
-     * Triangulation: moving the emailed link to a days-long validity must not leak
-     * into the WhatsApp handoff, whose link stays short for immediate use.
+     * Guide fix S3 (decision "Ambos 7 días"): the WhatsApp link used to expire after
+     * an hour while the emailed one lasted 7 days; both now share the configured
+     * delivered-link lifetime, because a WhatsApp message is opened just as late.
      */
-    public function test_the_whatsapp_handoff_keeps_its_short_immediate_use_link_validity(): void
+    public function test_the_whatsapp_handoff_link_lasts_as_long_as_the_emailed_link(): void
     {
         Queue::fake();
         Storage::fake('docs');
@@ -194,7 +195,7 @@ class CourseDocumentWhatsAppDeliveryTest extends TestCase
         $this->assertNotEmpty($matches, 'The handoff text must carry a secure document link.');
         $query = [];
         parse_str((string) parse_url($matches[0], PHP_URL_QUERY), $query);
-        $this->assertSame(now()->addMinutes(60)->timestamp, (int) $query['expires']);
+        $this->assertSame(now()->addMinutes((int) config('courses.email_document_link_minutes'))->timestamp, (int) $query['expires']);
     }
 
     /**

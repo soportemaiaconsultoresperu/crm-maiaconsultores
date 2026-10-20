@@ -63,8 +63,12 @@ class SendEmailMessageCorrelationTest extends TestCase
         ]);
         $provider = Mockery::mock(EmailProvider::class);
         $provider->shouldReceive('send')->once()->andReturn(['ok' => true, 'provider_message_id' => 'provider-1']);
+        // A single course-document delivery (academic or comprobante) always goes
+        // through the system SMTP transport, even when the message carries an
+        // account; only other correlated entities resolve the bound account.
         $factory = Mockery::mock(EmailProviderFactory::class);
-        $factory->shouldReceive('for')->once()->andReturn($provider);
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
+        $factory->shouldReceive('for')->never();
 
         (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
 
@@ -88,7 +92,8 @@ class SendEmailMessageCorrelationTest extends TestCase
         $provider = Mockery::mock(EmailProvider::class);
         $provider->shouldReceive('send')->once()->andReturn(['ok' => false, 'indeterminate' => true, 'error_message' => 'provider secret']);
         $factory = Mockery::mock(EmailProviderFactory::class);
-        $factory->shouldReceive('for')->once()->andReturn($provider);
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
+        $factory->shouldReceive('for')->never();
 
         (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
 
@@ -148,7 +153,8 @@ class SendEmailMessageCorrelationTest extends TestCase
         $provider = Mockery::mock(EmailProvider::class);
         $provider->shouldReceive('send')->once()->andReturn(['ok' => true, 'provider_message_id' => 'provider-commercial-1']);
         $factory = Mockery::mock(EmailProviderFactory::class);
-        $factory->shouldReceive('for')->once()->andReturn($provider);
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
+        $factory->shouldReceive('for')->never();
 
         (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
 
@@ -208,7 +214,8 @@ class SendEmailMessageCorrelationTest extends TestCase
         $provider = Mockery::mock(EmailProvider::class);
         $provider->shouldReceive('send')->once()->andReturn(['ok' => false, 'error_class' => 'SmtpError', 'error_message' => 'password=provider-secret']);
         $factory = Mockery::mock(EmailProviderFactory::class);
-        $factory->shouldReceive('for')->once()->andReturn($provider);
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
+        $factory->shouldReceive('for')->never();
 
         (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
 
@@ -266,7 +273,8 @@ class SendEmailMessageCorrelationTest extends TestCase
         $provider = Mockery::mock(EmailProvider::class);
         $provider->shouldReceive('send')->once()->andReturn(['ok' => false, 'indeterminate' => true, 'error_message' => 'provider secret']);
         $factory = Mockery::mock(EmailProviderFactory::class);
-        $factory->shouldReceive('for')->once()->andReturn($provider);
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
+        $factory->shouldReceive('for')->never();
 
         (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
 

@@ -43,4 +43,22 @@ class StoreCommercialDocumentRequest extends FormRequest
             'observations' => ['nullable', 'string'],
         ];
     }
+
+    public function attributes(): array
+    {
+        return [
+            'type' => 'tipo de comprobante',
+            'operation_key' => 'clave de idempotencia del formulario',
+            'course_enrollment_id' => 'matrícula',
+            'course_enrollment_group_id' => 'grupo de matrícula',
+            'payer_name' => 'pagador (nombre o razón social)',
+            'payer_document_type' => 'tipo de documento del pagador',
+            'payer_document_number' => 'número de documento del pagador',
+            'series' => 'serie',
+            'number' => 'número',
+            'issue_date' => 'fecha de emisión',
+            'currency' => 'moneda',
+            'observations' => 'observaciones',
+        ];
+    }
 }

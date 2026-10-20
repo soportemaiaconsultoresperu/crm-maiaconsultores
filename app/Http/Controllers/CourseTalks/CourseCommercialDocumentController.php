@@ -52,6 +52,14 @@ use InvalidArgumentException;
  */
 class CourseCommercialDocumentController extends Controller
 {
+    /**
+     * Lifetime of the signed link "Ver PDF" redirects to. It is minted at click
+     * time, so it only has to survive the redirect.
+     */
+    private const VIEW_LINK_MINUTES = 5;
+
+    private const NOT_VIEWABLE = 'El archivo no está disponible: solo un comprobante registrado con su archivo puede abrirse.';
+
     public function __construct(
         private readonly CourseCommercialDocumentService $commercialDocuments,
     ) {}
@@ -96,6 +104,11 @@ class CourseCommercialDocumentController extends Controller
         // requires a mail closure in its constructor: the same unused placeholder
         // the delivery controllers pass.
         $deliveryService = new CourseDocumentDeliveryService(static fn (): bool => true);
+        $deliverability = $commercialDocuments
+            ->mapWithKeys(fn (CourseCommercialDocument $commercial): array => [
+                $commercial->id => $deliveryService->hasStreamableCommercialDocument($commercial),
+            ])
+            ->all();
 
         return view('course-talks.editions.commercial-documents', [
             'edition' => $edition->load('activity'),
@@ -113,11 +126,7 @@ class CourseCommercialDocumentController extends Controller
             // offered only for a comprobante it would actually accept, so a
             // registered one whose private file is missing gets no action that
             // could only be refused.
-            'deliverability' => $commercialDocuments
-                ->mapWithKeys(fn (CourseCommercialDocument $commercial): array => [
-                    $commercial->id => $deliveryService->hasStreamableCommercialDocument($commercial),
-                ])
-                ->all(),
+            'deliverability' => $deliverability,
             // Delivery history is read once for the whole edition. The append-only
             // ledger is the only source of delivery truth and this surface never
             // writes it: the domain service records every attempt.
@@ -199,6 +208,25 @@ class CourseCommercialDocumentController extends Controller
 
         return $this->backToListing($edition)
             ->with('status', 'Archivo del comprobante adjuntado correctamente.');
+    }
+
+    /**
+     * "Ver PDF": opens the comprobante's attachment from inside the module. Any
+     * viewer of the edition may open it, and only when the signed download link
+     * would serve it. The signed link is minted here, at click time, so the
+     * listing never carries one.
+     */
+    public function pdf(CourseCommercialDocument $commercialDocument): RedirectResponse
+    {
+        $edition = $this->editionOf($commercialDocument);
+        Gate::authorize('view', $edition);
+
+        $deliveryService = new CourseDocumentDeliveryService(static fn (): bool => true);
+        if (! $deliveryService->hasStreamableCommercialDocument($commercialDocument)) {
+            return $this->backToListing($edition)->withErrors(['commercial_document' => self::NOT_VIEWABLE]);
+        }
+
+        return redirect()->away($deliveryService->secureCommercialDocumentUrl($commercialDocument, self::VIEW_LINK_MINUTES));
     }
 
     /**

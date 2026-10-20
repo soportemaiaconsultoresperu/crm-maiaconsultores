@@ -38,7 +38,12 @@ final class CourseEligibilityService
         $documentType = null;
 
         if ($activity->type === CourseActivityType::Talk) {
-            if ($activity->talk_includes_certificate && $enrollment->participation_confirmed_at !== null) {
+            // A talk created without certificate issues no document at all, so its
+            // attendance is not what is missing: reporting "participation" there told
+            // the operator to confirm an attendance that was already confirmed.
+            if (! $activity->talk_includes_certificate) {
+                $missing[] = 'talk_without_certificate';
+            } elseif ($enrollment->participation_confirmed_at !== null) {
                 $documentType = AcademicDocumentType::TalkCertificate;
             } else {
                 $missing[] = 'participation';

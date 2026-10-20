@@ -290,7 +290,9 @@ class CourseDocumentGenerationService
             'title' => $this->titleFor($academic->type),
             'participant' => $this->participantName($enrollment),
             'activity' => (string) $enrollment->edition->activity->name,
-            'modality' => $enrollment->edition->modality->name,
+            // The Spanish label, never the enum case name: the certificate is read by
+            // the participant, and "Presential" or "Hybrid" is internal vocabulary.
+            'modality' => $enrollment->edition->modality->label(),
             'date_range' => $this->certificateDateRange($enrollment),
             'academic_hours' => (string) $enrollment->edition->activity->official_academic_hours,
             'issue_location_date' => 'Lima, '.now()->isoFormat('D [de] MMMM [de] YYYY'),
@@ -299,7 +301,21 @@ class CourseDocumentGenerationService
             'syllabus' => $this->certificateSyllabus($enrollment),
         ], $settings);
 
-        return ($this->pdfRenderer ?? new DomPdfRenderer())->render($view, ['certificate' => $viewModel]);
+        return ($this->pdfRenderer ?? new DomPdfRenderer())->render($view, [
+            'certificate' => $viewModel,
+            'syllabusTitle' => $this->syllabusTitleFor($academic->type),
+        ]);
+    }
+
+    /**
+     * The second page names the document it belongs to. It follows the document
+     * type, not the template title: a constancia must never be headed CERTIFICADO.
+     */
+    private function syllabusTitleFor(AcademicDocumentType $type): string
+    {
+        return $type === AcademicDocumentType::ParticipationConstancy
+            ? 'CONSTANCIA DE PARTICIPACIÓN'
+            : 'CERTIFICADO';
     }
 
     /**

@@ -54,6 +54,14 @@ class CourseAcademicDocumentController extends Controller
 
     private const ONLY_CURRENT_CAN_BE_ANNULLED = 'Solo un documento vigente puede anularse. Los documentos anulados o reemplazados conservan su estado y su motivo original.';
 
+    /**
+     * Lifetime of the signed link "Ver PDF" redirects to. It is minted at click
+     * time, so it only has to survive the redirect.
+     */
+    private const VIEW_LINK_MINUTES = 5;
+
+    private const NOT_VIEWABLE = 'El PDF no está disponible: solo un documento vigente con su archivo puede abrirse.';
+
     public function __construct(
         private readonly CourseDocumentGenerationService $documents,
         private readonly CertificateQrTokenService $qrTokens,
@@ -79,6 +87,11 @@ class CourseAcademicDocumentController extends Controller
         // requires a mail closure in its constructor: the same unused placeholder
         // the delivery controllers pass.
         $deliveryService = new CourseDocumentDeliveryService(static fn (): bool => true);
+        $deliverability = $documents
+            ->mapWithKeys(fn (CourseAcademicDocument $document): array => [
+                $document->id => $deliveryService->hasDeliverableAcademicDocument($document),
+            ])
+            ->all();
 
         return view('course-talks.editions.documents', [
             'edition' => $edition->load('activity'),
@@ -94,11 +107,7 @@ class CourseAcademicDocumentController extends Controller
             // offered only for a document it would actually accept, so a current
             // document whose private file is missing gets no action that could
             // only be refused.
-            'deliverability' => $documents
-                ->mapWithKeys(fn (CourseAcademicDocument $document): array => [
-                    $document->id => $deliveryService->hasDeliverableAcademicDocument($document),
-                ])
-                ->all(),
+            'deliverability' => $deliverability,
             // Delivery history is read once for the whole edition. The append-only
             // ledger is the only source of delivery truth and this surface never
             // writes it: the service records every attempt.
@@ -109,6 +118,25 @@ class CourseAcademicDocumentController extends Controller
                 ->get()
                 ->groupBy('related_entity_id'),
         ]);
+    }
+
+    /**
+     * "Ver PDF": opens the document from inside the module. Any viewer of the
+     * edition may open it, and only when the signed document link would serve it
+     * (current, not revoked, private file present). The signed link is minted
+     * here, at click time, so the listing never carries one.
+     */
+    public function pdf(CourseAcademicDocument $academicDocument): RedirectResponse
+    {
+        $edition = $this->editionOf($academicDocument);
+        Gate::authorize('view', $edition);
+
+        $deliveryService = new CourseDocumentDeliveryService(static fn (): bool => true);
+        if (! $deliveryService->hasDeliverableAcademicDocument($academicDocument)) {
+            return $this->backToIndex($edition)->withErrors(['documents' => self::NOT_VIEWABLE]);
+        }
+
+        return redirect()->away($deliveryService->secureAcademicDocumentUrl($academicDocument, self::VIEW_LINK_MINUTES));
     }
 
     public function store(Request $request, CourseEnrollment $enrollment): RedirectResponse

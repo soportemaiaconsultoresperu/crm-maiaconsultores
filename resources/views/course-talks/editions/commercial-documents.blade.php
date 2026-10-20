@@ -16,11 +16,12 @@
             'boleta' => 'Boleta',
             'recibo' => 'Recibo',
         ];
+        // Only the states an action can reach: registration writes `pending_file`
+        // and the upload writes `registered`. Sending and discarding are recorded in
+        // the delivery status (next map), never in this one.
         $statusMeta = [
             'pending_file' => ['Pendiente de archivo', 'text-bg-warning'],
             'registered' => ['Registrado', 'text-bg-success'],
-            'sent' => ['Enviado', 'text-bg-primary'],
-            'discarded' => ['Descartado', 'text-bg-light'],
         ];
         $deliveryStatusMeta = [
             'pending' => ['Entrega pendiente', 'text-bg-secondary'],
@@ -124,14 +125,14 @@
         <x-alert type="warning" data-testid="course-talks-commercial-documents-whatsapp-pending">
             <p class="mb-1 fw-semibold">
                 {{ count($pendingHandoffs) === 1
-                    ? 'Tenés un envío por WhatsApp pendiente de confirmar.'
-                    : 'Tenés '.count($pendingHandoffs).' envíos por WhatsApp pendientes de confirmar.' }}
+                    ? 'Tiene un envío por WhatsApp pendiente de confirmar.'
+                    : 'Tiene '.count($pendingHandoffs).' envíos por WhatsApp pendientes de confirmar.' }}
             </p>
-            <p class="small mb-0">Marcá cada uno como enviado cuando lo hayas mandado desde WhatsApp, o descartalo si no lo vas a usar.</p>
+            <p class="small mb-0">Marque cada uno como enviado cuando lo haya enviado desde WhatsApp, o descártelo si no lo va a usar.</p>
 
             @foreach ($pendingHandoffs as $entry)
                 <div class="d-flex flex-wrap align-items-center gap-2 border-top pt-2 mt-2" data-testid="course-talks-commercial-documents-whatsapp-pending-{{ $entry['handoff']->id }}">
-                    <span class="small"><strong>{{ $entry['document']->type->value ?? 'Comprobante' }}</strong> · {{ $entry['handoff']->recipient_ref }}</span>
+                    <span class="small"><strong>{{ $typeLabels[$entry['document']->type->value] ?? 'Comprobante' }}</strong> {{ $entry['document']->series ?: '—' }}-{{ $entry['document']->number ?: '—' }} · {{ $entry['handoff']->recipient_ref }}</span>
 
                     {{-- The number travels hidden and comes from the handoff itself, so the
                          confirmation cannot be refused for a phone the operator retyped. --}}
@@ -236,6 +237,12 @@
                         @if ($commercial->document)
                             <span class="badge text-bg-success">Adjunto cargado</span>
                             <div class="text-secondary small">{{ $commercial->document->name }}</div>
+                            {{-- Offered only where the signed download link would serve the
+                                 file; an attachment that is not a PDF is named as a file. The
+                                 link is minted at click time, never rendered here. --}}
+                            @if (($deliverability[$commercial->id] ?? false) && Route::has('course-talks.commercial-documents.pdf'))
+                                <a href="{{ route('course-talks.commercial-documents.pdf', $commercial) }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary mt-1" data-testid="course-talks-commercial-view-{{ $commercial->id }}">{{ strtolower((string) $commercial->document->extension) === 'pdf' ? 'Ver PDF' : 'Ver archivo' }}</a>
+                            @endif
                         @else
                             <span class="badge text-bg-warning">Sin adjunto</span>
                             @if ($canManage)
@@ -354,7 +361,7 @@
     @if ($canManage)
         <h2 class="h5 mt-4">Registrar comprobante por matrícula</h2>
         <p class="text-secondary small">
-            El desglose lo calcula el sistema con el precio del curso o charla, el cargo por certificado y el descuento de cada
+            El desglose lo calcula el sistema con el precio del curso o charla y el cargo por certificado de cada
             matrícula. La compra de un grupo con un solo pagador se factura en la sección de grupos.
         </p>
 
@@ -467,7 +474,7 @@
 
         <h2 class="h5 mt-4" id="grupos-de-matricula">Registrar comprobante por grupo</h2>
         <p class="text-secondary small">
-            El desglose lo calcula el sistema sumando el precio del curso o charla, el cargo por certificado y el descuento de
+            El desglose lo calcula el sistema sumando el precio del curso o charla y el cargo por certificado de
             las matrículas facturables de cada grupo. El pagador es el propio grupo.
         </p>
 

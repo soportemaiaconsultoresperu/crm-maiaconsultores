@@ -337,7 +337,12 @@ class CourseDocumentEmailDeliveryTest extends TestCase
         $this->assertSame('bound-provider', $message->fresh()->provider_message_id);
     }
 
-    public function test_commercial_document_email_without_a_bound_account_cannot_use_the_smtp_fallback(): void
+    /**
+     * Guide fix S14: this used to pin the defect — a comprobante email with no
+     * bound account failed with `NoBoundAccount` on every attempt. Comprobantes now
+     * follow the academic single-document rule and go through the system SMTP.
+     */
+    public function test_commercial_document_email_without_a_bound_account_uses_the_smtp_fallback(): void
     {
         $commercial = $this->commercialDocument();
         $message = EmailMessage::query()->create([
@@ -357,18 +362,20 @@ class CourseDocumentEmailDeliveryTest extends TestCase
             'attempts' => 1,
             'idempotency_key' => str()->random(64),
         ]);
+        $provider = \Mockery::mock(EmailProvider::class);
+        $provider->shouldReceive('send')->once()->andReturn(['ok' => true, 'provider_message_id' => 'smtp-commercial-fallback']);
         $factory = \Mockery::mock(EmailProviderFactory::class);
-        $factory->shouldReceive('make')->never();
+        $factory->shouldReceive('make')->once()->with('smtp')->andReturn($provider);
         $factory->shouldReceive('for')->never();
 
         (new SendEmailMessage($message->id))->handle($factory, app(QuotationService::class));
 
-        $this->assertSame(EmailMessage::STATUS_FAILED, $message->fresh()->status);
-        $this->assertSame('NoBoundAccount', $message->fresh()->error_class);
-        $this->assertSame(OutboundDelivery::STATUS_FAILED, $delivery->fresh()->status);
-        $this->assertSame('No fue posible enviar el correo.', $delivery->fresh()->last_error);
-        $this->assertSame(DeliveryStatus::Failed, $commercial->fresh()->delivery_status);
-        $this->assertNull($commercial->fresh()->last_sent_at);
+        $this->assertSame(EmailMessage::STATUS_SENT, $message->fresh()->status);
+        $this->assertNull($message->fresh()->error_class);
+        $this->assertSame(OutboundDelivery::STATUS_SENT, $delivery->fresh()->status);
+        $this->assertNull($delivery->fresh()->last_error);
+        $this->assertSame(DeliveryStatus::Sent, $commercial->fresh()->delivery_status);
+        $this->assertNotNull($commercial->fresh()->last_sent_at);
     }
 
     public function test_it_records_a_successful_email_attempt_with_recipient_override_snapshot_and_actor_activity(): void

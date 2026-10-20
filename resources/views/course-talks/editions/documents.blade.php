@@ -17,6 +17,7 @@
             'edition_validations' => 'Validaciones del dictado pendientes',
             'academic_result' => 'Resultado académico o participación pendiente',
             'participation' => 'Participación de la charla sin confirmar',
+            'talk_without_certificate' => 'La charla no emite certificado: no corresponde documento',
             'enrollment_state' => 'La matrícula está retirada o el participante no asistió',
         ];
         $documentTypeMeta = [
@@ -117,10 +118,10 @@
         <x-alert type="warning" data-testid="course-talks-documents-whatsapp-pending">
             <p class="mb-1 fw-semibold">
                 {{ count($pendingHandoffs) === 1
-                    ? 'Tenés un envío por WhatsApp pendiente de confirmar.'
-                    : 'Tenés '.count($pendingHandoffs).' envíos por WhatsApp pendientes de confirmar.' }}
+                    ? 'Tiene un envío por WhatsApp pendiente de confirmar.'
+                    : 'Tiene '.count($pendingHandoffs).' envíos por WhatsApp pendientes de confirmar.' }}
             </p>
-            <p class="small mb-0">Marcá cada uno como enviado cuando lo hayas mandado desde WhatsApp, o descartalo si no lo vas a usar.</p>
+            <p class="small mb-0">Marque cada uno como enviado cuando lo haya enviado desde WhatsApp, o descártelo si no lo va a usar.</p>
 
             @foreach ($pendingHandoffs as $entry)
                 <div class="d-flex flex-wrap align-items-center gap-2 border-top pt-2 mt-2" data-testid="course-talks-documents-whatsapp-pending-{{ $entry['handoff']->id }}">
@@ -236,6 +237,13 @@
                                 </div>
                                 @if ($document->annul_reason)
                                     <div class="small text-secondary">Motivo registrado: {{ $document->annul_reason }}</div>
+                                @endif
+
+                                {{-- Offered only where the signed document link would serve the
+                                     file (a current, non-revoked document with its PDF present).
+                                     The link is minted at click time, never rendered here. --}}
+                                @if (($deliverability[$document->id] ?? false) && Route::has('course-talks.documents.pdf'))
+                                    <a href="{{ route('course-talks.documents.pdf', $document) }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary mt-2" data-testid="course-talks-document-view-{{ $document->id }}">Ver PDF</a>
                                 @endif
 
                                 @if ($current !== null && $current->id === $document->id)
