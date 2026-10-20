@@ -88,6 +88,20 @@ class SyncEditionTeachersRequest extends FormRequest
         ];
     }
 
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return [
+            'teachers' => 'docentes',
+            'teachers.*' => 'docente',
+            'teachers.*.id' => 'docente',
+            'teachers.*.display_name' => 'nombre del docente',
+            'teachers.*.email' => 'correo del docente',
+            'teachers.*.user_id' => 'usuario del docente',
+            'teachers.*.remove' => 'quitar',
+        ];
+    }
+
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {

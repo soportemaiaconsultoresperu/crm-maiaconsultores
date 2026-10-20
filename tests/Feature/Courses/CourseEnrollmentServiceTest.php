@@ -207,7 +207,7 @@ class CourseEnrollmentServiceTest extends TestCase
         ]);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('already enrolled');
+        $this->expectExceptionMessage('ya está inscrito en este dictado');
         $service->enroll($edition, ['contact_id' => $contact->id]);
     }
 
@@ -243,7 +243,7 @@ class CourseEnrollmentServiceTest extends TestCase
         );
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('not permitted');
+        $this->expectExceptionMessage('No se permite cambiar el estado de pago');
         $service->changePaymentStatus($updated, PaymentStatus::Partial);
     }
 
@@ -254,7 +254,7 @@ class CourseEnrollmentServiceTest extends TestCase
         DB::table('course_enrollments')->where('id', $enrollment->id)->update(['payment_status' => PaymentStatus::Paid->value]);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('paid to partial is not permitted');
+        $this->expectExceptionMessage('de «Pagado» a «Parcial»');
 
         app(CourseEnrollmentService::class)->changePaymentStatus($staleEnrollment, PaymentStatus::Partial);
     }
@@ -289,7 +289,7 @@ class CourseEnrollmentServiceTest extends TestCase
                 $service->changePaymentStatus($enrollment, $target);
                 $this->fail('Expected reversal or terminal transition to be rejected.');
             } catch (InvalidArgumentException $exception) {
-                $this->assertStringContainsString('not permitted', $exception->getMessage());
+                $this->assertStringContainsString('No se permite cambiar el estado de pago', $exception->getMessage());
             }
         }
     }
@@ -323,7 +323,7 @@ class CourseEnrollmentServiceTest extends TestCase
             $service->changePaymentStatus($enrollment, PaymentStatus::Waived);
             $this->fail('Expected an unauthorized waiver to be rejected.');
         } catch (InvalidArgumentException $exception) {
-            $this->assertStringContainsString('authorization', $exception->getMessage());
+            $this->assertStringContainsString('requiere autorización', $exception->getMessage());
         }
 
         $updated = $service->changePaymentStatus($enrollment, PaymentStatus::Waived, true);

@@ -2,7 +2,6 @@
 
 namespace App\Services\Courses;
 
-use App\Enums\Courses\CourseActivityType;
 use App\Enums\Courses\CourseEditionState;
 use App\Enums\Courses\CourseModality;
 use App\Events\Courses\CourseEditionChanged;
@@ -22,26 +21,15 @@ class CourseEditionService
      */
     public function create(CourseActivity $activity, array $attributes): CourseEdition
     {
+        // The activity's "Activa" flag is what stops new deliveries; the dictados it
+        // already has keep working (update() does not ask this).
+        self::ensureActivityAcceptsNewEditions($activity);
+
         $location = $this->validateModality($attributes['modality'] ?? '', $attributes['address'] ?? null, $attributes['access_url'] ?? null);
         $code = trim((string) ($attributes['code'] ?? ''));
 
-        // The price is required by the spec and the column is NOT NULL, so the rule
-        // belongs here as well as in the form request: a caller that does not come
-        // through HTTP used to reach the database with a null and die as a 500.
-        // Zero is allowed — a free edition is still an edition.
-        $price = $attributes['price_amount'] ?? null;
-
-        if ($price === null || $price === '' || ! is_numeric($price)) {
-        throw InvalidCourseEditionData::forField('price_amount', 'El precio del dictado es obligatorio.');
-        }
-
-        if ((float) $price < 0) {
-        throw InvalidCourseEditionData::forField('price_amount', 'El precio del dictado no puede ser negativo.');
-        }
-
-        if ($code !== '' && CourseEdition::withTrashed()->where('code', $code)->exists()) {
-            throw InvalidCourseEditionData::forField('code', "Course edition code {$code} is already in use.");
-        }
+        $this->validatePrice($attributes['price_amount'] ?? null);
+        $this->ensureCodeIsFree($code);
 
         // The certificate charge is OPTIONAL DELIVERY MONEY: the create form offers it
         // only for a talk that includes a certificate, and every other delivery is worth
@@ -70,6 +58,103 @@ class CourseEditionService
 
             return $edition;
         });
+    }
+
+    /**
+     * Edit a delivery's own data with the same rules as create(). The lifecycle
+     * state, currency and delivery-due days are not part of the edit: the state
+     * moves only through transitionState(). Enrollments keep the money they were
+     * created with, so a new price applies to new enrollments only.
+     *
+     * @param array<string, mixed> $attributes
+     */
+    public function update(CourseEdition $edition, array $attributes): CourseEdition
+    {
+        $location = $this->validateModality($attributes['modality'] ?? '', $attributes['address'] ?? null, $attributes['access_url'] ?? null);
+        $code = trim((string) ($attributes['code'] ?? ''));
+
+        $this->validatePrice($attributes['price_amount'] ?? null);
+        $this->ensureCodeIsFree($code, $edition);
+
+        $attributes['certificate_charge_amount'] = $this->normalizeCertificateCharge(
+            $attributes['certificate_charge_amount'] ?? null,
+        );
+
+        $editable = array_intersect_key($attributes, array_flip([
+            'starts_on', 'ends_on', 'price_amount', 'certificate_charge_amount', 'syllabus_override_json', 'responsible_user_id',
+        ]));
+
+        return DB::transaction(function () use ($edition, $editable, $location, $code): CourseEdition {
+            $edition->fill(array_merge($editable, $location, [
+                'code' => $code === '' ? null : $code,
+            ]))->save();
+
+            CourseEditionChanged::dispatch($edition->id, 'course-edition-updated');
+
+            return $edition;
+        });
+    }
+
+    /**
+     * Soft-delete a delivery, but only when nobody is enrolled in it: an
+     * enrollment carries money, attendance, grades and documents, so a delivery
+     * with enrollments is refused instead of orphaning them.
+     */
+    public function delete(CourseEdition $edition): void
+    {
+        if ($edition->enrollments()->withTrashed()->exists()) {
+            throw new InvalidCourseEditionData('No se puede eliminar el dictado porque tiene participantes inscritos.');
+        }
+
+        DB::transaction(function () use ($edition): void {
+            $edition->delete();
+
+            CourseEditionChanged::dispatch($edition->id, 'course-edition-deleted');
+        });
+    }
+
+    /**
+     * The one "may this activity get a new dictado" rule, read by create() and by
+     * the create form before it renders.
+     */
+    public static function ensureActivityAcceptsNewEditions(CourseActivity $activity): void
+    {
+        if (! $activity->is_active) {
+            throw InvalidCourseEditionData::forField('edition', 'No se pueden crear dictados de un curso o charla inactivo. Actívelo primero desde «Editar».');
+        }
+    }
+
+    /**
+     * The price is required by the spec and the column is NOT NULL, so the rule
+     * belongs here as well as in the form request: a caller that does not come
+     * through HTTP used to reach the database with a null and die as a 500. Zero is
+     * allowed — a free edition is still an edition.
+     */
+    private function validatePrice(mixed $price): void
+    {
+        if ($price === null || $price === '' || ! is_numeric($price)) {
+            throw InvalidCourseEditionData::forField('price_amount', 'El precio del dictado es obligatorio.');
+        }
+
+        if ((float) $price < 0) {
+            throw InvalidCourseEditionData::forField('price_amount', 'El precio del dictado no puede ser negativo.');
+        }
+    }
+
+    private function ensureCodeIsFree(string $code, ?CourseEdition $except = null): void
+    {
+        if ($code === '') {
+            return;
+        }
+
+        $taken = CourseEdition::withTrashed()
+            ->where('code', $code)
+            ->when($except !== null, fn ($query) => $query->whereKeyNot($except->id))
+            ->exists();
+
+        if ($taken) {
+            throw InvalidCourseEditionData::forField('code', "El código de dictado «{$code}» ya está en uso.");
+        }
     }
 
     /**
@@ -112,7 +197,7 @@ class CourseEditionService
 
                 $name = trim((string) ($teacher['display_name'] ?? ''));
                 if ($name === '') {
-                    throw new InvalidCourseEditionData('Edition teachers require a display name.');
+                    throw new InvalidCourseEditionData('El nombre del docente es obligatorio.');
                 }
 
                 $record = $id === null
@@ -168,7 +253,7 @@ class CourseEditionService
             foreach (array_values($sessions) as $index => $session) {
                 $topic = trim((string) ($session['topic'] ?? ''));
                 if ($topic === '') {
-                    throw new InvalidCourseEditionData('Course sessions require a topic.');
+                    throw new InvalidCourseEditionData('El tema de la sesión es obligatorio.');
                 }
 
                 $teacherId = $session['teacher_id'] ?? null;
@@ -218,15 +303,15 @@ class CourseEditionService
         $accessUrl = trim((string) $accessUrl);
 
         if ($modality === CourseModality::Presential && $address === '') {
-            throw InvalidCourseEditionData::forField('address', 'Presential editions require an address.');
+            throw InvalidCourseEditionData::forField('address', 'Para un dictado presencial, la dirección es obligatoria.');
         }
         if ($modality === CourseModality::Virtual && $accessUrl === '') {
-            throw InvalidCourseEditionData::forField('access_url', 'Virtual editions require an access URL.');
+            throw InvalidCourseEditionData::forField('access_url', 'Para un dictado virtual, el enlace de acceso es obligatorio.');
         }
         if ($modality === CourseModality::Hybrid && ($address === '' || $accessUrl === '')) {
             throw InvalidCourseEditionData::forField(
                 $address === '' ? 'address' : 'access_url',
-                'Hybrid editions require both address and access URL.',
+                'Para un dictado híbrido, la dirección y el enlace de acceso son obligatorios.',
             );
         }
 
@@ -255,7 +340,7 @@ class CourseEditionService
         $current = $edition->state instanceof CourseEditionState ? $edition->state : CourseEditionState::from($edition->state);
 
         if (! $this->canTransition($current, $target)) {
-            throw new InvalidCourseEditionTransition("Cannot transition course edition from {$current->value} to {$target->value}.");
+            throw new InvalidCourseEditionTransition("No se puede cambiar el estado del dictado de «{$current->label()}» a «{$target->label()}».");
         }
 
         DB::transaction(function () use ($edition, $target): void {
@@ -281,7 +366,7 @@ class CourseEditionService
             $lockedEdition->forceFill(['validations_completed_at' => now()])->save();
             CourseEditionChanged::dispatch($lockedEdition->id, 'course-edition-validations-completed');
 
-            if ($lockedEdition->activity->type !== CourseActivityType::Course) {
+            if (! app(CourseEligibilityTriggerService::class)->editionCompletionCanIssueDocuments($lockedEdition->activity)) {
                 return [$lockedEdition, []];
             }
 

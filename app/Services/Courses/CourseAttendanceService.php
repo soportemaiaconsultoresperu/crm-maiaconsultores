@@ -27,7 +27,7 @@ final class CourseAttendanceService
         $status = strtolower(trim($status));
 
         if (! in_array($status, self::VALID_STATUSES, true)) {
-            throw new InvalidCourseEditionData('Attendance status is invalid.');
+            throw new InvalidCourseEditionData('El estado de asistencia no es válido.');
         }
 
         $attendance = CourseAuditActor::asActor($actor, fn (): CourseAttendance => DB::transaction(function () use ($session, $enrollment, $status, $actor): CourseAttendance {
@@ -35,7 +35,7 @@ final class CourseAttendanceService
             $enrollment->loadMissing('edition.activity');
 
             if ($session->course_edition_id !== $enrollment->course_edition_id) {
-                throw new InvalidCourseEditionData('Session and enrollment must belong to the same edition.');
+                throw new InvalidCourseEditionData('La sesión y la inscripción deben pertenecer al mismo dictado.');
             }
 
             $attendance = CourseAttendance::query()->updateOrCreate(

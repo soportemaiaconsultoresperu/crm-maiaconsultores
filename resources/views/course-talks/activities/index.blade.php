@@ -21,6 +21,14 @@
                     @endforeach
                 </select>
             </div>
+            {{-- Inactive activities are hidden by default (they take no new
+                 dictados); this checkbox brings them back into the list. --}}
+            <div class="col-12 col-sm-6 col-xl-2">
+                <div class="form-check mb-1">
+                    <input type="checkbox" class="form-check-input" id="activities-show-inactive" name="show_inactive" value="1" @checked($showInactive)>
+                    <label class="form-check-label small" for="activities-show-inactive">Mostrar inactivas</label>
+                </div>
+            </div>
             <div class="col-12 col-sm-6 col-xl-3 d-flex flex-wrap align-items-center gap-2">
                 <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
                 <a href="{{ route('course-talks.activities.index') }}" class="btn btn-sm btn-outline-secondary">Ver todas</a>
@@ -73,7 +81,12 @@
                 <tr data-testid="course-talks-activity-{{ $activity->id }}">
                     <td><code>{{ $activity->code }}</code></td>
                     <td><span class="badge text-bg-secondary">{{ $activity->type->label() }}</span></td>
-                    <td><strong>{{ $activity->name }}</strong></td>
+                    <td>
+                        <strong>{{ $activity->name }}</strong>
+                        @unless ($activity->is_active)
+                            <span class="badge text-bg-secondary ms-1" data-testid="course-talks-activity-inactive-badge-{{ $activity->id }}">Inactiva</span>
+                        @endunless
+                    </td>
                     <td>{{ $activity->official_academic_hours }}</td>
                     <td>{{ $activity->editions_count }}</td>
                     {{-- The activity is the reusable definition; every operational

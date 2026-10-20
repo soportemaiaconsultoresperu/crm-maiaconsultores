@@ -17,16 +17,16 @@
             @php
                 $source = old('participant_source', 'contact');
                 $sourceDescriptions = [
-                    'contact' => 'Elegí esta opción si la persona ya existe como contacto del CRM. Solo tenés que seleccionar el contacto.',
-                    'participant' => 'Elegí esta opción si la persona ya fue participante de otro curso. Solo tenés que seleccionar su ficha existente.',
-                    'new' => 'Elegí esta opción si todavía no existe en el CRM ni en otros cursos. Cargá sus datos mínimos para crear la ficha.',
+                    'contact' => 'Elija esta opción si la persona ya existe como contacto del CRM. Solo tiene que seleccionar el contacto.',
+                    'participant' => 'Elija esta opción si la persona ya fue participante de otro curso. Solo tiene que seleccionar su ficha existente.',
+                    'new' => 'Elija esta opción si todavía no existe en el CRM ni en otros cursos. Ingrese sus datos mínimos para crear la ficha.',
                 ];
             @endphp
 
             <fieldset class="mb-3" aria-describedby="participant-source-help participant-source-selected">
                 <legend class="form-label">Origen del participante</legend>
                 <p class="form-text" id="participant-source-help">
-                    Seleccioná de dónde sale la persona. Se mostrarán solo los campos que aplican a esa opción.
+                    Seleccione de dónde sale la persona. Se mostrarán solo los campos que aplican a esa opción.
                 </p>
 
                 <div class="row g-2" role="radiogroup" aria-label="Origen del participante">

@@ -88,4 +88,22 @@ class StoreCourseEditionRequest extends FormRequest
             'responsible_user_id' => ['nullable', 'integer', 'exists:users,id'],
         ];
     }
+
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return [
+            'code' => 'código',
+            'modality' => 'modalidad',
+            'address' => 'dirección',
+            'access_url' => 'enlace de acceso virtual',
+            'starts_on' => 'fecha de inicio',
+            'ends_on' => 'fecha de fin',
+            'price_amount' => 'precio',
+            'certificate_charge_amount' => 'precio del certificado',
+            'syllabus_override_json' => 'temario del dictado',
+            'syllabus_override_json.*' => 'tema del temario',
+            'responsible_user_id' => 'responsable',
+        ];
+    }
 }

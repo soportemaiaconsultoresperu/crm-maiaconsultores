@@ -25,7 +25,7 @@ class CourseEnrollmentService
             if (CourseEnrollment::where('course_edition_id', $edition->id)
                 ->where('course_participant_id', $participant->id)
                 ->exists()) {
-                throw new InvalidCourseEditionData('This participant is already enrolled in the selected edition.');
+                throw new InvalidCourseEditionData('Este participante ya está inscrito en este dictado.');
             }
 
             $certificateCharge = $edition->certificateCharge();
@@ -96,11 +96,15 @@ class CourseEnrollmentService
             }
 
             if ($status === PaymentStatus::Waived && ! $waiverAuthorized) {
-                throw new InvalidCourseEditionData('Payment waiver requires explicit authorization.');
+                throw new InvalidCourseEditionData('Exonerar el pago requiere autorización.');
             }
 
             if (! in_array($status, $this->paymentTransitions()[$previous->value] ?? [], true)) {
-                throw new InvalidCourseEditionData("Payment transition from {$previous->value} to {$status->value} is not permitted.");
+                throw new InvalidCourseEditionData(sprintf(
+                    'No se permite cambiar el estado de pago de «%s» a «%s».',
+                    self::PAYMENT_LABELS[$previous->value],
+                    self::PAYMENT_LABELS[$status->value],
+                ));
             }
 
             $lockedEnrollment->forceFill(['payment_status' => $status])->save();
@@ -112,6 +116,18 @@ class CourseEnrollmentService
 
         return $updated;
     }
+
+    /**
+     * The Spanish name of each payment status, the same wording the participant
+     * list shows, so a rejected transition names the states the operator sees.
+     */
+    private const PAYMENT_LABELS = [
+        'pending' => 'Pendiente',
+        'partial' => 'Parcial',
+        'paid' => 'Pagado',
+        'waived' => 'Exonerado',
+        'refunded' => 'Reembolsado',
+    ];
 
     /** @return array<string, array<int, PaymentStatus>> */
     private function paymentTransitions(): array
@@ -133,7 +149,7 @@ class CourseEnrollmentService
     public function enrollGroup(CourseEdition $edition, array $payerData, array $participants): array
     {
         if ($participants === []) {
-            throw new InvalidCourseEditionData('A group enrollment requires at least one participant.');
+            throw new InvalidCourseEditionData('La inscripción de grupo necesita al menos un participante.');
         }
 
         return DB::transaction(function () use ($edition, $payerData, $participants): array {
@@ -147,7 +163,7 @@ class CourseEnrollmentService
             ]);
 
             if ($group->payer_name === '') {
-                throw new InvalidCourseEditionData('A group payer name is required.');
+                throw new InvalidCourseEditionData('El nombre del pagador del grupo es obligatorio.');
             }
 
             return array_map(fn (array $data): CourseEnrollment => $this->enroll($edition, $data, [], $group), $participants);
@@ -203,7 +219,7 @@ class CourseEnrollmentService
         $mobile = trim((string) ($data['mobile'] ?? ''));
 
         if ($firstName === '' || $lastName === '' || $documentType === '' || $documentNumber === '' || $email === '' || ! str_starts_with($mobile, '+')) {
-            throw new InvalidCourseEditionData('Participants require names, document type and number, email, and a mobile number with country code.');
+            throw new InvalidCourseEditionData('Cada participante necesita nombres, apellidos, tipo y número de documento, correo y un celular con código de país (por ejemplo, +51).');
         }
 
         return [

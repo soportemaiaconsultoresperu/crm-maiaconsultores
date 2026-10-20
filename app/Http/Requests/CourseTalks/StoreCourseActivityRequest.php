@@ -79,4 +79,19 @@ class StoreCourseActivityRequest extends FormRequest
             'is_active' => ['nullable', 'boolean'],
         ];
     }
+
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return [
+            'type' => 'tipo',
+            'code' => 'código',
+            'name' => 'nombre',
+            'official_academic_hours' => 'horas académicas',
+            'base_syllabus_json' => 'temario base',
+            'base_syllabus_json.*' => 'tema del temario base',
+            'talk_includes_certificate' => 'charla con certificado',
+            'is_active' => 'activa',
+        ];
+    }
 }

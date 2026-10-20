@@ -8,13 +8,14 @@
         // The enrollment-state and payment-status enums carry no display labels
         // (unlike edition state or modality), so the Spanish wording used by this
         // surface lives here instead of leaking into the controller.
+        //
+        // Only "Inscrito" is listed: it is the one enrollment state the application
+        // can set (CourseEnrollmentService::enroll() leaves the column default and
+        // nothing writes it afterwards). The other enum states stay in the database
+        // schema but are not offered on screen until a flow can reach them; a stored
+        // value outside this list still renders through the neutral fallback.
         $stateLabels = [
             'enrolled' => ['Inscrito', 'text-bg-info'],
-            'confirmed' => ['Confirmado', 'text-bg-primary'],
-            'in_progress' => ['En curso', 'text-bg-info'],
-            'completed' => ['Completado', 'text-bg-success'],
-            'withdrawn' => ['Retirado', 'text-bg-secondary'],
-            'no_show' => ['No asistió', 'text-bg-danger'],
         ];
         $paymentLabels = [
             'pending' => ['Pendiente', 'text-bg-warning'],

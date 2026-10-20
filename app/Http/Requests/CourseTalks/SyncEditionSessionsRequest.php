@@ -97,6 +97,21 @@ class SyncEditionSessionsRequest extends FormRequest
         ];
     }
 
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return [
+            'sessions' => 'sesiones',
+            'sessions.*' => 'sesión',
+            'sessions.*.topic' => 'tema',
+            'sessions.*.session_date' => 'fecha',
+            'sessions.*.starts_at' => 'hora de inicio',
+            'sessions.*.ends_at' => 'hora de fin',
+            'sessions.*.teacher_id' => 'docente asignado',
+            'sessions.*.teacher_name' => 'nombre alternativo del docente',
+        ];
+    }
+
     /**
      * The exact array CourseEditionService::syncSessions() consumes.
      *

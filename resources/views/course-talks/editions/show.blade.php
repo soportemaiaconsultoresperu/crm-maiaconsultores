@@ -18,6 +18,7 @@
          ability their own route already requires, so no link can 403. --}}
     <nav class="d-flex flex-wrap gap-2 mb-3" aria-label="Secciones del dictado" data-testid="course-talks-edition-navigation">
         @can('update', \App\Models\Courses\CourseEdition::class)
+            <a href="{{ route('course-talks.editions.edit', $edition) }}" class="btn btn-outline-primary" data-testid="course-talks-edition-edit-link">Editar</a>
             <a href="{{ route('course-talks.editions.teachers', $edition) }}" class="btn btn-outline-primary">Docentes</a>
             <a href="{{ route('course-talks.editions.sessions', $edition) }}" class="btn btn-outline-primary">Sesiones</a>
         @endcan
@@ -52,6 +53,19 @@
                     </form>
                 @endforeach
             @endcan
+
+            {{-- Deleting is offered only while nobody is enrolled, the same rule
+                 CourseEditionService::delete() enforces. --}}
+            @can('delete', \App\Models\Courses\CourseEdition::class)
+                @unless ($edition->enrollments()->withTrashed()->exists())
+                    <form method="POST" action="{{ route('course-talks.editions.destroy', $edition) }}" class="d-inline"
+                          onsubmit="return confirm('¿Eliminar este dictado? Esta acción no se puede deshacer desde la pantalla.')">
+                        @csrf
+                        @method('DELETE')
+                        <button type="submit" class="btn btn-outline-danger" data-testid="course-talks-edition-delete">Eliminar</button>
+                    </form>
+                @endunless
+            @endcan
         </nav>
 
     <div class="card" data-testid="course-talks-edition-detail">
@@ -61,6 +75,7 @@
                 <dt class="col-sm-3">Código</dt><dd class="col-sm-9"><code>{{ $edition->code ?: '—' }}</code></dd>
                 <dt class="col-sm-3">Estado</dt><dd class="col-sm-9"><span class="badge text-bg-secondary">{{ $edition->state->label() }}</span></dd>
                 <dt class="col-sm-3">Modalidad</dt><dd class="col-sm-9">{{ $edition->modality->label() }}</dd>
+                <dt class="col-sm-3">Responsable</dt><dd class="col-sm-9" data-testid="course-talks-edition-responsible">{{ $edition->responsible?->name ?? 'Sin responsable' }}</dd>
                 <dt class="col-sm-3">Fechas</dt><dd class="col-sm-9">{{ $edition->starts_on?->format('d/m/Y') }} — {{ $edition->ends_on?->format('d/m/Y') }}</dd>
                 @if ($edition->address)<dt class="col-sm-3">Dirección</dt><dd class="col-sm-9">{{ $edition->address }}</dd>@endif
                 @if ($edition->access_url)

@@ -64,7 +64,7 @@ class CourseEditionValidationTest extends TestCase
                 $service->validateModality(CourseModality::Hybrid, $address, $url);
                 $this->fail('Hybrid modality accepted incomplete location data.');
             } catch (InvalidCourseEditionData $exception) {
-                $this->assertSame('Hybrid editions require both address and access URL.', $exception->getMessage());
+                $this->assertSame('Para un dictado híbrido, la dirección y el enlace de acceso son obligatorios.', $exception->getMessage());
             }
         }
 
@@ -111,7 +111,7 @@ class CourseEditionValidationTest extends TestCase
             $this->fail('Draft edition skipped scheduled state.');
         } catch (InvalidCourseEditionTransition $exception) {
             $this->assertSame(CourseEditionState::Draft, $edition->refresh()->state);
-            $this->assertStringContainsString('draft to in_progress', $exception->getMessage());
+            $this->assertStringContainsString('de «Borrador» a «En curso»', $exception->getMessage());
         }
 
         $finished = CourseEdition::factory()->create(['state' => CourseEditionState::Finished]);
@@ -121,7 +121,7 @@ class CourseEditionValidationTest extends TestCase
             $this->fail('Finished edition was cancelled.');
         } catch (InvalidCourseEditionTransition $exception) {
             $this->assertSame(CourseEditionState::Finished, $finished->refresh()->state);
-            $this->assertStringContainsString('finished to cancelled', $exception->getMessage());
+            $this->assertStringContainsString('de «Finalizada» a «Cancelada»', $exception->getMessage());
         }
     }
 }

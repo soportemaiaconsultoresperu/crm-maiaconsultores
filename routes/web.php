@@ -69,6 +69,9 @@ Route::middleware(['auth', 'active'])
             Route::post('activities', 'store')->name('activities.store');
         });
 
+        // Edit and guarded delete of activities and dictados.
+        require __DIR__.'/course-catalog.php';
+
         // Activity-scoped edition creation. Static segments and the teacher
         // management routes are registered before the read-only group's
         // `editions/{edition}` binding so it is never shadowed.
@@ -1092,3 +1095,6 @@ Route::middleware(['auth', 'active'])
             Route::post('projects/{contentProject}/members', 'syncMembers')->name('projects.members.sync');
         });
     });
+
+// "Ver PDF" for course documents (authorized, then a short-lived signed link).
+require __DIR__.'/course-documents.php';

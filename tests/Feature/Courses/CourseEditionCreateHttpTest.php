@@ -250,7 +250,7 @@ class CourseEditionCreateHttpTest extends TestCase
                     'price_amount' => '150.00',
                 ], $location))
                 ->assertRedirect(route('course-talks.editions.create', $activity))
-                ->assertSessionHasErrors(['access_url' => 'Virtual editions require an access URL.'])
+                ->assertSessionHasErrors(['access_url' => 'Para un dictado virtual, el enlace de acceso es obligatorio.'])
                 ->assertSessionDoesntHaveErrors('address');
         }
 
@@ -269,7 +269,7 @@ class CourseEditionCreateHttpTest extends TestCase
                 'price_amount' => '150.00',
             ])
             ->assertRedirect(route('course-talks.editions.create', $activity))
-            ->assertSessionHasErrors(['address' => 'Hybrid editions require both address and access URL.']);
+            ->assertSessionHasErrors(['address' => 'Para un dictado híbrido, la dirección y el enlace de acceso son obligatorios.']);
 
         $this->assertDatabaseCount('course_editions', 0);
     }

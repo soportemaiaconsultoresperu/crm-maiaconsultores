@@ -22,6 +22,9 @@ class CourseActivityReadController extends Controller
      */
     private const TYPE_FILTER = 'activity_type';
 
+    /** The "Mostrar inactivas" checkbox: inactive activities are hidden unless it is set. */
+    private const SHOW_INACTIVE_FILTER = 'show_inactive';
+
     /**
      * Why the list chose the featured edition it offers, in the words the screen
      * shows. The reason is a sentence about the CHOICE, so it is not the state's
@@ -39,8 +42,12 @@ class CourseActivityReadController extends Controller
         Gate::authorize('viewAny', CourseActivity::class);
 
         $typeFilter = $this->typeFilter($request);
+        // "Activa" decides what the catalog shows by default: an inactive activity
+        // stays reachable, but only when the operator asks for it.
+        $showInactive = $request->boolean(self::SHOW_INACTIVE_FILTER);
 
         $activities = CourseActivity::query()
+            ->when(! $showInactive, fn ($query) => $query->where('is_active', true))
             ->withCount('editions')
             // ONE query for the editions of every listed activity. The featured
             // edition is then resolved per activity in PHP (see featuredEdition()),
@@ -84,6 +91,7 @@ class CourseActivityReadController extends Controller
             'typeOptions' => $this->typeOptions(),
             'activeType' => $typeFilter['activeType'],
             'typeFilterWarning' => $typeFilter['warning'],
+            'showInactive' => $showInactive,
         ]);
     }
 

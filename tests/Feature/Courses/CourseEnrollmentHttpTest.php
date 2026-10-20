@@ -489,7 +489,7 @@ class CourseEnrollmentHttpTest extends TestCase
         // mapping and the view are correct.
         $this->actingAs($this->manager)->get($this->createUrl())
             ->assertOk()
-            ->assertSee('already enrolled');
+            ->assertSee('ya está inscrito en este dictado');
 
         $this->assertDatabaseCount('course_enrollments', 1);
         $this->assertDatabaseCount('course_participants', 1);
@@ -629,7 +629,7 @@ class CourseEnrollmentHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->createUrl())
             ->assertOk()
-            ->assertSee('country code');
+            ->assertSee('código de país');
     }
 
     public function test_group_enrollment_rolls_back_when_a_participant_is_already_enrolled(): void
@@ -657,7 +657,7 @@ class CourseEnrollmentHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->createUrl())
             ->assertOk()
-            ->assertSee('already enrolled');
+            ->assertSee('ya está inscrito en este dictado');
     }
 
     public function test_payment_status_change_goes_through_the_service(): void
@@ -691,7 +691,7 @@ class CourseEnrollmentHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('not permitted');
+            ->assertSee('No se permite cambiar el estado de pago');
     }
 
     public function test_payment_status_change_validates_the_target_status_and_authorizes_the_waiver(): void

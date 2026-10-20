@@ -10,8 +10,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\CourseTalks\StoreCourseEditionRequest;
 use App\Http\Requests\CourseTalks\SyncEditionSessionsRequest;
 use App\Http\Requests\CourseTalks\SyncEditionTeachersRequest;
+use App\Http\Requests\CourseTalks\UpdateCourseEditionRequest;
 use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
+use App\Models\User;
 use App\Services\Courses\CourseEditionService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -20,8 +22,8 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
 /**
- * Authenticated edition creation scoped to its parent activity, plus the
- * edition's teacher and session list management.
+ * Authenticated edition creation scoped to its parent activity, its edition and
+ * guarded deletion, plus the edition's teacher and session list management.
  *
  * Thin by design: each FormRequest validates the attributes the matching
  * CourseEditionService method consumes, the policy authorizes, and the service
@@ -35,13 +37,24 @@ class CourseEditionController extends Controller
         private readonly CourseEditionService $editions,
     ) {}
 
-    public function create(CourseActivity $activity): View
+    public function create(CourseActivity $activity): View|RedirectResponse
     {
         Gate::authorize('create', CourseEdition::class);
+
+        // An inactive activity takes no new dictados: the operator is sent back to
+        // the activity with the reason instead of filling a form store() refuses.
+        try {
+            CourseEditionService::ensureActivityAcceptsNewEditions($activity);
+        } catch (InvalidCourseEditionData $exception) {
+            return redirect()
+                ->route('course-talks.activities.show', $activity)
+                ->with('error', $exception->getMessage());
+        }
 
         return view('course-talks.editions.create', [
             'activity' => $activity,
             'modalities' => CourseModality::cases(),
+            'responsibleOptions' => $this->responsibleOptions(),
         ]);
     }
 
@@ -58,6 +71,50 @@ class CourseEditionController extends Controller
         return redirect()
             ->route('course-talks.editions.show', $edition)
             ->with('status', "Dictado ".($edition->code ?: 'sin código')." creado correctamente.");
+    }
+
+    public function edit(CourseEdition $edition): View
+    {
+        Gate::authorize('update', CourseEdition::class);
+
+        return view('course-talks.editions.edit', [
+            'edition' => $edition->load('activity'),
+            'activity' => $edition->activity,
+            'modalities' => CourseModality::cases(),
+            'responsibleOptions' => $this->responsibleOptions($edition->responsible_user_id),
+        ]);
+    }
+
+    public function update(UpdateCourseEditionRequest $request, CourseEdition $edition): RedirectResponse
+    {
+        Gate::authorize('update', CourseEdition::class);
+
+        try {
+            $edition = $this->editions->update($edition, $request->validated());
+        } catch (InvalidCourseEditionData $exception) {
+            return back()->withInput()->withErrors($this->fieldErrors($exception));
+        }
+
+        return redirect()
+            ->route('course-talks.editions.show', $edition)
+            ->with('status', 'Dictado '.($edition->code ?: 'sin código').' actualizado correctamente.');
+    }
+
+    public function destroy(CourseEdition $edition): RedirectResponse
+    {
+        Gate::authorize('delete', CourseEdition::class);
+
+        try {
+            $this->editions->delete($edition);
+        } catch (InvalidCourseEditionData $exception) {
+            return redirect()
+                ->route('course-talks.editions.show', $edition)
+                ->with('error', $exception->getMessage());
+        }
+
+        return redirect()
+            ->route('course-talks.activities.show', $edition->course_activity_id)
+            ->with('status', 'Dictado '.($edition->code ?: 'sin código').' eliminado correctamente.');
     }
 
     /**
@@ -173,5 +230,20 @@ class CourseEditionController extends Controller
     private function fieldErrors(InvalidCourseEditionData $exception): array
     {
         return [($exception->field() ?? 'edition') => $exception->getMessage()];
+    }
+
+    /**
+     * The users a dictado can be assigned to: the active ones, plus the current
+     * responsible even when deactivated, so editing never silently drops them.
+     *
+     * @return array<int, string>
+     */
+    private function responsibleOptions(?int $currentId = null): array
+    {
+        return User::query()
+            ->where(fn ($query) => $query->where('is_active', true)->when($currentId !== null, fn ($query) => $query->orWhereKey($currentId)))
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
     }
 }

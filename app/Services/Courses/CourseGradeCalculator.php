@@ -19,7 +19,7 @@ final class CourseGradeCalculator
         }
 
         if ($count === 0) {
-            throw new InvalidArgumentException('At least one grade is required.');
+            throw new InvalidArgumentException('Se necesita al menos una nota.');
         }
 
         $exactAverage = self::formatAverage($sumHundredths, $count, 4);
@@ -37,13 +37,13 @@ final class CourseGradeCalculator
     private static function toHundredths(mixed $grade): int
     {
         if (! is_string($grade) && ! is_int($grade)) {
-            throw new InvalidArgumentException('Grades must be decimal strings or integers.');
+            throw new InvalidArgumentException('La nota debe ser un número.');
         }
 
         $normalized = trim((string) $grade);
 
         if (! preg_match('/^(?:20(?:\.00?)?|(?:[0-9]|1[0-9])(?:\.\d{1,2})?)$/', $normalized)) {
-            throw new InvalidArgumentException("Invalid grade [{$normalized}].");
+            throw new InvalidArgumentException("La nota «{$normalized}» no es válida: debe ser un número entre 0 y 20 con hasta dos decimales.");
         }
 
         [$whole, $decimal] = array_pad(explode('.', $normalized, 2), 2, '');

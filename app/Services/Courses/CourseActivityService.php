@@ -22,21 +22,11 @@ class CourseActivityService
         // created a course with ZERO academic hours, and those hours are printed on the
         // student's certificate. A rule that runs after the substitution can never see
         // the missing value, so it has to run before it.
-        $hours = $attributes['official_academic_hours'] ?? null;
-
-        if ($hours === null || $hours === '' || ! is_numeric($hours)) {
-        throw InvalidCourseEditionData::forField('official_academic_hours', 'Las horas académicas son obligatorias.');
-        }
-
-        if ((float) $hours < 0) {
-        throw InvalidCourseEditionData::forField('official_academic_hours', 'Las horas académicas no pueden ser negativas.');
-        }
+        $this->validateHours($attributes['official_academic_hours'] ?? null);
 
         $attributes = $this->normalize($attributes);
 
-        if (CourseActivity::withTrashed()->where('code', $attributes['code'])->exists()) {
-            throw new InvalidCourseEditionData("Course activity code {$attributes['code']} is already in use.");
-        }
+        $this->ensureCodeIsFree($attributes['code']);
 
         return DB::transaction(function () use ($attributes): CourseActivity {
             $activity = CourseActivity::create($attributes);
@@ -45,6 +35,79 @@ class CourseActivityService
 
             return $activity;
         });
+    }
+
+    /**
+     * Edit an activity with the same rules as create(). The code stays unique among
+     * every other activity (deleted ones included, exactly like create()), and the
+     * TYPE is frozen once the activity has dictados: a course and a talk charge,
+     * grade and certify differently, so turning one into the other under existing
+     * deliveries would rewrite what those deliveries already sold and issued.
+     *
+     * @param array<string, mixed> $attributes
+     */
+    public function update(CourseActivity $activity, array $attributes): CourseActivity
+    {
+        $this->validateHours($attributes['official_academic_hours'] ?? null);
+
+        // The stored slug is the activity's identity; an edit never regenerates it.
+        $attributes['slug'] = $activity->slug;
+        $attributes = $this->normalize($attributes);
+
+        $this->ensureCodeIsFree($attributes['code'], $activity);
+
+        if ($attributes['type'] !== $activity->type->value && $activity->editions()->exists()) {
+            throw InvalidCourseEditionData::forField('type', 'No se puede cambiar el tipo porque el curso o charla ya tiene dictados.');
+        }
+
+        return DB::transaction(function () use ($activity, $attributes): CourseActivity {
+            $activity->fill($attributes)->save();
+
+            CourseActivityChanged::dispatch($activity->id, 'course-activity-updated');
+
+            return $activity;
+        });
+    }
+
+    /**
+     * Soft-delete an activity, but only when nothing hangs off it: a dictado
+     * carries enrollments, documents and money, so an activity with dictados is
+     * refused instead of orphaning them.
+     */
+    public function delete(CourseActivity $activity): void
+    {
+        if ($activity->editions()->exists()) {
+            throw new InvalidCourseEditionData('No se puede eliminar el curso o charla porque tiene dictados registrados. Elimine primero sus dictados.');
+        }
+
+        DB::transaction(function () use ($activity): void {
+            $activity->delete();
+
+            CourseActivityChanged::dispatch($activity->id, 'course-activity-deleted');
+        });
+    }
+
+    private function validateHours(mixed $hours): void
+    {
+        if ($hours === null || $hours === '' || ! is_numeric($hours)) {
+            throw InvalidCourseEditionData::forField('official_academic_hours', 'Las horas académicas son obligatorias.');
+        }
+
+        if ((float) $hours < 0) {
+            throw InvalidCourseEditionData::forField('official_academic_hours', 'Las horas académicas no pueden ser negativas.');
+        }
+    }
+
+    private function ensureCodeIsFree(string $code, ?CourseActivity $except = null): void
+    {
+        $taken = CourseActivity::withTrashed()
+            ->where('code', $code)
+            ->when($except !== null, fn ($query) => $query->whereKeyNot($except->id))
+            ->exists();
+
+        if ($taken) {
+            throw InvalidCourseEditionData::forField('code', "El código «{$code}» ya está en uso por otro curso o charla.");
+        }
     }
 
     /**
@@ -57,7 +120,7 @@ class CourseActivityService
         $name = trim((string) ($attributes['name'] ?? ''));
 
         if ($code === '' || $name === '') {
-            throw new InvalidCourseEditionData('Course activities require a code and name.');
+            throw new InvalidCourseEditionData('El código y el nombre son obligatorios.');
         }
 
         $type = $attributes['type'] ?? null;
