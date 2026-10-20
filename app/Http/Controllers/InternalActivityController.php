@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\InternalActivityRequest;
 use App\Models\InternalActivity;
 use App\Models\User;
+use App\Notifications\InternalActivityNotice;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -60,6 +61,8 @@ class InternalActivityController extends Controller
             return $activity;
         });
 
+        $this->notifyParticipants($activity, $request->user(), [], InternalActivityNotice::INVITED);
+
         return redirect()->route('internal-activities.show', $activity)
             ->with('success', 'Actividad interna creada.');
     }
@@ -89,12 +92,16 @@ class InternalActivityController extends Controller
     {
         Gate::authorize('update', $internalActivity);
 
+        $previousIds = array_map('intval', $internalActivity->participants()->pluck('users.id')->all());
+
         DB::transaction(function () use ($request, $internalActivity): void {
             $internalActivity->update($this->attributes($request) + [
                 'updated_by' => $request->user()->id,
             ]);
             $this->syncRelations($internalActivity, $request);
         });
+
+        $this->notifyParticipants($internalActivity->fresh(), $request->user(), $previousIds, InternalActivityNotice::UPDATED);
 
         return redirect()->route('internal-activities.show', $internalActivity)
             ->with('success', 'Actividad interna actualizada.');
@@ -108,6 +115,28 @@ class InternalActivityController extends Controller
 
         return redirect()->route('internal-activities.index')
             ->with('success', 'Actividad interna eliminada.');
+    }
+
+    /**
+     * Notify active participants other than the actor. On create every
+     * participant is invited; on update new participants are invited and the
+     * ones that were already there get an "updated" notice.
+     *
+     * @param  list<int>  $previousIds
+     */
+    private function notifyParticipants(InternalActivity $activity, User $actor, array $previousIds, string $kind): void
+    {
+        $participants = $activity->participants()->where('is_active', true)->where('users.id', '!=', $actor->id)->get();
+
+        foreach ($participants as $participant) {
+            $participant->notify(new InternalActivityNotice(
+                in_array($participant->id, $previousIds, true) ? $kind : InternalActivityNotice::INVITED,
+                $activity->id,
+                $activity->title,
+                $activity->starts_at->toIso8601String(),
+                $actor->name,
+            ));
+        }
     }
 
     /**

@@ -16,6 +16,7 @@ Artisan::command('inspire', function () {
  * campaigns:mark-overdue     every 15 min — RF-CAMP-007 (campaign overdue noise).
  * campaigns:recompute-kpis   daily 02:10 — RF-CAMP-010 (KPIs cache refresh).
  * invoices:mark-overdue      daily 00:10 — persist customer invoices as Vencida.
+ * internal-activities:notify-upcoming  hourly — remind participants of internal activities starting in the next 24h.
  */
 Schedule::command('activities:mark-overdue')
     ->dailyAt('02:00')
@@ -23,6 +24,10 @@ Schedule::command('activities:mark-overdue')
 
 Schedule::command('activities:notify-upcoming')
     ->dailyAt('02:05')
+    ->timezone('America/Lima');
+
+Schedule::command('internal-activities:notify-upcoming')
+    ->hourly()
     ->timezone('America/Lima');
 
 Schedule::command('activities:notify-overdue')
