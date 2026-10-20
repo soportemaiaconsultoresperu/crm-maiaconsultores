@@ -68,23 +68,24 @@ class CalendarEventService
      */
     private function internalEvents(User $user, DateRange $range): Collection
     {
+        // Recurring activities expand into one event per occurrence (T2).
         return collect(InternalActivity::query()
             ->visibleTo($user)
-            ->whereBetween('starts_at', [$range->start(), $range->end()])
+            ->occurringBetween($range->start(), $range->end())
             ->with('participants:id,name')
             ->orderBy('starts_at')
             ->get()
-            ->map(fn (InternalActivity $activity) => new CalendarEventItem(
+            ->flatMap(fn (InternalActivity $activity) => array_map(fn ($occurrence) => new CalendarEventItem(
                 kind: 'internal',
-                id: 'internal-'.$activity->id,
-                scheduled_at: $activity->starts_at,
+                id: 'internal-'.$activity->id.'-'.$occurrence->format('Ymd'),
+                scheduled_at: $occurrence,
                 title: $activity->title,
                 status: 'internal',
                 typeLabel: 'Interno',
                 subjectLabel: $activity->location ?: '—',
                 ownerName: $activity->responsible()?->name,
                 url: route('internal-activities.show', $activity),
-            ))
+            ), $activity->occurrencesBetween($range->start(), $range->end())))
             ->all());
     }
 

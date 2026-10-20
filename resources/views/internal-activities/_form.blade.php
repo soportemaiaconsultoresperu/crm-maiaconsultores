@@ -42,6 +42,14 @@
                 <div class="col-md-6">
                     <x-text-input name="ends_at" type="datetime-local" label="Fin" :value="$activity?->ends_at?->format('Y-m-d\TH:i')"/>
                 </div>
+                <div class="col-md-6">
+                    <x-select name="recurrence_frequency" label="Repetición" :options="\App\Models\InternalActivity::FREQUENCY_LABELS"
+                              :value="$activity?->recurrence_frequency" placeholder="No se repite"/>
+                </div>
+                <div class="col-md-6">
+                    <x-text-input name="recurrence_until" type="date" label="Repetir hasta" :value="$activity?->recurrence_until?->format('Y-m-d')"
+                                  help="Obligatorio si se repite. Máximo un año."/>
+                </div>
                 <div class="col-md-12">
                     <x-label for="description" label="Descripción"/>
                     <textarea name="description" id="description" rows="3"

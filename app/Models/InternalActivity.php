@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -31,6 +32,16 @@ class InternalActivity extends Model
         self::AUDIENCE_USERS => 'Personas específicas',
     ];
 
+    /** @var array<string, string> */
+    public const FREQUENCY_LABELS = [
+        'daily' => 'Diaria',
+        'weekly' => 'Semanal',
+        'monthly' => 'Mensual',
+    ];
+
+    /** Safety cap on occurrences expanded for one calendar range. */
+    private const MAX_OCCURRENCES = 400;
+
     protected $fillable = [
         'title',
         'description',
@@ -38,6 +49,8 @@ class InternalActivity extends Model
         'starts_at',
         'ends_at',
         'audience_type',
+        'recurrence_frequency',
+        'recurrence_until',
         'created_by',
         'updated_by',
     ];
@@ -47,6 +60,7 @@ class InternalActivity extends Model
         return [
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
+            'recurrence_until' => 'date',
         ];
     }
 
@@ -96,6 +110,68 @@ class InternalActivity extends Model
                 ->orWhere(fn (Builder $q) => $q->where('audience_type', self::AUDIENCE_ROLES)
                     ->whereHas('audienceRoles', fn (Builder $r) => $r->whereIn('roles.id', $roleIds)));
         });
+    }
+
+    /**
+     * Activities that may have an occurrence between the two instants: single
+     * ones starting inside the range, recurring ones whose series overlaps it.
+     */
+    public function scopeOccurringBetween(Builder $query, CarbonInterface $start, CarbonInterface $end): Builder
+    {
+        return $query->where('starts_at', '<=', $end)
+            ->where(function (Builder $q) use ($start): void {
+                $q->where(fn (Builder $single) => $single->whereNull('recurrence_frequency')
+                    ->where('starts_at', '>=', $start))
+                    ->orWhere(fn (Builder $series) => $series->whereNotNull('recurrence_frequency')
+                        ->whereDate('recurrence_until', '>=', $start->toDateString()));
+            });
+    }
+
+    /**
+     * Start instants of this activity's occurrences inside [start, end].
+     *
+     * @return list<CarbonInterface>
+     */
+    public function occurrencesBetween(CarbonInterface $start, CarbonInterface $end): array
+    {
+        $first = $this->starts_at->toImmutable();
+
+        if ($this->recurrence_frequency === null || $this->recurrence_until === null) {
+            return $first->betweenIncluded($start, $end) ? [$first] : [];
+        }
+
+        $last = $this->recurrence_until->toImmutable()->endOfDay();
+        $occurrences = [];
+
+        for ($i = 0; $i < self::MAX_OCCURRENCES * 4; $i++) {
+            $current = match ($this->recurrence_frequency) {
+                'daily' => $first->addDays($i),
+                'weekly' => $first->addWeeks($i),
+                default => $first->addMonthsNoOverflow($i),
+            };
+
+            if ($current->gt($end) || $current->gt($last)) {
+                break;
+            }
+            if ($current->gte($start)) {
+                $occurrences[] = $current;
+                if (count($occurrences) >= self::MAX_OCCURRENCES) {
+                    break;
+                }
+            }
+        }
+
+        return $occurrences;
+    }
+
+    public function recurrenceLabel(): ?string
+    {
+        if ($this->recurrence_frequency === null || $this->recurrence_until === null) {
+            return null;
+        }
+
+        return (self::FREQUENCY_LABELS[$this->recurrence_frequency] ?? $this->recurrence_frequency)
+            .' hasta el '.$this->recurrence_until->format('d/m/Y');
     }
 
     public function isVisibleTo(User $user): bool

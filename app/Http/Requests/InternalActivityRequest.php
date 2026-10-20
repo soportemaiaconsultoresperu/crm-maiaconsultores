@@ -24,6 +24,15 @@ class InternalActivityRequest extends FormRequest
             'location' => ['nullable', 'string', 'max:150'],
             'starts_at' => ['required', 'date'],
             'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
+            'recurrence_frequency' => ['nullable', Rule::in(array_keys(InternalActivity::FREQUENCY_LABELS))],
+            'recurrence_until' => ['nullable', 'required_with:recurrence_frequency', 'date', 'after:starts_at',
+                function (string $attribute, mixed $value, \Closure $fail): void {
+                    $start = strtotime((string) $this->input('starts_at'));
+                    $until = strtotime((string) $value);
+                    if ($start !== false && $until !== false && $until > strtotime('+1 year', $start)) {
+                        $fail('La repetición puede durar como máximo un año.');
+                    }
+                }],
             'audience_type' => ['required', Rule::in(array_keys(InternalActivity::AUDIENCE_LABELS))],
             'role_ids' => ['required_if:audience_type,'.InternalActivity::AUDIENCE_ROLES, 'array'],
             'role_ids.*' => ['integer', 'exists:roles,id'],
@@ -45,6 +54,8 @@ class InternalActivityRequest extends FormRequest
             'starts_at' => 'inicio',
             'ends_at' => 'fin',
             'audience_type' => 'audiencia',
+            'recurrence_frequency' => 'repetición',
+            'recurrence_until' => 'repetir hasta',
             'role_ids' => 'roles',
             'user_ids' => 'personas',
             'participant_ids' => 'participantes',

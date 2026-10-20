@@ -115,7 +115,13 @@ class InternalActivityController extends Controller
      */
     private function attributes(InternalActivityRequest $request): array
     {
-        return $request->safe()->only(['title', 'description', 'location', 'starts_at', 'ends_at', 'audience_type']);
+        $attributes = $request->safe()->only(['title', 'description', 'location', 'starts_at', 'ends_at', 'audience_type']);
+        $frequency = $request->validated('recurrence_frequency') ?: null;
+
+        return $attributes + [
+            'recurrence_frequency' => $frequency,
+            'recurrence_until' => $frequency !== null ? $request->validated('recurrence_until') : null,
+        ];
     }
 
     private function syncRelations(InternalActivity $activity, InternalActivityRequest $request): void

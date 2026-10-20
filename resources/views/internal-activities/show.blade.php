@@ -42,6 +42,8 @@
                 <dd class="col-sm-9">{{ $activity->starts_at->format('d/m/Y H:i') }}</dd>
                 <dt class="col-sm-3">Fin</dt>
                 <dd class="col-sm-9">{{ $activity->ends_at?->format('d/m/Y H:i') ?? '—' }}</dd>
+                <dt class="col-sm-3">Repetición</dt>
+                <dd class="col-sm-9">{{ $activity->recurrenceLabel() ?? 'No se repite' }}</dd>
                 <dt class="col-sm-3">Lugar</dt>
                 <dd class="col-sm-9">{{ $activity->location ?: '—' }}</dd>
                 <dt class="col-sm-3">Audiencia</dt>
