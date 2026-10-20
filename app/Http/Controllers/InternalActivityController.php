@@ -6,6 +6,7 @@ use App\Http\Requests\InternalActivityRequest;
 use App\Models\InternalActivity;
 use App\Models\User;
 use App\Notifications\InternalActivityNotice;
+use App\Services\GoogleCalendarInternalActivitySyncService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -62,6 +63,7 @@ class InternalActivityController extends Controller
         });
 
         $this->notifyParticipants($activity, $request->user(), [], InternalActivityNotice::INVITED);
+        app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($activity);
 
         return redirect()->route('internal-activities.show', $activity)
             ->with('success', 'Actividad interna creada.');
@@ -102,6 +104,7 @@ class InternalActivityController extends Controller
         });
 
         $this->notifyParticipants($internalActivity->fresh(), $request->user(), $previousIds, InternalActivityNotice::UPDATED);
+        app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($internalActivity);
 
         return redirect()->route('internal-activities.show', $internalActivity)
             ->with('success', 'Actividad interna actualizada.');
@@ -112,6 +115,7 @@ class InternalActivityController extends Controller
         Gate::authorize('delete', $internalActivity);
 
         $internalActivity->delete();
+        app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($internalActivity);
 
         return redirect()->route('internal-activities.index')
             ->with('success', 'Actividad interna eliminada.');

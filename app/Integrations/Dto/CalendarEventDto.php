@@ -19,6 +19,7 @@ final readonly class CalendarEventDto
     /**
      * @param  list<string>  $attendees
      * @param  array<string, mixed>  $metadata
+     * @param  list<string>|null  $recurrence  RFC 5545 lines (e.g. RRULE:...); null for single events
      */
     public function __construct(
         public string $summary,
@@ -29,6 +30,7 @@ final readonly class CalendarEventDto
         public array $attendees = [],
         public ?string $location = null,
         public array $metadata = [],
+        public ?array $recurrence = null,
     ) {
     }
 }

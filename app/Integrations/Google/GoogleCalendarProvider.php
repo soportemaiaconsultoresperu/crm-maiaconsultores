@@ -209,6 +209,10 @@ class GoogleCalendarProvider implements CalendarProvider
             );
         }
 
+        if ($dto->recurrence !== null && $dto->recurrence !== []) {
+            $payload['recurrence'] = $dto->recurrence;
+        }
+
         if (($metadata['google_event_status'] ?? null) === 'cancelled') {
             $payload['status'] = 'cancelled';
         }

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Permission\Models\Role;
 
@@ -83,6 +84,14 @@ class InternalActivity extends Model
     {
         return $this->belongsToMany(User::class, 'internal_activity_participants', 'internal_activity_id', 'user_id')
             ->withPivot('is_responsible');
+    }
+
+    /**
+     * Google Calendar events of this activity, one per user calendar (T4).
+     */
+    public function calendarLinks(): HasMany
+    {
+        return $this->hasMany(InternalActivityCalendarLink::class);
     }
 
     public function responsible(): ?User
