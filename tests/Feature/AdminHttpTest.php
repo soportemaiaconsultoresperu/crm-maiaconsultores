@@ -13,6 +13,7 @@ use Database\Seeders\SettingsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Activitylog\Models\Activity;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
@@ -93,6 +94,63 @@ class AdminHttpTest extends TestCase
         $this->assertSame('Renombrado', $target->name);
         $this->assertTrue($target->hasRole('supervisor'));
         $this->assertFalse($target->hasRole('vendedor'));
+    }
+
+    public function test_admin_can_assign_new_web_role_when_creating_user(): void
+    {
+        $this->actingAs($this->admin)
+            ->post('/admin/roles', ['name' => 'analyst'])
+            ->assertRedirect();
+        $this->assertTrue(Role::query()->where('name', 'analyst')->where('guard_name', 'web')->exists());
+
+        $this->post('/admin/users', [
+            'name' => 'New Analyst',
+            'email' => 'new-analyst@maia.test',
+            'role' => 'analyst',
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $created = User::query()->where('email', 'new-analyst@maia.test')->firstOrFail();
+        $this->assertTrue($created->hasRole('analyst'));
+    }
+
+    public function test_admin_can_assign_new_web_role_when_editing_user(): void
+    {
+        $this->actingAs($this->admin)
+            ->post('/admin/roles', ['name' => 'analyst'])
+            ->assertRedirect();
+
+        $target = User::factory()->create(['is_active' => true]);
+        $target->assignRole('vendedor');
+
+        $this->put("/admin/users/{$target->id}", ['role' => 'analyst'])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertTrue($target->fresh()->hasRole('analyst'));
+        $this->assertFalse($target->fresh()->hasRole('vendedor'));
+    }
+
+    public function test_admin_cannot_assign_nonexistent_or_non_web_role_on_create_or_update(): void
+    {
+        Role::query()->create(['name' => 'api-analyst', 'guard_name' => 'api']);
+        $target = User::factory()->create(['is_active' => true]);
+        $target->assignRole('vendedor');
+
+        foreach (['missing-role', 'api-analyst'] as $role) {
+            $email = $role.'@maia.test';
+            $this->actingAs($this->admin)
+                ->post('/admin/users', [
+                    'name' => 'Invalid Role',
+                    'email' => $email,
+                    'role' => $role,
+                ])
+                ->assertSessionHasErrors('role');
+            $this->assertFalse(User::query()->where('email', $email)->exists());
+
+            $this->put("/admin/users/{$target->id}", ['role' => $role])
+                ->assertSessionHasErrors('role');
+            $this->assertTrue($target->fresh()->hasRole('vendedor'));
+        }
     }
 
     public function test_vendedor_cannot_access_admin_users_index(): void

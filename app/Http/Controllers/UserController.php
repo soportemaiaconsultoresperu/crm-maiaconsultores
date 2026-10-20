@@ -207,9 +207,7 @@ class UserController extends Controller
     }
 
     /**
-     * Roles the admin may assign from the user form. Hardcoded to the three
-     * seeded roles so the UI cannot create new permissions from this
-     * surface.
+     * Roles the admin may assign from the user form: all existing web roles.
      *
      * @return array<int, string>
      */

@@ -31,7 +31,7 @@ class UserUpdateRequest extends FormRequest
                 Rule::unique('users', 'email')->ignore($user?->getKey()),
             ],
             'is_active' => ['sometimes', 'boolean'],
-            'role' => ['nullable', 'string', Rule::in(['admin', 'supervisor', 'vendedor'])],
+            'role' => ['nullable', 'string', Rule::exists('roles', 'name')->where('guard_name', 'web')],
         ];
     }
 
@@ -42,7 +42,7 @@ class UserUpdateRequest extends FormRequest
     {
         return [
             'email.unique' => 'Ya existe un usuario con este correo.',
-            'role.in' => 'El rol debe ser uno de: admin, supervisor o vendedor.',
+            'role.exists' => 'El rol seleccionado no existe para usuarios web.',
         ];
     }
 
