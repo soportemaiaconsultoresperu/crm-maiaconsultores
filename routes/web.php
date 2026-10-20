@@ -1032,6 +1032,7 @@ Route::middleware(['auth', 'active'])
         // can never swallow it.
         Route::controller(ContentTrashController::class)->group(function (): void {
             Route::get('projects/{contentProject}/contents/trash', 'index')->name('projects.contents.trash');
+            Route::delete('projects/{contentProject}/contents/trash', 'empty')->name('projects.contents.trash.empty');
             Route::delete('projects/{contentProject}/contents/{contentItem}', 'destroy')
                 ->whereNumber('contentItem')->name('projects.contents.destroy');
             Route::post('projects/{contentProject}/contents/{contentItem}/restore', 'restore')

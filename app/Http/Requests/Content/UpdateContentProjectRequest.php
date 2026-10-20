@@ -15,7 +15,7 @@ use Illuminate\Validation\Rule;
  * Like the create request, authorization stays in the controller: the
  * controller resolves the project through ContentProjectScopeService and
  * reports a project the user may not reach as 404 (not 403) before asking the
- * policy for the `update` ability.
+ * policy for the `configure` ability.
  */
 class UpdateContentProjectRequest extends FormRequest
 {

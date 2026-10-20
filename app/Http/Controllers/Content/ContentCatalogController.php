@@ -18,7 +18,7 @@ class ContentCatalogController extends Controller
 
     public function index(ContentProject $contentProject): View
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $groups = [];
         foreach (ContentCatalogAdministrationService::GROUPS as $key => $definition) {
             $groups[$key] = [
@@ -32,7 +32,7 @@ class ContentCatalogController extends Controller
 
     public function store(ManageContentCatalogRequest $request, ContentProject $contentProject, string $catalogGroup): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $data = $request->safe()->only(['name', 'slug', 'sort', 'content_pillar_id']);
         if ($catalogGroup !== 'topics') {
             $data['content_project_id'] = $contentProject->id;
@@ -45,7 +45,7 @@ class ContentCatalogController extends Controller
 
     public function update(ManageContentCatalogRequest $request, ContentProject $contentProject, string $catalogGroup, string $catalogOption): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $this->catalogs->query($contentProject, $catalogGroup)->findOrFail($catalogOption)
             ->update($request->safe()->only(['name']));
 
@@ -54,7 +54,7 @@ class ContentCatalogController extends Controller
 
     public function state(ManageContentCatalogRequest $request, ContentProject $contentProject, string $catalogGroup, string $catalogOption): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $option = $this->catalogs->query($contentProject, $catalogGroup)->findOrFail($catalogOption);
         $request->boolean('is_active') ? $option->reactivate() : $option->deactivate();
 
@@ -64,7 +64,7 @@ class ContentCatalogController extends Controller
 
     public function reorder(ManageContentCatalogRequest $request, ContentProject $contentProject, string $catalogGroup, string $catalogOption): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $this->catalogs->query($contentProject, $catalogGroup)->findOrFail($catalogOption)
             ->update($request->safe()->only(['sort']));
 

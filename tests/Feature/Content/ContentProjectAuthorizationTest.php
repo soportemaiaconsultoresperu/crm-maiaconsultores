@@ -115,6 +115,50 @@ class ContentProjectAuthorizationTest extends TestCase
         $this->assertFalse(Gate::forUser($user)->allows('view', $other));
     }
 
+    /**
+     * Review fixes S1/S2: membership alone means "work on the content" of that
+     * project (update/trash) but never configuration, member management or
+     * lifecycle, and never anything on a foreign project. Archiving makes the
+     * project read-only for every write ability.
+     */
+    public function test_a_plain_member_works_on_content_but_never_configures_and_archived_is_read_only(): void
+    {
+        $member = User::factory()->create();
+        $member->assignRole('vendedor');
+        $project = ContentProject::factory()->create();
+        $foreign = ContentProject::factory()->create();
+        $project->members()->attach($member->id);
+
+        $gate = Gate::forUser($member);
+        $this->assertTrue($gate->allows('viewAny', ContentProject::class));
+        $this->assertTrue($gate->allows('view', $project));
+        $this->assertTrue($gate->allows('update', $project));
+        $this->assertTrue($gate->allows('trash', $project));
+        $this->assertFalse($gate->allows('configure', $project));
+        $this->assertFalse($gate->allows('assignMembers', $project));
+        $this->assertFalse($gate->allows('archive', $project));
+
+        foreach (['view', 'update', 'trash', 'configure', 'assignMembers', 'archive'] as $ability) {
+            $this->assertFalse($gate->allows($ability, $foreign), $ability.' on a foreign project');
+        }
+
+        $project->archive();
+        $archived = $project->fresh();
+        $this->assertTrue($gate->allows('view', $archived));
+        $this->assertFalse($gate->allows('update', $archived));
+        $this->assertFalse($gate->allows('trash', $archived));
+
+        // The administrative permissions are read-only on an archived project
+        // too, except the lifecycle ability that reactivates it.
+        $manager = $this->operationalUser();
+        $manager->givePermissionTo(['content_projects.update', 'content_projects.archive', 'content_projects.assign_members']);
+        $archived->members()->attach($manager->id);
+        $managerGate = Gate::forUser($manager);
+        $this->assertFalse($managerGate->allows('configure', $archived));
+        $this->assertFalse($managerGate->allows('assignMembers', $archived));
+        $this->assertTrue($managerGate->allows('archive', $archived));
+    }
+
     public function test_the_cross_project_permission_reads_and_reaches_every_project(): void
     {
         // No role at all: the consolidated view must come from the PERMISSION,

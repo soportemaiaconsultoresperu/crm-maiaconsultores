@@ -135,9 +135,10 @@ class ContentCalendarHttpTest extends TestCase
 
     public function test_a_mutation_from_a_user_without_update_is_refused_and_changes_nothing(): void
     {
+        // Review fix S1: any member may write annotations, so the refused actor
+        // is a reachable non-member (cross-project reader without update).
         $reader = User::factory()->create(['is_active' => true]);
-        $reader->givePermissionTo('content_projects.view');
-        $this->project->members()->attach($reader);
+        $reader->givePermissionTo('content_projects.view_all');
 
         $existing = ContentCalendarAnnotation::factory()->for($this->project, 'project')->onDate('2026-07-28')->create(['name' => 'Original']);
 
@@ -157,6 +158,30 @@ class ContentCalendarHttpTest extends TestCase
 
         $this->assertSame(1, ContentCalendarAnnotation::query()->count());
         $this->assertSame('Original', $existing->fresh()->name);
+    }
+
+    public function test_a_plain_member_writes_annotations_until_the_project_is_archived(): void
+    {
+        $member = User::factory()->create(['is_active' => true]);
+        $this->project->members()->attach($member);
+
+        $this->actingAs($member)
+            ->post(route('content.projects.calendar.annotations.store', $this->project), $this->payload())
+            ->assertRedirect();
+        $annotation = ContentCalendarAnnotation::query()->sole();
+
+        $this->get(route('content.projects.calendar', ['contentProject' => $this->project, 'month' => '2026-07']))
+            ->assertOk()->assertSee('Fiestas patrias');
+
+        $this->project->archive();
+
+        $this->get(route('content.projects.calendar', ['contentProject' => $this->project, 'month' => '2026-07']))
+            ->assertOk()->assertSee('data-testid="content-project-read-only-notice"', false);
+        $this->putJson(route('content.projects.calendar.annotations.update', [$this->project, $annotation]), $this->payload(['name' => 'Cambio']))
+            ->assertForbidden();
+        $this->deleteJson(route('content.projects.calendar.annotations.destroy', [$this->project, $annotation]))
+            ->assertForbidden();
+        $this->assertSame('Fiestas patrias', $annotation->fresh()->name);
     }
 
     public function test_a_non_member_gets_404_on_a_foreign_calendar_and_annotation(): void

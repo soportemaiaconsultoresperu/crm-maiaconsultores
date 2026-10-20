@@ -5,7 +5,8 @@
 
 @php
     // Presentation only: managing annotations is a mutation, so the controls
-    // mirror the same `update` ability the endpoints enforce.
+    // mirror the same `update` ability the endpoints enforce (members
+    // included, refused on an archived project).
     $canManage = $canManage ?? Gate::allows('update', $project);
     $monthKey = $month->format('Y-m');
     $todayPeru = \App\Support\Content\PeruTime::date(\Carbon\CarbonImmutable::now());
@@ -13,6 +14,8 @@
 @endphp
 
 @section('content')
+    @include('content.projects._read_only_notice', ['project' => $project])
+
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a href="{{ route('content.projects.show', $project) }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1" aria-hidden="true"></i> Volver al proyecto

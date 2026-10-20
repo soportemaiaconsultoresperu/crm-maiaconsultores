@@ -8,6 +8,7 @@ use App\Models\Content\ContentFieldOption;
 use App\Models\Content\ContentFieldSection;
 use App\Models\Content\ContentProject;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -152,57 +153,41 @@ class ContentFieldSchemaService
     }
 
     /**
-     * Resolve a section addressed by id and require it to belong to the
-     * project. An unknown or foreign section is a validation failure, so the
-     * caller never has to re-check ownership.
+     * Resolve a section addressed by id inside the project. The lookup is
+     * scoped, so a foreign id and an unknown id fail identically (404, without
+     * echoing the id) and the answer never discloses that another project's
+     * row exists.
+     *
+     * @throws ModelNotFoundException
      */
     public function resolveSection(ContentProject $project, int $sectionId): ContentFieldSection
     {
-        $section = ContentFieldSection::query()->find($sectionId);
-
-        if ($section === null) {
-            throw ValidationException::withMessages([
-                'content_field_section_id' => 'La sección indicada no existe.',
-            ]);
-        }
-
-        $this->assertSectionBelongsToProject($project, $section);
-
-        return $section;
+        return $this->sectionsQuery($project)->find($sectionId)
+            ?? throw (new ModelNotFoundException)->setModel(ContentFieldSection::class);
     }
 
     /**
-     * Resolve a field addressed by id and require it to belong to the project.
+     * Resolve a field addressed by id inside the project; foreign and unknown
+     * ids are the same 404.
+     *
+     * @throws ModelNotFoundException
      */
     public function resolveField(ContentProject $project, int $fieldId): ContentFieldDefinition
     {
-        $field = ContentFieldDefinition::query()->find($fieldId);
-
-        if ($field === null || (int) $field->content_project_id !== (int) $project->getKey()) {
-            throw ValidationException::withMessages([
-                'field' => 'El campo no pertenece al proyecto.',
-            ]);
-        }
-
-        return $field;
+        return $this->fieldsQuery($project)->find($fieldId)
+            ?? throw (new ModelNotFoundException)->setModel(ContentFieldDefinition::class);
     }
 
     /**
-     * Resolve an option addressed by id and require it to belong to the field.
+     * Resolve an option addressed by id inside the field; foreign and unknown
+     * ids are the same 404.
+     *
+     * @throws ModelNotFoundException
      */
     public function resolveOption(ContentFieldDefinition $definition, int $optionId): ContentFieldOption
     {
-        $option = ContentFieldOption::query()->find($optionId);
-
-        if ($option === null) {
-            throw ValidationException::withMessages([
-                'content_field_option_id' => 'La opción indicada no existe.',
-            ]);
-        }
-
-        $this->assertOptionBelongsToDefinition($definition, $option);
-
-        return $option;
+        return $this->optionsQuery($definition)->find($optionId)
+            ?? throw (new ModelNotFoundException)->setModel(ContentFieldOption::class);
     }
 
     // ---------------------------------------------------------------------

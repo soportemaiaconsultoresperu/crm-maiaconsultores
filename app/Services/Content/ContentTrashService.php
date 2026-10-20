@@ -23,10 +23,11 @@ use Illuminate\Validation\ValidationException;
  *     attachments it already had, because they were never removed;
  *   - purging is the ONLY path in the module that removes a file from the
  *     private disk. It is deliberately reachable only from the explicit purge
- *     action for ONE content that is already in the trash: no scheduled task,
- *     console command, model event or automatic trigger calls it, and it
- *     refuses a row that is not trashed so it can never be turned into a
- *     destructive shortcut.
+ *     action for ONE trashed content or the explicit "Vaciar papelera" action
+ *     for ONE project's trash: no scheduled task, console command, model event
+ *     or automatic trigger calls it, it refuses a row that is not trashed so
+ *     it can never be turned into a destructive shortcut, and files are only
+ *     removed after the database commit.
  */
 class ContentTrashService
 {
@@ -101,7 +102,8 @@ class ContentTrashService
      * This is the module's only user-file removal, and it requires the row to
      * be trashed first; a live content is refused. Everything runs inside one
      * transaction, so a failure leaves the trashed content recoverable rather
-     * than half-purged.
+     * than half-purged. Files are removed only once that transaction (and any
+     * enclosing one) has committed: a rollback keeps both rows and files.
      *
      * @throws ValidationException
      */
@@ -114,40 +116,107 @@ class ContentTrashService
         }
 
         DB::transaction(function () use ($item): void {
-            $locked = ContentItem::query()
-                ->withTrashed()
-                ->lockForUpdate()
-                ->findOrFail($item->getKey());
-
-            $this->purgeAttachments($locked);
-
-            foreach ($locked->fieldValues()->get() as $value) {
-                $value->selectedOptions()->detach();
-                $value->delete();
-            }
-
-            $locked->objectives()->detach();
-            $locked->formats()->detach();
-            $locked->channels()->detach();
-
-            $locked->forceDelete();
+            $this->discardFilesAfterCommit($this->purgeRow($item->getKey()));
         });
     }
 
     /**
-     * Remove every attachment row and file of a content being purged. Retired
-     * rows are included so their files are not orphaned on the private disk.
+     * Empty the project's trash: purge every trashed content and idea of THIS
+     * project, with the same rules and the same after-commit file removal as
+     * `purge()`. Live rows and other projects' trash are never touched.
+     *
+     * @return int the number of purged rows
      */
-    private function purgeAttachments(ContentItem $item): void
+    public function emptyTrash(ContentProject $project): int
+    {
+        return DB::transaction(function () use ($project): int {
+            $ids = ContentItem::query()
+                ->withoutGlobalScope('ordered')
+                ->onlyTrashed()
+                ->where('content_project_id', $project->getKey())
+                ->pluck('id');
+
+            $paths = [];
+            foreach ($ids as $id) {
+                array_push($paths, ...$this->purgeRow((int) $id));
+            }
+
+            $this->discardFilesAfterCommit($paths);
+
+            return $ids->count();
+        });
+    }
+
+    /**
+     * Remove one trashed row and everything that depends on it, inside the
+     * caller's transaction. Returns the stored file paths to discard later.
+     *
+     * @return list<string>
+     */
+    private function purgeRow(int $id): array
+    {
+        $locked = ContentItem::query()
+            ->withTrashed()
+            ->lockForUpdate()
+            ->findOrFail($id);
+
+        $paths = $this->purgeAttachments($locked);
+
+        foreach ($locked->fieldValues()->get() as $value) {
+            $value->selectedOptions()->detach();
+            $value->delete();
+        }
+
+        $locked->objectives()->detach();
+        $locked->formats()->detach();
+        $locked->channels()->detach();
+
+        $locked->forceDelete();
+
+        return $paths;
+    }
+
+    /**
+     * Remove every attachment row of a content being purged and return their
+     * file paths. Retired rows are included so their files are not orphaned on
+     * the private disk.
+     *
+     * @return list<string>
+     */
+    private function purgeAttachments(ContentItem $item): array
     {
         $attachments = ContentAttachment::query()
             ->withTrashed()
             ->where('content_item_id', $item->getKey())
             ->get();
 
+        $paths = [];
         foreach ($attachments as $attachment) {
-            $this->attachments->discardStoredFile($attachment->path);
+            if ($attachment->path !== null && $attachment->path !== '') {
+                $paths[] = (string) $attachment->path;
+            }
             $attachment->forceDelete();
         }
+
+        return $paths;
+    }
+
+    /**
+     * Delete files only after the outermost transaction commits; a rollback
+     * drops the callback, so rows and files stay consistent.
+     *
+     * @param  list<string>  $paths
+     */
+    private function discardFilesAfterCommit(array $paths): void
+    {
+        if ($paths === []) {
+            return;
+        }
+
+        DB::afterCommit(function () use ($paths): void {
+            foreach ($paths as $path) {
+                $this->attachments->discardStoredFile($path);
+            }
+        });
     }
 }

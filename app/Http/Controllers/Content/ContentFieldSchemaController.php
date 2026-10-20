@@ -11,15 +11,18 @@ use App\Models\Content\ContentFieldSection;
 use App\Models\Content\ContentProject;
 use App\Services\Content\ContentFieldSchemaService;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Administration UI for a project's custom-field sections, field definitions
  * and list options (T5b).
  *
  * The controller stays thin on purpose: it authorizes the addressed project
- * with the existing `update` ability and then delegates every read and every
+ * with the `configure` ability (administrative, refused on an archived
+ * project) and then delegates every read and every
  * write to ContentFieldSchemaService, so the T5a invariants (key/type
  * immutability, section ownership, options-for-list-types-only) hold for UI
  * traffic too. No ownership or immutability rule is re-derived here.
@@ -32,7 +35,7 @@ class ContentFieldSchemaController extends Controller
 
     public function index(ContentProject $contentProject): View
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
 
         $sections = $this->schema->sectionsQuery($contentProject)
             ->orderBy('sort')->orderBy('id')->get();
@@ -54,7 +57,7 @@ class ContentFieldSchemaController extends Controller
 
     public function storeSection(ManageContentFieldSectionRequest $request, ContentProject $contentProject): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $this->schema->createSection($contentProject, $request->safe()->only(['name', 'slug', 'sort']));
 
         return $this->backToSchema($contentProject, 'Sección creada correctamente.');
@@ -62,7 +65,7 @@ class ContentFieldSchemaController extends Controller
 
     public function updateSection(ManageContentFieldSectionRequest $request, ContentProject $contentProject, string $fieldSection): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $section = $this->schema->resolveSection($contentProject, (int) $fieldSection);
         $this->schema->updateSection($section, $request->safe()->only(['name']));
 
@@ -71,7 +74,7 @@ class ContentFieldSchemaController extends Controller
 
     public function stateSection(ManageContentFieldSectionRequest $request, ContentProject $contentProject, string $fieldSection): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $section = $this->schema->resolveSection($contentProject, (int) $fieldSection);
         $this->schema->setSectionActive($section, $request->boolean('is_active'));
 
@@ -82,7 +85,7 @@ class ContentFieldSchemaController extends Controller
 
     public function reorderSection(ManageContentFieldSectionRequest $request, ContentProject $contentProject, string $fieldSection): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $section = $this->schema->resolveSection($contentProject, (int) $fieldSection);
         $this->schema->updateSection($section, $request->safe()->only(['sort']));
 
@@ -91,7 +94,7 @@ class ContentFieldSchemaController extends Controller
 
     public function storeField(ManageContentFieldDefinitionRequest $request, ContentProject $contentProject): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $section = $this->resolveTargetSection($contentProject, $request->input('content_field_section_id'));
         $this->schema->createField($contentProject, $section, $request->safe()->except('content_field_section_id'));
 
@@ -100,7 +103,7 @@ class ContentFieldSchemaController extends Controller
 
     public function updateField(ManageContentFieldDefinitionRequest $request, ContentProject $contentProject, string $fieldDefinition): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $field = $this->schema->resolveField($contentProject, (int) $fieldDefinition);
         $section = $this->resolveTargetSection($contentProject, $request->input('content_field_section_id'));
         $this->schema->updateField($field, $section, $request->safe()->except('content_field_section_id'));
@@ -110,7 +113,7 @@ class ContentFieldSchemaController extends Controller
 
     public function stateField(ManageContentFieldDefinitionRequest $request, ContentProject $contentProject, string $fieldDefinition): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $field = $this->schema->resolveField($contentProject, (int) $fieldDefinition);
         $this->schema->setFieldActive($field, $request->boolean('is_active'));
 
@@ -121,7 +124,7 @@ class ContentFieldSchemaController extends Controller
 
     public function reorderField(ManageContentFieldDefinitionRequest $request, ContentProject $contentProject, string $fieldDefinition): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $field = $this->schema->resolveField($contentProject, (int) $fieldDefinition);
         $this->schema->updateField($field, $field->section, $request->safe()->only(['sort']));
 
@@ -130,7 +133,7 @@ class ContentFieldSchemaController extends Controller
 
     public function storeOption(ManageContentFieldOptionRequest $request, ContentProject $contentProject, string $fieldDefinition): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $field = $this->schema->resolveField($contentProject, (int) $fieldDefinition);
         $this->schema->createOption($field, $request->safe()->only(['label', 'slug', 'sort']));
 
@@ -139,7 +142,7 @@ class ContentFieldSchemaController extends Controller
 
     public function updateOption(ManageContentFieldOptionRequest $request, ContentProject $contentProject, string $fieldDefinition, string $fieldOption): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $field = $this->schema->resolveField($contentProject, (int) $fieldDefinition);
         $option = $this->schema->resolveOption($field, (int) $fieldOption);
         $this->schema->updateOption($option, $request->safe()->only(['label']));
@@ -149,7 +152,7 @@ class ContentFieldSchemaController extends Controller
 
     public function stateOption(ManageContentFieldOptionRequest $request, ContentProject $contentProject, string $fieldDefinition, string $fieldOption): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $field = $this->schema->resolveField($contentProject, (int) $fieldDefinition);
         $option = $this->schema->resolveOption($field, (int) $fieldOption);
         $this->schema->setOptionActive($option, $request->boolean('is_active'));
@@ -161,7 +164,7 @@ class ContentFieldSchemaController extends Controller
 
     public function reorderOption(ManageContentFieldOptionRequest $request, ContentProject $contentProject, string $fieldDefinition, string $fieldOption): RedirectResponse
     {
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
         $field = $this->schema->resolveField($contentProject, (int) $fieldDefinition);
         $option = $this->schema->resolveOption($field, (int) $fieldOption);
         $this->schema->updateOption($option, $request->safe()->only(['sort']));
@@ -171,7 +174,9 @@ class ContentFieldSchemaController extends Controller
 
     /**
      * Resolve the optional target section of a field. An empty value means
-     * "sin sección"; anything else must belong to the addressed project.
+     * "sin sección"; anything else must belong to the addressed project. The
+     * id comes from the payload, so a miss is a validation error, and a
+     * foreign and an unknown section get the very same message.
      */
     private function resolveTargetSection(ContentProject $project, mixed $sectionId): ?ContentFieldSection
     {
@@ -179,7 +184,13 @@ class ContentFieldSchemaController extends Controller
             return null;
         }
 
-        return $this->schema->resolveSection($project, (int) $sectionId);
+        try {
+            return $this->schema->resolveSection($project, (int) $sectionId);
+        } catch (ModelNotFoundException) {
+            throw ValidationException::withMessages([
+                'content_field_section_id' => 'La sección indicada no existe en este proyecto.',
+            ]);
+        }
     }
 
     private function backToSchema(ContentProject $project, string $message): RedirectResponse

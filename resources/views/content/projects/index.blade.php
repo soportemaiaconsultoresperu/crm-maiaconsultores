@@ -8,12 +8,20 @@
         // Presentation only: whether the actor may create a project is the
         // policy's answer, and the per-row edit link repeats the same check.
         $canCreate = Gate::allows('create', App\Models\Content\ContentProject::class);
+        // The consolidated calendar is gated by the cross-project permission.
+        $canSeeConsolidated = app(App\Services\Content\ContentProjectScopeService::class)
+            ->hasCrossProjectView(auth()->user());
     @endphp
 
     <div class="d-flex flex-wrap gap-2 mb-3">
         @if ($canCreate)
             <a href="{{ route('content.projects.create') }}" class="btn btn-primary" data-testid="btn-create-content-project">
                 <i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Nuevo proyecto
+            </a>
+        @endif
+        @if ($canSeeConsolidated)
+            <a href="{{ route('content.calendar.consolidated') }}" class="btn btn-outline-primary" data-testid="btn-content-consolidated-calendar">
+                <i class="bi bi-calendar2-range me-1" aria-hidden="true"></i> Calendario consolidado
             </a>
         @endif
     </div>
@@ -60,7 +68,7 @@
                         <a href="{{ route('content.projects.show', $project) }}" class="btn btn-sm btn-outline-secondary" title="Ver">
                             <i class="bi bi-eye me-1" aria-hidden="true"></i> Ver
                         </a>
-                        @can('update', $project)
+                        @can('configure', $project)
                             <a href="{{ route('content.projects.edit', $project) }}" class="btn btn-sm btn-outline-secondary" title="Editar"
                                data-testid="content-project-edit-{{ $project->id }}">
                                 <i class="bi bi-pencil me-1" aria-hidden="true"></i> Editar

@@ -12,7 +12,7 @@ class ManageContentCatalogRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('update', $this->route('contentProject')) ?? false;
+        return $this->user()?->can('configure', $this->route('contentProject')) ?? false;
     }
 
     public function rules(): array

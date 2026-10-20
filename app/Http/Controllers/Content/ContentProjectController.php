@@ -101,7 +101,7 @@ class ContentProjectController extends Controller
     public function edit(Request $request, ContentProject $contentProject): View
     {
         $this->ensureReachable($request, $contentProject);
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
 
         return view('content.projects.edit', [
             'project' => $contentProject,
@@ -111,7 +111,7 @@ class ContentProjectController extends Controller
     public function update(UpdateContentProjectRequest $request, ContentProject $contentProject): RedirectResponse
     {
         $this->ensureReachable($request, $contentProject);
-        Gate::authorize('update', $contentProject);
+        Gate::authorize('configure', $contentProject);
 
         $contentProject->update($request->validated());
 

@@ -71,8 +71,9 @@ class ContentTrashTest extends TestCase
 
         $this->delete(route('content.projects.contents.destroy', [$this->project, $content]))
             ->assertRedirect(route('content.projects.contents.index', $this->project));
+        // Review fix S18: a trashed idea returns to the ideas section.
         $this->delete(route('content.projects.contents.destroy', [$this->project, $idea]))
-            ->assertRedirect(route('content.projects.contents.index', $this->project));
+            ->assertRedirect(route('content.projects.ideas.index', $this->project));
 
         $this->assertSoftDeleted('content_items', ['id' => $content->id]);
         $this->assertSoftDeleted('content_items', ['id' => $idea->id]);
@@ -229,7 +230,7 @@ class ContentTrashTest extends TestCase
         $this->assertDatabaseMissing('content_attachments', ['content_item_id' => $content->id]);
     }
 
-    public function test_purging_requires_the_lifecycle_ability_and_an_unauthorized_actor_removes_nothing(): void
+    public function test_purging_requires_the_trash_ability_and_an_unauthorized_actor_removes_nothing(): void
     {
         $content = ContentItem::factory()->for($this->project, 'project')->create();
         $attachment = app(ContentAttachmentService::class)->upload(
@@ -239,12 +240,19 @@ class ContentTrashTest extends TestCase
         $path = (string) $attachment->path;
         $content->delete();
 
+        // Review fix S1: members may purge, so the unauthorized actor is a
+        // cross-project reader who reaches the project without being a member.
         $reader = User::factory()->create(['is_active' => true]);
-        $reader->givePermissionTo('content_projects.view');
-        $this->project->members()->attach($reader);
+        $reader->givePermissionTo('content_projects.view_all');
         $this->actingAs($reader);
 
         $this->delete(route('content.projects.contents.purge', [$this->project, $content]))->assertForbidden();
+        $this->delete(route('content.projects.contents.trash.empty', $this->project))->assertForbidden();
+
+        // Review fix S2: on an archived project even a member is refused.
+        $this->project->archive();
+        $this->actingAs($this->manager)
+            ->delete(route('content.projects.contents.purge', [$this->project, $content]))->assertForbidden();
 
         $this->assertSoftDeleted('content_items', ['id' => $content->id]);
         $this->assertNotNull($content->attachments()->withTrashed()->find($attachment->id));
@@ -292,14 +300,20 @@ class ContentTrashTest extends TestCase
         $this->delete(route('content.projects.contents.destroy', [$foreign, $foreignItem]))->assertNotFound();
         $this->assertDatabaseHas('content_items', ['id' => $foreignItem->id, 'deleted_at' => null]);
 
-        // A reachable member without the lifecycle ability is refused.
+        // Review fix S1: a plain member may trash, so the refused actor is a
+        // reachable non-member reader (cross-project view, no update).
         $reader = User::factory()->create(['is_active' => true]);
-        $reader->givePermissionTo(['content_projects.view', 'content_projects.update']);
-        $this->project->members()->attach($reader);
+        $reader->givePermissionTo('content_projects.view_all');
         $item = ContentItem::factory()->for($this->project, 'project')->create();
 
         $this->actingAs($reader);
         $this->delete(route('content.projects.contents.destroy', [$this->project, $item]))->assertForbidden();
+        $this->assertDatabaseHas('content_items', ['id' => $item->id, 'deleted_at' => null]);
+
+        // Review fix S2: an archived project refuses even its members.
+        $this->project->archive();
+        $this->actingAs($this->manager)
+            ->delete(route('content.projects.contents.destroy', [$this->project, $item]))->assertForbidden();
         $this->assertDatabaseHas('content_items', ['id' => $item->id, 'deleted_at' => null]);
     }
 

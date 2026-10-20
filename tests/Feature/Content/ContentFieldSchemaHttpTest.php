@@ -251,10 +251,11 @@ class ContentFieldSchemaHttpTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('content_field_section_id');
         $this->assertSame($ownSection->id, $field->fresh()->content_field_section_id);
 
-        // A foreign section addressed directly is refused as well.
+        // A foreign section addressed directly is refused as well: a 404, the
+        // same answer as an unknown id (review fix S22).
         $this->putJson(route('content.fields.sections.update', [$this->project, $foreignSection->id]), [
             'name' => 'Robada',
-        ])->assertUnprocessable();
+        ])->assertNotFound();
         $this->assertNotSame('Robada', $foreignSection->fresh()->name);
     }
 

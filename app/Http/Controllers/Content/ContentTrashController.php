@@ -18,8 +18,11 @@ use Illuminate\Support\Facades\Gate;
  * Reachability is not decided here: the `contentProject` route binding already
  * answers 404 for a project the user may not reach, before validation or the
  * policy run. On top of that, reading the trash asks the policy for `view`
- * while trashing, restoring and purging ask for `archive` — the module's
- * lifecycle ability, granted to the administrator.
+ * while trashing, restoring, purging and emptying the trash ask for `trash` —
+ * granted to the project's members and refused on an archived project.
+ *
+ * Ideas live in the same table, so these routes serve both kinds; redirects
+ * send an idea back to the ideas section and a content to the grid.
  *
  * A child id is always resolved inside the addressed project. Trashing only
  * accepts a live row; restoring and purging resolve the row with its trashed
@@ -54,10 +57,16 @@ class ContentTrashController extends Controller
      */
     public function destroy(ContentProject $contentProject, string $contentItem): RedirectResponse
     {
-        Gate::authorize('archive', $contentProject);
+        Gate::authorize('trash', $contentProject);
 
         $item = $this->resolveItem($contentProject, $contentItem);
         $this->trash->trash($item);
+
+        if ($item->isIdea()) {
+            return redirect()
+                ->route('content.projects.ideas.index', $contentProject)
+                ->with('status', 'Idea "'.$item->title.'" movida a la papelera. Podrá restaurarla mientras la papelera no se vacíe.');
+        }
 
         return redirect()
             ->route('content.projects.contents.index', $contentProject)
@@ -66,19 +75,42 @@ class ContentTrashController extends Controller
 
     public function restore(ContentProject $contentProject, string $contentItem): RedirectResponse
     {
-        Gate::authorize('archive', $contentProject);
+        Gate::authorize('trash', $contentProject);
 
         $item = $this->resolveItem($contentProject, $contentItem, withTrashed: true);
         $this->trash->restore($item);
+
+        if ($item->isIdea()) {
+            return redirect()
+                ->route('content.projects.ideas.show', [$contentProject, $item])
+                ->with('status', 'Idea "'.$item->title.'" restaurada con sus valores.');
+        }
 
         return redirect()
             ->route('content.projects.contents.show', [$contentProject, $item])
             ->with('status', 'Contenido "'.$item->title.'" restaurado con sus valores y sus adjuntos.');
     }
 
+    /**
+     * "Vaciar papelera": permanently remove every trashed row of THIS project
+     * and their files. Other projects' trash and live rows are never touched.
+     */
+    public function empty(ContentProject $contentProject): RedirectResponse
+    {
+        Gate::authorize('trash', $contentProject);
+
+        $count = $this->trash->emptyTrash($contentProject);
+
+        return redirect()
+            ->route('content.projects.contents.trash', $contentProject)
+            ->with('status', $count === 0
+                ? 'La papelera ya estaba vacía.'
+                : 'Papelera vaciada: '.$count.' elemento(s) eliminados definitivamente. Sus archivos ya no se pueden recuperar.');
+    }
+
     public function purge(ContentProject $contentProject, string $contentItem): RedirectResponse
     {
-        Gate::authorize('archive', $contentProject);
+        Gate::authorize('trash', $contentProject);
 
         $item = $this->resolveItem($contentProject, $contentItem, withTrashed: true);
         $title = (string) $item->title;

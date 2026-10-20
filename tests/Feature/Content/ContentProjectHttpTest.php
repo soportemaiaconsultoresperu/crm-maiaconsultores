@@ -207,7 +207,8 @@ class ContentProjectHttpTest extends TestCase
         $this->actingAs($editor)->get(route('content.projects.show', $project))
             ->assertOk()
             ->assertDontSee('data-testid="content-project-reactivate-form"', false)
-            ->assertSee('data-testid="btn-edit-content-project"', false);
+            // Review fix S2: an archived project is read-only, so settings are hidden too.
+            ->assertDontSee('data-testid="btn-edit-content-project"', false);
 
         $this->postJson(route('content.projects.reactivate', $project))
             ->assertForbidden();

@@ -52,6 +52,11 @@ class ContentPermissionsSeeder extends Seeder
      * membership in `ContentProjectScopeService`, so holding
      * `content_projects.view` never grants another user's project.
      *
+     * No operational role needs a blanket grant to WORK in a project: project
+     * membership alone opens the module and the content of that project
+     * (`ContentProjectPolicy::update`/`trash`). The `content_projects.*`
+     * permissions below stay administrative (configure, members, lifecycle).
+     *
      * @var array<string, list<string>>
      */
     private const ROLE_GRANTS = [

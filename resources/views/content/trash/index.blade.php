@@ -5,21 +5,38 @@
 
 @php
     // Presentation only: opening the trash is a read, so the link mirrors the
-    // `view` ability the endpoint enforces, while the restore and purge
-    // controls mirror the `archive` lifecycle ability.
-    $canManage = Gate::allows('archive', $project);
+    // `view` ability the endpoint enforces, while the restore, purge and
+    // empty-trash controls mirror the `trash` ability (members included,
+    // refused on an archived project).
+    $canManage = Gate::allows('trash', $project);
 @endphp
 
 @section('content')
+    @include('content.projects._read_only_notice', ['project' => $project])
+
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a href="{{ route('content.projects.contents.index', $project) }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1" aria-hidden="true"></i> Volver al cronograma
         </a>
+
+        @if ($canManage && $contents->total() > 0)
+            <x-swal-confirm
+                :action="route('content.projects.contents.trash.empty', $project)"
+                method="DELETE"
+                title="¿Vaciar la papelera?"
+                text="Se eliminarán definitivamente todos los contenidos e ideas de la papelera de este proyecto, con sus valores y sus archivos. Esta acción es irreversible."
+                type="error"
+                confirm-text="Sí, vaciar papelera"
+                button-class="btn-outline-danger"
+                data-testid="content-trash-empty">
+                <i class="bi bi-trash3 me-1" aria-hidden="true"></i> Vaciar papelera
+            </x-swal-confirm>
+        @endif
     </div>
 
     <div class="alert alert-warning" role="alert" data-testid="content-trash-notice">
         Los contenidos de la papelera conservan sus valores y sus archivos. No se eliminan solos:
-        sólo se borran definitivamente cuando un administrador vacía la papelera para un contenido.
+        sólo se borran definitivamente cuando un miembro del proyecto los elimina uno a uno o vacía la papelera.
     </div>
 
     <x-table title="Contenidos eliminados de {{ $project->name }}" data-testid="content-trash-table">
@@ -68,7 +85,7 @@
                                 <i class="bi bi-trash me-1" aria-hidden="true"></i> Eliminar definitivamente
                             </x-swal-confirm>
                         @else
-                            <span class="text-muted small">Sólo un administrador puede restaurar o eliminar definitivamente.</span>
+                            <span class="text-muted small">{{ $project->isArchived() ? 'Proyecto archivado: solo lectura.' : 'No tiene permiso para restaurar o eliminar definitivamente.' }}</span>
                         @endif
                     </td>
                 </tr>

@@ -91,8 +91,17 @@ class AuthServiceProvider extends BaseAuthServiceProvider
         //     `PermissionDoesNotExist` for unknown permissions; the try/catch
         //     converts that to `null` so the Gate falls through to its default
         //     policy / closure lookup instead of crashing the framework.
-        Gate::before(static function ($user, string $ability) {
+        Gate::before(static function ($user, string $ability, array $arguments = []) {
             if ($user === null) {
+                return null;
+            }
+
+            // An archived content project is read-only for everybody, the
+            // admin included: let ContentProjectPolicy decide instead of the
+            // bypass below. The policy still allows reading and the `archive`
+            // ability that reactivates the project.
+            $subject = $arguments[0] ?? null;
+            if ($subject instanceof \App\Models\Content\ContentProject && $subject->isArchived()) {
                 return null;
             }
 

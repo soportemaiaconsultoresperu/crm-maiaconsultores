@@ -4,6 +4,8 @@
 @section('page-title', $project->name)
 
 @section('content')
+    @include('content.projects._read_only_notice', ['project' => $project])
+
     <div class="d-flex flex-wrap gap-2 mb-3">
         <a href="{{ route('content.projects.index') }}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1" aria-hidden="true"></i> Volver al listado
@@ -21,7 +23,7 @@
             <i class="bi bi-lightbulb me-1" aria-hidden="true"></i> Ideas
         </a>
 
-        @can('update', $project)
+        @can('configure', $project)
             <a href="{{ route('content.catalogs.index', $project) }}" class="btn btn-outline-primary">Administrar catálogos</a>
             <a href="{{ route('content.fields.index', $project) }}" class="btn btn-outline-primary">Campos personalizados</a>
             <a href="{{ route('content.projects.edit', $project) }}" class="btn btn-outline-primary" data-testid="btn-edit-content-project">
