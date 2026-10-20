@@ -54,10 +54,11 @@
                 @endforeach
             @endcan
 
-            {{-- Deleting is offered only while nobody is enrolled, the same rule
-                 CourseEditionService::delete() enforces. --}}
+            {{-- Deleting is offered only while nobody is enrolled (individually or
+                 in a group), the same rule CourseEditionService::delete() enforces. --}}
             @can('delete', \App\Models\Courses\CourseEdition::class)
-                @unless ($edition->enrollments()->withTrashed()->exists())
+                @unless ($edition->enrollments()->withTrashed()->exists()
+                    || \App\Models\Courses\CourseEnrollmentGroup::query()->where('course_edition_id', $edition->id)->exists())
                     <form method="POST" action="{{ route('course-talks.editions.destroy', $edition) }}" class="d-inline"
                           onsubmit="return confirm('¿Eliminar este dictado? Esta acción no se puede deshacer desde la pantalla.')">
                         @csrf

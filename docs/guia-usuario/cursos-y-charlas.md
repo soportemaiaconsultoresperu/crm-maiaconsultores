@@ -185,6 +185,7 @@ Si el curso o charla está inactivo, la ficha muestra la etiqueta **Inactiva** y
 3. Pulse **Guardar cambios**. Verá *Curso o charla "[Nombre]" actualizado correctamente.*
 
 - El **Tipo** solo se puede cambiar mientras el curso o charla no tenga dictados; si ya los tiene, el campo aparece bloqueado con la nota *No se puede cambiar porque ya tiene dictados.*
+- **Charla con certificado** tampoco se puede cambiar cuando alguno de sus dictados ya tiene participantes inscritos, porque cambia el cobro y la emisión de certificados de quienes ya se inscribieron.
 - Para reactivar un curso o charla inactivo, vuelva a marcar **Activa** aquí.
 - Los cambios **no modifican** los certificados ya emitidos. Si corrige el nombre o las horas académicas, regenere los documentos que deban reflejarlo ([sección 15.6](#156-regenerar-corregir-un-documento)).
 
@@ -255,7 +256,7 @@ Para cambiar el estado, pulse el botón con el nombre del estado al que quiere p
 El estado **no** se cambia desde este formulario, sino con los botones de la página del dictado. Los cambios no modifican los certificados ya emitidos; si cambia fechas o modalidad de un dictado con documentos, regenérelos ([sección 15.6](#156-regenerar-corregir-un-documento)).
 
 ### Eliminar un dictado
-El botón **Eliminar** solo aparece mientras el dictado **no tiene participantes inscritos**. El sistema pide confirmación (*¿Eliminar este dictado? Esta acción no se puede deshacer desde la pantalla.*) y, al aceptar, vuelve a la ficha del curso o charla con *Dictado [código] eliminado correctamente.* Si ya hay inscritos, verá *No se puede eliminar el dictado porque tiene participantes inscritos.*; en ese caso, si no se realizará, páselo a **Cancelada**.
+El botón **Eliminar** solo aparece mientras el dictado **no tiene participantes inscritos ni inscripciones grupales**. El sistema pide confirmación (*¿Eliminar este dictado? Esta acción no se puede deshacer desde la pantalla.*) y, al aceptar, vuelve a la ficha del curso o charla con *Dictado [código] eliminado correctamente.* Si ya hay inscritos, verá *No se puede eliminar el dictado porque tiene participantes inscritos.* (o *…porque tiene inscripciones grupales.*); en ese caso, si no se realizará, páselo a **Cancelada**.
 
 ---
 
@@ -716,6 +717,9 @@ Los mensajes aparecen en español y nombran el campo tal como se ve en el formul
 | *El campo fecha de fin debe ser una fecha posterior o igual a fecha de inicio.* | La fecha de fin es anterior a la de inicio. | Corrija las fechas. |
 | *El campo precio es obligatorio.* / *El precio del dictado es obligatorio.* | Falta el precio. | Escriba el precio (puede ser 0). |
 | *No se puede eliminar el dictado porque tiene participantes inscritos.* | El dictado tiene inscritos. | Si no se realizará, páselo a **Cancelada**. |
+| *No se puede eliminar el dictado porque tiene inscripciones grupales.* | El dictado tiene una inscripción de grupo (aunque no tenga inscritos individuales). | Si no se realizará, páselo a **Cancelada**. |
+| *No se puede cambiar «Charla con certificado» porque ya hay participantes inscritos en sus dictados.* | Se intentó activar o quitar el certificado de una charla con inscritos. | Cree otra charla con la opción correcta para los próximos dictados. |
+| *El dictado ya no existe; actualice la página.* / *El curso o charla ya no existe; actualice la página.* | Otra persona lo eliminó mientras usted trabajaba. | Actualice la página. |
 | *No se puede cambiar el estado del dictado de «[…]» a «[…]».* | Cambio de estado no permitido. | Siga la tabla de la [sección 8](#8-la-página-del-dictado-y-sus-estados). |
 | *El nombre del docente es obligatorio.* | Una fila de docente quedó sin nombre. | Escriba el nombre o marque **Quitar**. |
 | *No se puede quitar el docente porque está asignado a una o más sesiones…* | El docente tiene sesiones. | Reasigne esas sesiones y vuelva a intentar. |
