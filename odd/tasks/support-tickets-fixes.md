@@ -24,13 +24,14 @@ Branch: `fix/support-tickets` (stacked on `feat/roles-permissions-ux`). Never co
 
 ## Tasks
 
-- [ ] T1 S2, S7, S10 — scope, dashboard, KPIs, catalog texts. Route: worker S-A. Commit: —
-- [ ] T2 S3, S4, S5, S6, S8 (service side) — state integrity. Route: worker S-B. Commit: —
-- [ ] T3 S9 + S8 UI — ticket page and list. Route: worker S-C (after T2). Commit: —
-- [ ] T4 Integration: suites, browser smoke, guide, commits. Route: inline. Commit: —
+- [x] T1 S2, S7, S10 — scope, dashboard, KPIs, catalog texts. Route: worker S-A. Commit: 8d8af65
+- [x] T2 S3, S4, S5, S6, S8 (service side) — state integrity. Route: worker S-B. Commit: 1c9ccbc
+- [x] T3 S9 + S8 UI — ticket page and list. Route: worker S-C (after T2). Commit: 3002d17
+- [x] T4 Integration: suites, browser smoke, guide, commits. Route: inline. Commit: fe21ca0
 
 ## Log
 
 - L1 User: "una consulta el modulo de tickets considera que esta bien elaborado ??" → review verdict "MVP usable, no listo para producción" with 5 recommendations. Then: "haz los 5".
 - L2 Parent decision: Lima time zone NOT changed in this feature (S11) — support schedules share the naive-datetime convention with Activities and the Calendar; display-only conversion would shift existing data 5h.
 - L3 Review evidence: SupportDashboardService.php:28 no scope; :35 signed diffInSeconds; SupportTicketService.php:70 assign forces Asignado; :100-126 cancel bypasses transition(); LifecycleService.php:271-282 observations without state machine; :296 no lock; Controller.php:80 resolve saves summary outside transaction; show.blade.php:201-231 actions not state-aware. Baseline tests: tests/Feature/SupportTicket*.php 24/24.
+- L4 Integration: full suite 1976/1989 (same 13 baseline failures). Browser (admin, read-only on real tickets): En atención shows Editar/Reasignar/Poner en espera/Resolver/Cancelar/Cambiar prioridad; Cerrado shows only Reabrir; dashboard positive times + target note + sidebar link. Independent verify PASS (scope, writes, states, KPIs). Follow-up S-D fixed 11 low findings + parent added SupportObservation::ticket() and SupportIncidentDetail::documents() (pre-existing 500 on tickets with incident detail; observation document downloads refused to agents) in cd5a5d0. Support+documents tests 96/96. Out of scope (S11): Lima time zone, catalog/target-time admin, notifications.
