@@ -15,10 +15,11 @@ Branch: `feat/roles-permissions-ux` (stacked on `feat/internal-projects`). Never
 
 ## Tasks
 
-- [ ] T1 S2–S6 catalog + role UI + user form summary + tests. Route: worker R1. Commit: —
-- [ ] T2 S7 + integration, browser smoke, guide section, commits. Route: inline. Commit: —
+- [x] T1 S2–S6 catalog + role UI + user form summary + tests. Route: worker R1. Commit: e9aee8a
+- [x] T2 S7 + integration, browser smoke, guide section, commits. Route: inline. Commit: 250fd4b + docs
 
 ## Log
 
 - L1 User: "los roles y permisos, haz que los permisos que sean mas intuitivos para cualquier usuario no tech, y que esten en español para que sea de manera intuitiva, ademas que la ui sea mejorada"
 - L2 Discovery: RoleController::permissionList() labels = raw names grouped by prefix (app/Http/Controllers/RoleController.php:179); views resources/views/admin/roles/{index,create,edit,show}; 161 permissions in local DB, roles admin/supervisor/vendedor; course-talks.* (13) defined in CoursePermissionsSeeder but absent locally; admin bypass via Gate::before in AuthServiceProvider.
+- L3 Integration: system role names locked (validation + readonly field, test). Local DB: CoursePermissionsSeeder run (merge-only) → 174 permissions; products.import existed only in DB → catalogued (250fd4b). Browser (admin): roles list with module chips and Acceso total; vendedor edit shows no raw names, scope radios, switches, Sensible badges; search 'exportar' leaves the 7 export permissions; real Guardar cambios without changes kept the 40 vendedor permissions identical. Guide docs/guia-usuario/roles-y-permisos.md.
