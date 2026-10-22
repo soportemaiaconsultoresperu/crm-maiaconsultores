@@ -66,7 +66,7 @@ class InternalActivityController extends Controller
         app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($activity);
 
         return redirect()->route('internal-activities.show', $activity)
-            ->with('success', 'Actividad interna creada.');
+            ->with('status', 'Actividad interna creada.');
     }
 
     public function show(InternalActivity $internalActivity): View
@@ -107,7 +107,7 @@ class InternalActivityController extends Controller
         app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($internalActivity);
 
         return redirect()->route('internal-activities.show', $internalActivity)
-            ->with('success', 'Actividad interna actualizada.');
+            ->with('status', 'Actividad interna actualizada.');
     }
 
     public function destroy(InternalActivity $internalActivity): RedirectResponse
@@ -118,7 +118,7 @@ class InternalActivityController extends Controller
         app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($internalActivity);
 
         return redirect()->route('internal-activities.index')
-            ->with('success', 'Actividad interna eliminada.');
+            ->with('status', 'Actividad interna eliminada.');
     }
 
     /**

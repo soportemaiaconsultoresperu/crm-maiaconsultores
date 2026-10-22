@@ -96,6 +96,15 @@ class InternalActivityTest extends TestCase
         $this->assertSame($this->supervisor->id, $activity->responsible()?->id);
     }
 
+    public function test_saving_shows_the_success_message(): void
+    {
+        $this->actingAs($this->seller)
+            ->followingRedirects()
+            ->post(route('internal-activities.store'), $this->payload())
+            ->assertOk()
+            ->assertSee('Actividad interna creada.');
+    }
+
     public function test_responsible_is_added_as_participant(): void
     {
         $activity = $this->createAs($this->seller, ['responsible_id' => $this->supervisor->id]);
