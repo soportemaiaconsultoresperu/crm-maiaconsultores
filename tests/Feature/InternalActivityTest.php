@@ -31,6 +31,10 @@ class InternalActivityTest extends TestCase
     {
         parent::setUp();
 
+        // The fixtures use fixed dates (2026-10-21) and the listing shows only
+        // upcoming activities, so the clock is frozen before them.
+        \Illuminate\Support\Carbon::setTestNow('2026-10-20 10:00:00');
+
         $this->seed(CatalogSeeder::class);
         $this->seed(RolesAndPermissionsSeeder::class);
 
@@ -42,6 +46,13 @@ class InternalActivityTest extends TestCase
         $this->supervisor->assignRole('supervisor');
         $this->outsider = User::factory()->create(['is_active' => true]);
         $this->outsider->assignRole('vendedor');
+    }
+
+    protected function tearDown(): void
+    {
+        \Illuminate\Support\Carbon::setTestNow();
+
+        parent::tearDown();
     }
 
     /**
