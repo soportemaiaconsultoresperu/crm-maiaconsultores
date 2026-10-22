@@ -32,7 +32,11 @@ class InternalProjectPhaseController extends Controller
     {
         Gate::authorize('manageWork', $internalProject);
 
-        $phase->update($request->validated());
+        $data = $request->validated();
+        // An empty "Orden" keeps the current position (the column is NOT NULL).
+        $data['sort'] ??= $phase->sort;
+
+        $phase->update($data);
 
         return redirect()->to(route('internal-projects.show', $internalProject).'#phase-'.$phase->id)
             ->with('status', 'Fase actualizada.');

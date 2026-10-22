@@ -131,7 +131,18 @@ class InternalProjectController extends Controller
             'canManage' => $user->can('update', $project),
             'canWork' => $user->can('manageWork', $project),
             'responsibles' => $project->tasks->pluck('responsible')->filter()->unique('id')->sortBy('name')->values(),
-            'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            // Active users plus deactivated task responsibles (marked), so editing
+            // a task never silently drops its current responsible.
+            'users' => User::query()
+                ->where(fn ($query) => $query->where('is_active', true)
+                    ->orWhereIn('id', $project->tasks->pluck('responsible_user_id')->filter()->unique()->values()))
+                ->orderBy('name')
+                ->get(['id', 'name', 'is_active'])
+                ->each(function (User $user): void {
+                    if (! $user->is_active) {
+                        $user->name .= ' (inactivo)';
+                    }
+                }),
         ]);
     }
 
@@ -141,7 +152,7 @@ class InternalProjectController extends Controller
 
         $internalProject->load(['members:id', 'audienceRoles:id', 'audienceUsers:id']);
 
-        return view('internal-projects.edit', $this->formData() + ['project' => $internalProject]);
+        return view('internal-projects.edit', $this->formData($internalProject) + ['project' => $internalProject]);
     }
 
     public function update(InternalProjectRequest $request, InternalProject $internalProject): RedirectResponse
@@ -205,10 +216,28 @@ class InternalProjectController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function formData(): array
+    private function formData(?InternalProject $project = null): array
     {
+        // Active users, plus anyone already assigned to this project who was
+        // deactivated meanwhile (marked "(inactivo)") so the edit form keeps them.
+        $assignedIds = $project === null ? [] : array_values(array_unique(array_filter(array_merge(
+            [$project->responsible_user_id],
+            $project->members()->pluck('users.id')->all(),
+            $project->audienceUsers()->pluck('users.id')->all(),
+        ))));
+
+        $users = User::query()
+            ->where(fn ($query) => $query->where('is_active', true)->orWhereIn('id', $assignedIds))
+            ->orderBy('name')
+            ->get(['id', 'name', 'is_active'])
+            ->each(function (User $user): void {
+                if (! $user->is_active) {
+                    $user->name .= ' (inactivo)';
+                }
+            });
+
         return [
-            'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'users' => $users,
             'roles' => Role::query()->orderBy('name')->get(['id', 'name']),
         ];
     }

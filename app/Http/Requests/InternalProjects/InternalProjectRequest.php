@@ -28,6 +28,24 @@ class InternalProjectRequest extends FormRequest
     }
 
     /**
+     * Accept an active user, or one already assigned to this project.
+     *
+     * @param  list<int>  $assignedIds
+     */
+    private function activeOrAssigned(array $assignedIds): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) use ($assignedIds): void {
+            $id = (int) $value;
+            if (in_array($id, $assignedIds, true)) {
+                return;
+            }
+            if (! \App\Models\User::query()->whereKey($id)->where('is_active', true)->exists()) {
+                $fail('El usuario seleccionado no existe o está inactivo.');
+            }
+        };
+    }
+
+    /**
      * The colour picker submits a preset hex, an empty "Sin color" or
      * `custom` together with the native colour input (`color_custom`).
      */
@@ -55,6 +73,13 @@ class InternalProjectRequest extends FormRequest
     public function rules(): array
     {
         $project = $this->route('internalProject');
+        $current = $project instanceof InternalProject ? $project : null;
+
+        // New people must be active users; someone already assigned stays valid
+        // even if deactivated meanwhile, so editing never drops them silently.
+        $responsibleIds = $current?->responsible_user_id ? [(int) $current->responsible_user_id] : [];
+        $memberIds = $current ? $current->members()->pluck('users.id')->map(fn ($id) => (int) $id)->all() : [];
+        $audienceIds = $current ? $current->audienceUsers()->pluck('users.id')->map(fn ($id) => (int) $id)->all() : [];
 
         return [
             'name' => ['required', 'string', 'max:150'],
@@ -65,14 +90,14 @@ class InternalProjectRequest extends FormRequest
             'starts_on' => ['nullable', 'date'],
             'ends_on' => ['nullable', 'date', 'after_or_equal:starts_on'],
             'status' => ['required', Rule::in(ProjectStatus::values())],
-            'responsible_user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('is_active', true)],
+            'responsible_user_id' => ['nullable', 'integer', $this->activeOrAssigned($responsibleIds)],
             'member_ids' => ['nullable', 'array'],
-            'member_ids.*' => ['integer', Rule::exists('users', 'id')->where('is_active', true)],
+            'member_ids.*' => ['integer', $this->activeOrAssigned(array_merge($memberIds, $responsibleIds))],
             'audience_type' => ['required', Rule::in(array_keys(InternalProject::AUDIENCE_LABELS))],
             'role_ids' => ['required_if:audience_type,'.InternalProject::AUDIENCE_ROLES, 'array'],
             'role_ids.*' => ['integer', 'exists:roles,id'],
             'user_ids' => ['required_if:audience_type,'.InternalProject::AUDIENCE_USERS, 'array'],
-            'user_ids.*' => ['integer', Rule::exists('users', 'id')->where('is_active', true)],
+            'user_ids.*' => ['integer', $this->activeOrAssigned($audienceIds)],
             'create_default_phases' => ['nullable', 'boolean'],
         ];
     }

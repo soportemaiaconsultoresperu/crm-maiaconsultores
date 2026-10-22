@@ -43,7 +43,17 @@ class InternalProjectTaskRequest extends FormRequest
                     ->where('internal_project_id', $project instanceof InternalProject ? $project->id : 0)],
             'title' => ['required', 'string', 'max:200'],
             'description' => ['nullable', 'string', 'max:5000'],
-            'responsible_user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('is_active', true)],
+            'responsible_user_id' => ['nullable', 'integer', function (string $attribute, mixed $value, \Closure $fail): void {
+                // A new responsible must be active; the task's current one stays
+                // valid even if deactivated meanwhile.
+                $task = $this->route('task');
+                if ($task !== null && (int) $value === (int) $task->responsible_user_id) {
+                    return;
+                }
+                if (! \App\Models\User::query()->whereKey((int) $value)->where('is_active', true)->exists()) {
+                    $fail('El usuario seleccionado no existe o está inactivo.');
+                }
+            }],
             'starts_on' => ['required', 'date'],
             'due_on' => ['required', 'date', 'after_or_equal:starts_on'],
             'weight' => ['required', 'integer', 'min:1', 'max:65535'],

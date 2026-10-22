@@ -302,6 +302,71 @@ class InternalProjectHttpTest extends TestCase
         $this->assertSame(0, InternalProjectTask::query()->where('title', 'Construir API')->count());
     }
 
+    public function test_an_inactive_current_responsible_and_member_are_kept_on_edit(): void
+    {
+        $this->member->update(['is_active' => false]);
+        $this->responsible->update(['is_active' => false]);
+        $newInactive = User::factory()->create(['is_active' => false]);
+
+        $this->actingAs($this->admin)
+            ->get(route('internal-projects.edit', $this->project))
+            ->assertOk()
+            ->assertSee($this->responsible->name.' (inactivo)')
+            ->assertSee($this->member->name.' (inactivo)');
+
+        $payload = $this->projectPayload([
+            'name' => 'Nuevo CRM editado',
+            'code' => 'CRM-01',
+            'responsible_user_id' => $this->responsible->id,
+            'member_ids' => [$this->member->id],
+            'audience_type' => 'users',
+            'user_ids' => [$this->viewer->id],
+        ]);
+        $this->actingAs($this->admin)
+            ->put(route('internal-projects.update', $this->project), $payload)
+            ->assertSessionHasNoErrors();
+        $this->assertSame($this->responsible->id, $this->project->fresh()->responsible_user_id);
+        $this->assertTrue($this->project->fresh()->members->contains($this->member));
+
+        // A user who was not assigned before must be active.
+        $this->actingAs($this->admin)
+            ->put(route('internal-projects.update', $this->project), array_merge($payload, ['member_ids' => [$this->member->id, $newInactive->id]]))
+            ->assertSessionHasErrors(['member_ids.1']);
+    }
+
+    public function test_a_task_keeps_its_deactivated_responsible_when_edited(): void
+    {
+        $task = $this->task(['title' => 'API pagos', 'responsible_user_id' => $this->member->id]);
+        $this->member->update(['is_active' => false]);
+
+        $this->actingAs($this->responsible)
+            ->get(route('internal-projects.show', $this->project))
+            ->assertOk()
+            ->assertSee($this->member->name.' (inactivo)');
+
+        $this->actingAs($this->responsible)
+            ->put(route('internal-projects.tasks.update', [$this->project, $task]), $this->taskPayload([
+                'title' => 'API pagos v2',
+                'responsible_user_id' => $this->member->id,
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('API pagos v2', $task->fresh()->title);
+        $this->assertSame($this->member->id, $task->fresh()->responsible_user_id);
+    }
+
+    public function test_updating_a_phase_with_an_empty_order_keeps_its_order(): void
+    {
+        $this->phase->update(['sort' => 7]);
+
+        $this->actingAs($this->member)
+            ->put(route('internal-projects.phases.update', [$this->project, $this->phase]), ['name' => 'Desarrollo web', 'sort' => ''])
+            ->assertRedirect();
+
+        $this->assertSame('Desarrollo web', $this->phase->fresh()->name);
+        $this->assertSame(7, (int) $this->phase->fresh()->sort);
+    }
+
     public function test_non_numeric_project_ids_never_match_on_nested_routes(): void
     {
         $this->actingAs($this->responsible);
