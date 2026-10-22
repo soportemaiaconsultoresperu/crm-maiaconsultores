@@ -23,10 +23,10 @@ class DatabaseSeeder extends Seeder
             RolesAndPermissionsSeeder::class,
             AdditionalPermissionsSeeder::class,
             SupportPermissionsSeeder::class,
-            // Rollout path for the Cursos y charlas module. `RolesAndPermissionsSeeder`
-            // syncs the roles, so this MUST run after it (and after the other
-            // permission seeders): otherwise the module permissions would be wiped.
-            // It is idempotent on re-seed (firstOrCreate + merge-then-sync).
+            // Rollout path for the Cursos y charlas module. It runs after
+            // `RolesAndPermissionsSeeder`, which creates the roles. It is idempotent
+            // on re-seed (firstOrCreate + SeededGrants::grantOnce): each default is
+            // granted once, so a revoke made by the admin survives the next deploy.
             //
             // ROLLBACK (per design "Keep rollback non-destructive"): to take the
             // module out of service, remove this call — or revoke the
@@ -52,10 +52,9 @@ class DatabaseSeeder extends Seeder
             // rollback.
             CoursePermissionsSeeder::class,
             // Content scheduling module permission vocabulary (task T2). Like the
-            // course-talks seeder above it MUST run after `RolesAndPermissionsSeeder`
-            // (whose `syncPermissions($all)` would otherwise wipe these grants) and it
-            // is idempotent on re-seed (firstOrCreate + merge-then-sync), so it never
-            // detaches another module's permissions.
+            // course-talks seeder above it runs after `RolesAndPermissionsSeeder`
+            // (which creates the roles) and is idempotent on re-seed (firstOrCreate +
+            // SeededGrants::grantOnce), so it never detaches any permission.
             //
             // ROLLBACK is non-destructive: remove this call (or revoke the
             // `content_projects.*` permissions) and the module's routes and sidebar

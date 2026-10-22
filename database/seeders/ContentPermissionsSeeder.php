@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -14,14 +15,12 @@ use Spatie\Permission\PermissionRegistrar;
  * `SupportPermissionsSeeder`:
  *
  * - Rows are created with `firstOrCreate`, so re-running is idempotent.
- * - Role grants MERGE the role's current permission names before calling
- *   `syncPermissions()`. `syncPermissions()` replaces the role's ENTIRE
- *   permission set, so merging is what stops this seeder from DETACHING the
- *   permissions of every other module — the regression audit A-2 recorded for
- *   the campaign permissions. This seeder never deletes a row and never revokes
- *   a grant; every change it makes is additive.
- * - It must run AFTER `RolesAndPermissionsSeeder`, whose own
- *   `syncPermissions($all)` would otherwise overwrite these grants.
+ * - Role grants go through `SeededGrants::grantOnce()`: each default is handed
+ *   to a role once and recorded in the `seeded_role_grants` ledger, so a re-run
+ *   (production seeds on every deploy) never revokes nor re-grants what the
+ *   admin adjusted on the role screen. This seeder never deletes a row and
+ *   never revokes a grant; every change it makes is additive.
+ * - It runs after `RolesAndPermissionsSeeder`, which creates the roles.
  *
  * `content_projects.view_all` is the only cross-project widening and it stays
  * admin-only here on purpose: the consolidated view is expressed as a
@@ -83,7 +82,7 @@ class ContentPermissionsSeeder extends Seeder
     }
 
     /**
-     * Add permissions to a role without dropping the ones it already holds.
+     * Grant each default to the role once, never dropping what it already holds.
      *
      * @param  list<string>  $permissions
      */
@@ -98,9 +97,6 @@ class ContentPermissionsSeeder extends Seeder
             return;
         }
 
-        $role->syncPermissions(array_values(array_unique(array_merge(
-            $role->permissions->pluck('name')->all(),
-            $permissions,
-        ))));
+        SeededGrants::grantOnce($role, $permissions);
     }
 }

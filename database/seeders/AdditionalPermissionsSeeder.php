@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -19,8 +20,9 @@ use Spatie\Permission\PermissionRegistrar;
  * supervisor / vendedor roles (the products catalog is global, not
  * owner-scoped, so every authenticated role needs at least
  * products.view.any to see it) and wires the B08 admin permissions
- * following the rule documented below. The original seeder is not
- * modified.
+ * following the rule documented below. Grants go through
+ * SeededGrants::grantOnce: each default is handed to a role once and never
+ * re-granted or revoked by a later deploy.
  *
  * B08 grant policy (RF-USR-008):
  *  - admin: every new permission.
@@ -127,13 +129,7 @@ class AdditionalPermissionsSeeder extends Seeder
                 continue;
             }
 
-            $existing = $role->permissions->pluck('name')->all();
-
-            $toGrant = array_values(array_unique(array_merge($existing, [
-                'products.view.any',
-            ])));
-
-            $role->syncPermissions($toGrant);
+            SeededGrants::grantOnce($role, ['products.view.any']);
         }
 
         // Wire B08 admin permissions: admin gets everything, supervisor
@@ -155,9 +151,7 @@ class AdditionalPermissionsSeeder extends Seeder
             return;
         }
 
-        $existing = $admin->permissions->pluck('name')->all();
-
-        $toGrant = array_values(array_unique(array_merge($existing, [
+        SeededGrants::grantOnce($admin, [
             'users.view',
             'users.create',
             'users.update',
@@ -173,9 +167,7 @@ class AdditionalPermissionsSeeder extends Seeder
             'settings.view',
             'settings.manage',
             'audit.view',
-        ])));
-
-        $admin->syncPermissions($toGrant);
+        ]);
     }
 
     private function grantSupervisor(): void
@@ -189,10 +181,6 @@ class AdditionalPermissionsSeeder extends Seeder
             return;
         }
 
-        $existing = $supervisor->permissions->pluck('name')->all();
-
-        $toGrant = array_values(array_unique(array_merge($existing, $this->supervisorAdminGrants)));
-
-        $supervisor->syncPermissions($toGrant);
+        SeededGrants::grantOnce($supervisor, $this->supervisorAdminGrants);
     }
 }

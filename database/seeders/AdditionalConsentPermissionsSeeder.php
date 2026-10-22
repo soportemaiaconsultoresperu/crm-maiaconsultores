@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
@@ -18,7 +19,8 @@ use Spatie\Permission\Models\Role;
  *   - consent.revoke  → revoke consent (agent + admin)
  *   - consent.audit   → full audit log access (admin only)
  *
- * Idempotent: firstOrCreate + syncPermissions. Safe to re-run.
+ * Idempotent: firstOrCreate + SeededGrants::grantOnce (each default is granted
+ * to a role once; a later re-run never revokes nor re-grants it). Safe to re-run.
  */
 class AdditionalConsentPermissionsSeeder extends Seeder
 {
@@ -47,16 +49,12 @@ class AdditionalConsentPermissionsSeeder extends Seeder
 
         $admin = Role::query()->where('name', 'admin')->where('guard_name', 'web')->first();
         if ($admin !== null) {
-            $existing = $admin->permissions->pluck('name')->all();
-            $merged = array_values(array_unique(array_merge($existing, self::ADMIN_GRANTS)));
-            $admin->syncPermissions($merged);
+            SeededGrants::grantOnce($admin, self::ADMIN_GRANTS);
         }
 
         $supervisor = Role::query()->where('name', 'supervisor')->where('guard_name', 'web')->first();
         if ($supervisor !== null) {
-            $existing = $supervisor->permissions->pluck('name')->all();
-            $merged = array_values(array_unique(array_merge($existing, self::SUPERVISOR_GRANTS)));
-            $supervisor->syncPermissions($merged);
+            SeededGrants::grantOnce($supervisor, self::SUPERVISOR_GRANTS);
         }
     }
 }
