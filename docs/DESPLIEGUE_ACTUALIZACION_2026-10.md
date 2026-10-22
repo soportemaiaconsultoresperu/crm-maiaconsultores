@@ -24,7 +24,17 @@ los módulos nuevos. Complementa la guía general [DESPLIEGUE_PRODUCCION_UBUNTU.
 
 ### Migraciones (18)
 
-Solo agregan tablas o columnas, **excepto cuatro de Cursos que transforman datos existentes**:
+`php artisan migrate` (lo ejecuta `init`) aplica **solo las pendientes**, en orden de fecha, y nunca repite las
+ya aplicadas. Es normal que el servidor tenga migraciones sin ejecutar: esta actualización las corre todas.
+Para ver cuántas faltan antes de empezar:
+
+```bash
+docker compose --env-file .env.docker exec app php artisan migrate:status | grep -c Pending
+```
+
+Solo agregan tablas o columnas, **excepto cuatro de Cursos que transforman datos existentes**. Si el módulo
+de Cursos **nunca se instaló** en el servidor, estas cuatro corren sobre tablas recién creadas y vacías: no hay
+datos que perder y el Paso 1 no aplica.
 
 | Migración | Efecto | Reversible |
 |---|---|---|
@@ -56,10 +66,15 @@ contenedor `scheduler`, que ya existe; no hay que configurar nada.
 ## Paso 0 — Antes de empezar (en tu PC)
 
 1. El código tiene que estar **mergeado en `main`** y aprobado (Pull Request).
-2. Anotá el **SHA o tag** exacto a desplegar (por ejemplo `git rev-parse origin/main`).
+2. Sobre el commit mergeado en `main` se crea y publica una **etiqueta de versión**, por ejemplo
+   `v2026.10.22`. Ese es el valor que va en `<SHA_O_TAG_APROBADO>` (Paso 3). Volver atrás es hacer
+   `git checkout` de la etiqueta anterior.
 3. Elegí una ventana de mantenimiento: el sitio queda detenido unos minutos durante la copia y la migración.
 
 ## Paso 1 — Revisar datos que se van a transformar (servidor, solo lectura)
+
+> **Si Cursos y charlas nunca se instaló en el servidor, saltá este paso.** (Los comandos dirían que la
+> tabla `course_activities` no existe.)
 
 ```bash
 cd /var/www/crm-maia-consultores
@@ -100,7 +115,7 @@ No sigas sin una copia verificada: tres migraciones de Cursos no se pueden rever
 ```bash
 cd /var/www/crm-maia-consultores
 git fetch --tags origin
-git checkout <SHA_O_TAG_APROBADO>
+git checkout <SHA_O_TAG_APROBADO>      # por ejemplo: git checkout v2026.10.22
 git log -1 --oneline
 grep -n "FROM php" Dockerfile          # debe mostrar php:8.3.36-fpm-alpine
 docker compose --env-file .env.docker config --quiet
