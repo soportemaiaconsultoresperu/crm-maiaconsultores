@@ -1138,16 +1138,16 @@ Route::middleware(['auth', 'active'])
             ->whereNumber('internalProject')->name('timeline');
 
         Route::controller(\App\Http\Controllers\InternalProjects\InternalProjectPhaseController::class)->group(function (): void {
-            Route::post('{internalProject}/phases', 'store')->name('phases.store');
-            Route::put('{internalProject}/phases/{phase}', 'update')->name('phases.update');
-            Route::delete('{internalProject}/phases/{phase}', 'destroy')->name('phases.destroy');
+            Route::post('{internalProject}/phases', 'store')->whereNumber('internalProject')->name('phases.store');
+            Route::put('{internalProject}/phases/{phase}', 'update')->whereNumber('internalProject')->name('phases.update');
+            Route::delete('{internalProject}/phases/{phase}', 'destroy')->whereNumber('internalProject')->name('phases.destroy');
         });
 
         Route::controller(\App\Http\Controllers\InternalProjects\InternalProjectTaskController::class)->group(function (): void {
-            Route::post('{internalProject}/tasks', 'store')->name('tasks.store');
-            Route::put('{internalProject}/tasks/{task}', 'update')->name('tasks.update');
-            Route::patch('{internalProject}/tasks/{task}/status', 'status')->name('tasks.status');
-            Route::delete('{internalProject}/tasks/{task}', 'destroy')->name('tasks.destroy');
+            Route::post('{internalProject}/tasks', 'store')->whereNumber('internalProject')->name('tasks.store');
+            Route::put('{internalProject}/tasks/{task}', 'update')->whereNumber('internalProject')->name('tasks.update');
+            Route::patch('{internalProject}/tasks/{task}/status', 'status')->whereNumber('internalProject')->name('tasks.status');
+            Route::delete('{internalProject}/tasks/{task}', 'destroy')->whereNumber('internalProject')->name('tasks.destroy');
         });
     });
 

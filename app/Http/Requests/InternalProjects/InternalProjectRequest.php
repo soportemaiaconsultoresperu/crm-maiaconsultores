@@ -67,12 +67,12 @@ class InternalProjectRequest extends FormRequest
             'status' => ['required', Rule::in(ProjectStatus::values())],
             'responsible_user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('is_active', true)],
             'member_ids' => ['nullable', 'array'],
-            'member_ids.*' => ['integer', 'exists:users,id'],
+            'member_ids.*' => ['integer', Rule::exists('users', 'id')->where('is_active', true)],
             'audience_type' => ['required', Rule::in(array_keys(InternalProject::AUDIENCE_LABELS))],
             'role_ids' => ['required_if:audience_type,'.InternalProject::AUDIENCE_ROLES, 'array'],
             'role_ids.*' => ['integer', 'exists:roles,id'],
             'user_ids' => ['required_if:audience_type,'.InternalProject::AUDIENCE_USERS, 'array'],
-            'user_ids.*' => ['integer', 'exists:users,id'],
+            'user_ids.*' => ['integer', Rule::exists('users', 'id')->where('is_active', true)],
             'create_default_phases' => ['nullable', 'boolean'],
         ];
     }

@@ -283,6 +283,34 @@ class InternalProjectHttpTest extends TestCase
         ], $overrides);
     }
 
+    public function test_inactive_users_cannot_be_members_audience_or_task_responsible(): void
+    {
+        $inactive = User::factory()->create(['is_active' => false]);
+
+        $this->actingAs($this->responsible)
+            ->post(route('internal-projects.store'), $this->projectPayload([
+                'member_ids' => [$inactive->id],
+                'audience_type' => 'users',
+                'user_ids' => [$inactive->id],
+            ]))
+            ->assertSessionHasErrors(['member_ids.0', 'user_ids.0']);
+
+        $this->actingAs($this->member)
+            ->post(route('internal-projects.tasks.store', $this->project), $this->taskPayload(['responsible_user_id' => $inactive->id]))
+            ->assertSessionHasErrors(['responsible_user_id']);
+
+        $this->assertSame(0, InternalProjectTask::query()->where('title', 'Construir API')->count());
+    }
+
+    public function test_non_numeric_project_ids_never_match_on_nested_routes(): void
+    {
+        $this->actingAs($this->responsible);
+
+        $this->get('/internal-projects/'.$this->project->id.'abc/timeline')->assertNotFound();
+        $this->post('/internal-projects/'.$this->project->id.'abc/tasks', $this->taskPayload())->assertNotFound();
+        $this->post('/internal-projects/'.$this->project->id.'abc/phases', ['name' => 'X', 'sort' => 1])->assertNotFound();
+    }
+
     public function test_member_manages_phases_tasks_and_statuses(): void
     {
         $this->actingAs($this->member);

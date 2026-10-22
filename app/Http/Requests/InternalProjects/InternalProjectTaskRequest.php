@@ -43,7 +43,7 @@ class InternalProjectTaskRequest extends FormRequest
                     ->where('internal_project_id', $project instanceof InternalProject ? $project->id : 0)],
             'title' => ['required', 'string', 'max:200'],
             'description' => ['nullable', 'string', 'max:5000'],
-            'responsible_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'responsible_user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('is_active', true)],
             'starts_on' => ['required', 'date'],
             'due_on' => ['required', 'date', 'after_or_equal:starts_on'],
             'weight' => ['required', 'integer', 'min:1', 'max:65535'],
