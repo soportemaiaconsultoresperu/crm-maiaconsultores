@@ -12,7 +12,7 @@ class SupportResolutionCycle extends Model
 
     protected function casts(): array
     {
-        return ['started_at' => 'datetime', 'ended_at' => 'datetime'];
+        return ['started_at' => 'datetime', 'ended_at' => 'datetime', 'resolved_at' => 'datetime', 'validated_at' => 'datetime', 'closed_at' => 'datetime'];
     }
 
     public function periods(): HasMany

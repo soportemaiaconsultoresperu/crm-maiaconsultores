@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\InvalidOperationException;
 use App\Http\Requests\SupportTicketStoreRequest;
 use App\Models\{Activity, ActivityType, Contact, Customer, SupportCategory, SupportChannel, SupportObservation, SupportPriority, SupportSessionDetail, SupportStatus, SupportTicket, SupportTicketType, Team, User};
 use App\Services\{SupportTicketLifecycleService, SupportTicketScopeService, SupportTicketService};
@@ -9,6 +10,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 class SupportTicketController extends Controller
 {
@@ -40,24 +42,23 @@ class SupportTicketController extends Controller
         $wasAssigned = $ticket->responsible_id !== null;
 
         $data = $request->validate([
-            'responsible_id' => ['required', 'integer', 'exists:users,id'],
+            'responsible_id' => ['required', 'integer', Rule::exists('users', 'id')->where('is_active', true)],
             'team_id' => ['nullable', 'integer', 'exists:teams,id'],
             'reason' => [$wasAssigned ? 'required' : 'nullable', 'string', 'max:10000'],
         ], [
             'reason.required' => 'El motivo de reasignación es obligatorio.',
+            'responsible_id.exists' => 'El responsable debe ser un usuario activo.',
         ]);
 
         $responsible = User::query()->findOrFail((int) $data['responsible_id']);
 
-        $this->tickets->assign(
+        return $this->attempt(fn () => $this->tickets->assign(
             $ticket,
             $responsible,
             $request->user(),
             isset($data['team_id']) ? (int) $data['team_id'] : null,
             $data['reason'] ?? null,
-        );
-
-        return $this->back($wasAssigned ? 'Responsable reasignado.' : 'Responsable asignado.');
+        ), $wasAssigned ? 'Responsable reasignado.' : 'Responsable asignado.');
     }
 
     public function start(SupportTicket $ticket, Request $request): RedirectResponse
@@ -68,19 +69,18 @@ class SupportTicketController extends Controller
             return $this->back('La atención ya está en marcha.');
         }
 
-        if ($ticket->status?->slug === SupportStatus::SLUG_NEW && $ticket->responsible_id === null) {
-            $this->tickets->assign($ticket, $request->user(), $request->user(), $ticket->team_id, 'Inicio de atención por el responsable');
-            $ticket->refresh();
-        }
+        return $this->attempt(function () use ($ticket, $request): void {
+            if ($ticket->status?->slug === SupportStatus::SLUG_NEW && $ticket->responsible_id === null) {
+                $this->tickets->assign($ticket, $request->user(), $request->user(), $ticket->team_id, 'Inicio de atención por el responsable');
+            }
 
-        $this->lifecycle->transition($ticket, SupportStatus::SLUG_IN_PROGRESS, $request->user());
-
-        return $this->back('Atención iniciada.');
+            $this->lifecycle->transition($ticket, SupportStatus::SLUG_IN_PROGRESS, $request->user());
+        }, 'Atención iniciada.');
     }
-    public function resolve(SupportTicket $ticket, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.resolve'); $data=$request->validate(['solution_summary'=>['required','string','max:10000']]); $ticket->update(['solution_summary'=>$data['solution_summary'], 'updated_by'=>$request->user()->id]); $this->lifecycle->transition($ticket->fresh(), 'resuelto', $request->user()); return $this->back('Ticket resuelto.'); }
-    public function close(SupportTicket $ticket, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.close'); $data=$request->validate(['reason'=>['required','string','max:10000'], 'close_pending_exception'=>['nullable','boolean']]); $this->lifecycle->transition($ticket, 'cerrado', $request->user(), $data['reason'], (bool)($data['close_pending_exception'] ?? false)); return $this->back('Ticket cerrado.'); }
-    public function reopen(SupportTicket $ticket, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.reopen'); $data=$request->validate(['reason'=>['required','string','max:10000']]); $this->lifecycle->transition($ticket, 'reabierto', $request->user(), $data['reason']); return $this->back('Ticket reabierto.'); }
-    public function cancel(SupportTicket $ticket, Request $request): RedirectResponse { Gate::authorize('cancel', $ticket); $data=$request->validate(['reason'=>['required','string','max:10000']]); $this->tickets->cancel($ticket, $request->user(), $data['reason']); return $this->back('Ticket cancelado.'); }
+    public function resolve(SupportTicket $ticket, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.resolve'); $data=$request->validate(['solution_summary'=>['required','string','max:10000']]); return $this->attempt(fn () => $this->lifecycle->resolve($ticket, $data['solution_summary'], $request->user()), 'Ticket resuelto.'); }
+    public function close(SupportTicket $ticket, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.close'); $data=$request->validate(['reason'=>['required','string','max:10000'], 'close_pending_exception'=>['nullable','boolean'], 'customer_validated'=>['nullable','boolean']]); return $this->attempt(fn () => $this->lifecycle->transition($ticket, SupportStatus::SLUG_CLOSED, $request->user(), $data['reason'], (bool)($data['close_pending_exception'] ?? false), (bool)($data['customer_validated'] ?? false)), 'Ticket cerrado.'); }
+    public function reopen(SupportTicket $ticket, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.reopen'); $data=$request->validate(['reason'=>['required','string','max:10000']]); return $this->attempt(fn () => $this->lifecycle->transition($ticket, SupportStatus::SLUG_REOPENED, $request->user(), $data['reason']), 'Ticket reabierto.'); }
+    public function cancel(SupportTicket $ticket, Request $request): RedirectResponse { Gate::authorize('cancel', $ticket); $data=$request->validate(['reason'=>['required','string','max:10000']]); return $this->attempt(fn () => $this->tickets->cancel($ticket, $request->user(), $data['reason']), 'Ticket cancelado.'); }
     public function addInternalNote(SupportTicket $ticket, Request $request): RedirectResponse { Gate::authorize('addUpdate', $ticket); $data=$request->validate(['body'=>['required','string','max:10000']]); $this->tickets->addInternalNote($ticket, $data['body'], $request->user()); return $this->back('Nota interna agregada.'); }
     public function addCustomerResponse(SupportTicket $ticket, Request $request): RedirectResponse { Gate::authorize('addUpdate', $ticket); $data=$request->validate(['body'=>['required','string','max:10000']]); $this->tickets->addCustomerResponse($ticket, $data['body'], $request->user()); return $this->back('Respuesta al cliente registrada.'); }
 
@@ -89,27 +89,40 @@ class SupportTicketController extends Controller
         $this->authorizeAction($request, $ticket, 'support.schedule');
         $data=$request->validate(['type_id'=>['required','integer','exists:activity_types,id'], 'title'=>['required','string','max:255'], 'scheduled_at'=>['required','date'], 'owner_id'=>['nullable','integer','exists:users,id'], 'modality'=>['required','in:virtual,presential,phone,not_applicable'], 'topic'=>['nullable','string','max:255'], 'objective'=>['nullable','string'], 'agenda'=>['nullable','string']]);
 
-        if ($ticket->status?->slug === SupportStatus::SLUG_NEW && $ticket->responsible_id === null) {
-            $this->tickets->assign($ticket, $request->user(), $request->user(), $ticket->team_id, 'Programación de atención por el responsable');
-            $ticket->refresh();
-        }
-
         $activityData = array_intersect_key($data, array_flip(['type_id', 'title', 'scheduled_at', 'owner_id']));
         $sessionData = array_intersect_key($data, array_flip(['modality', 'topic', 'objective', 'agenda']));
 
-        $this->lifecycle->schedule($ticket, $activityData, $sessionData, $request->user()); return $this->back('Atención programada.');
+        return $this->attempt(function () use ($ticket, $request, $activityData, $sessionData): void {
+            if ($ticket->status?->slug === SupportStatus::SLUG_NEW && $ticket->responsible_id === null) {
+                $this->tickets->assign($ticket, $request->user(), $request->user(), $ticket->team_id, 'Programación de atención por el responsable');
+            }
+
+            $this->lifecycle->schedule($ticket, $activityData, $sessionData, $request->user());
+        }, 'Atención programada.');
     }
     public function reschedule(SupportTicket $ticket, Activity $activity, Request $request): RedirectResponse
     {
         $this->authorizeAction($request, $ticket, 'support.reschedule'); abort_unless((int)$activity->subject_id === (int)$ticket->id && $activity->subject_type === SupportTicket::class, 404);
-        $data=$request->validate(['scheduled_at'=>['required','date'], 'reason'=>['required','string','max:10000']]); $this->lifecycle->reschedule($activity, $data['scheduled_at'], $data['reason'], $request->user()); return $this->back('Atención reprogramada.');
+        $data=$request->validate(['scheduled_at'=>['required','date'], 'reason'=>['required','string','max:10000']]); return $this->attempt(fn () => $this->lifecycle->reschedule($activity, $data['scheduled_at'], $data['reason'], $request->user()), 'Atención reprogramada.');
     }
     public function saveIncident(SupportTicket $ticket, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.update'); $data=$request->validate(['system'=>['nullable','string','max:255'],'module'=>['nullable','string','max:255'],'environment'=>['nullable','string','max:255'],'version'=>['nullable','string','max:255'],'steps_to_reproduce'=>['nullable','string'],'expected_result'=>['nullable','string'],'actual_result'=>['nullable','string'],'severity'=>['nullable','string','max:255'],'browser'=>['nullable','string','max:255'],'operating_system'=>['nullable','string','max:255'],'device'=>['nullable','string','max:255'],'diagnosis'=>['nullable','string'],'root_cause'=>['nullable','string'],'technical_solution'=>['nullable','string'],'post_fix_tests'=>['nullable','string']]); $this->lifecycle->saveIncident($ticket, $data); return $this->back('Detalle de incidente guardado.'); }
     public function createObservation(SupportTicket $ticket, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.observations.create'); $data=$request->validate(['title'=>['required','string','max:255'],'description'=>['nullable','string'],'priority'=>['nullable','string','max:30'],'responsible_id'=>['nullable','integer','exists:users,id'],'due_at'=>['nullable','date']]); $this->lifecycle->createObservation($ticket, $data, $request->user()); return $this->back('Observación creada.'); }
-    public function transitionObservation(SupportTicket $ticket, SupportObservation $observation, Request $request): RedirectResponse { Gate::authorize('view', $ticket); abort_unless((int)$observation->ticket_id === (int)$ticket->id, 404); $data=$request->validate(['state'=>['required','in:pending,in_process,lifted,validated,rejected,reopened,not_applicable'],'reason'=>['nullable','string','max:10000']]); $permission=match($data['state']) {'lifted'=>'support.observations.lift','validated'=>'support.observations.validate','rejected'=>'support.observations.reject',default=>'support.observations.create'}; abort_unless($request->user()->can($permission),403); $this->lifecycle->transitionObservation($observation, $data['state'], $request->user(), $data['reason'] ?? null); return $this->back('Observación actualizada.'); }
+    public function transitionObservation(SupportTicket $ticket, SupportObservation $observation, Request $request): RedirectResponse { Gate::authorize('view', $ticket); abort_unless((int)$observation->ticket_id === (int)$ticket->id, 404); $data=$request->validate(['state'=>['required', Rule::in(array_keys(SupportObservation::TARGET_PERMISSIONS))],'reason'=>['nullable','string','max:10000']], ['state.in'=>'Estado de observación inválido.']); abort_unless($request->user()->can(SupportObservation::TARGET_PERMISSIONS[$data['state']]),403); return $this->attempt(fn () => $this->lifecycle->transitionObservation($observation, $data['state'], $request->user(), $data['reason'] ?? null), 'Observación actualizada.'); }
     public function addParticipant(SupportTicket $ticket, SupportSessionDetail $session, Request $request): RedirectResponse { $this->authorizeAction($request, $ticket, 'support.schedule'); abort_unless((int)$session->ticket_id === (int)$ticket->id, 404); $data=$request->validate(['name'=>['required','string','max:255'],'email'=>['nullable','email','max:255'],'attended'=>['required','boolean']]); $session->participants()->create($data); return $this->back('Participante registrado.'); }
 
     private function authorizeAction(Request $request, SupportTicket $ticket, string $permission): void { Gate::authorize('view', $ticket); abort_unless($request->user()->can($permission), 403); }
     private function back(string $message): RedirectResponse { return redirect()->back()->with('status', $message); }
+
+    /** Runs a domain action; a refused state change returns to the page with its Spanish message instead of a 500. */
+    private function attempt(callable $action, string $message): RedirectResponse
+    {
+        try {
+            $action();
+        } catch (InvalidOperationException $exception) {
+            return redirect()->back()->with('error', $exception->getMessage());
+        }
+
+        return $this->back($message);
+    }
     private function formData(): array { return ['customers'=>Customer::query()->orderBy('code')->get(['id','code','legal_name','trade_name']),'contacts'=>Contact::query()->orderBy('last_name')->orderBy('first_name')->get(['id','customer_id','first_name','last_name','email']),'types'=>SupportTicketType::query()->active()->orderBy('sort')->get(),'categories'=>SupportCategory::query()->active()->orderBy('sort')->get(),'channels'=>SupportChannel::query()->active()->orderBy('sort')->get(),'priorities'=>SupportPriority::query()->active()->orderBy('sort')->get()]; }
 }

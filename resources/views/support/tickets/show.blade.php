@@ -136,18 +136,19 @@
 
                 @foreach($ticket->observations as $observation)
                     <div class="border-top py-2">
-                        <strong>{{ $observation->title }}</strong> <span class="badge text-bg-light">{{ $observation->state }}</span>
+                        <strong>{{ $observation->title }}</strong> <span class="badge text-bg-light">{{ $observation->stateLabel() }}</span>
+                        @if ($observation->allowedTransitions() !== [])
                         <form method="POST" class="d-inline" action="{{ route('support.tickets.observations.transition', [$ticket, $observation]) }}" data-swal-loading>
                             @csrf
                             <select name="state" class="form-select form-select-sm d-inline w-auto">
-                                <option value="in_process">En proceso</option>
-                                <option value="lifted">Levantada</option>
-                                <option value="validated">Validada</option>
-                                <option value="rejected">Rechazada</option>
+                                @foreach ($observation->allowedTransitions() as $target)
+                                    <option value="{{ $target }}">{{ \App\Models\SupportObservation::LABELS[$target] }}</option>
+                                @endforeach
                             </select>
                             <input name="reason" class="form-control form-control-sm d-inline w-auto" placeholder="Motivo si aplica">
                             <button class="btn btn-sm btn-outline-secondary" data-swal-confirm data-swal-title="Cambiar observación" data-swal-text="Se actualizará el estado de la observación." data-swal-type="question">Cambiar</button>
                         </form>
+                        @endif
                         @include('documents.partials._panel', ['subject' => $observation, 'documents' => $observation->documents])
                     </div>
                 @endforeach
