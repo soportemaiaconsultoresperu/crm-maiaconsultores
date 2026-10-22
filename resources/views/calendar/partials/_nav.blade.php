@@ -2,7 +2,7 @@
     Calendar navigation (RF-CAL-001..002). Renders:
     - view tabs (month | week | day | list)
     - prev / next / today anchor links
-    - filters: layer (todo | comercial | interno), owner, type, subject_type, status
+    - filters: layer (todo | comercial | interno | proyectos), owner, type, subject_type, status
 --}}
 @php
     $todayAnchor = now()->format('Y-m-d');
@@ -57,6 +57,7 @@
                     <option value="">Todo</option>
                     <option value="commercial" @selected(request('layer') === 'commercial')>Comercial</option>
                     <option value="internal" @selected(request('layer') === 'internal')>Interno</option>
+                    <option value="projects" @selected(request('layer') === 'projects')>Proyectos</option>
                 </select>
             </div>
             @if (! empty($owners) && (auth()->user()->can('activities.view.any') || auth()->user()->can('activities.view.team')))

@@ -18,5 +18,10 @@ final readonly class CalendarEventItem
         public string $url,
         public ?string $amount = null,
         public bool $requiresFinancialRead = false,
+        // Date-only events (project task due dates) render without an hour.
+        public bool $allDay = false,
+        // Inline style painting the event (project colour).
+        public ?string $style = null,
+        public bool $overdue = false,
     ) {}
 }

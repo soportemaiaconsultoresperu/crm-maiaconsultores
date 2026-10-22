@@ -19,6 +19,11 @@
         'rejected' => ['Rechazada', 'text-bg-danger'],
         'expired' => ['Expirada', 'text-bg-warning'],
         'internal' => ['Interna', 'text-bg-primary'],
+        // Internal project tasks (App\Enums\InternalProjects\TaskStatus).
+        'pendiente' => ['Pendiente', 'text-bg-secondary'],
+        'en_curso' => ['En curso', 'text-bg-primary'],
+        'bloqueada' => ['Bloqueada', 'text-bg-warning'],
+        'terminada' => ['Terminada', 'text-bg-success'],
     ];
     [$label, $class] = $badges[$status] ?? [ucfirst(str_replace('_', ' ', $status)), 'text-bg-secondary'];
 @endphp

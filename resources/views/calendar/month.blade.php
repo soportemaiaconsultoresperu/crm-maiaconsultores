@@ -45,9 +45,15 @@
                                         </a>
                                     </div>
                                     @foreach ($dayEvents->take(3) as $event)
-                                        <a href="{{ $event->url }}" class="d-block text-truncate small calendar-event calendar-event-{{ $event->status }} calendar-event-{{ $event->kind }}"
+                                        <a href="{{ $event->url }}" class="d-block text-truncate small calendar-event calendar-event-{{ $event->status }} calendar-event-{{ $event->kind }} {{ $event->overdue ? 'calendar-event-overdue-task' : '' }}"
+                                           @if ($event->style) style="{{ $event->style }}" @endif
                                            data-testid="calendar-event">
-                                            <span class="text-secondary">{{ $event->scheduled_at->format('H:i') }}</span>
+                                            @if ($event->overdue)
+                                                <i class="bi bi-exclamation-triangle-fill text-danger" title="Atrasada" aria-label="Atrasada"></i>
+                                            @endif
+                                            @unless ($event->allDay)
+                                                <span class="text-secondary">{{ $event->scheduled_at->format('H:i') }}</span>
+                                            @endunless
                                             <span class="badge text-bg-light">{{ $event->typeLabel }}</span>
                                             {{ $event->title }}
                                         </a>

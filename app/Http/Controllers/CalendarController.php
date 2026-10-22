@@ -47,7 +47,7 @@ class CalendarController extends Controller
             'subject_type' => $request->query('subject_type'),
             'owner_id' => $request->query('owner_id'),
             'status' => $request->query('status'),
-            'layer' => in_array($request->query('layer'), ['commercial', 'internal'], true) ? $request->query('layer') : null,
+            'layer' => in_array($request->query('layer'), ['commercial', 'internal', 'projects'], true) ? $request->query('layer') : null,
         ], fn ($value) => $value !== null && $value !== '');
 
         // type_id is a controller-level filter: the DateRange query in

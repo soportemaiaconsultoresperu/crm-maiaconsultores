@@ -662,6 +662,22 @@ textarea.form-control {
 	background: #f5f3ff;
 }
 
+/* Internal project tasks: colour comes inline from the project (S4.3). */
+.calendar-event-overdue-task {
+	outline: 1px solid var(--bs-danger);
+	outline-offset: -1px;
+}
+
+.calendar-event-swatch {
+	display: inline-block;
+	width: 0.75rem;
+	height: 0.75rem;
+	margin-right: 0.25rem;
+	vertical-align: middle;
+	border-left: 3px solid;
+	border-radius: 0.2rem;
+}
+
 [data-calendar-page][aria-busy="true"] {
 	opacity: 0.65;
 	pointer-events: none;

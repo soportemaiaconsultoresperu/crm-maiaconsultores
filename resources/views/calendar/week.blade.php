@@ -28,8 +28,14 @@
                         <div class="p-2 border-bottom text-center fw-medium">{{ $day->format('D d/m') }}</div>
                         <div class="p-2" style="min-height: 18rem;">
                             @forelse ($dayEvents as $event)
-                                <a href="{{ $event->url }}" class="d-block small mb-1 calendar-event calendar-event-{{ $event->status }} calendar-event-{{ $event->kind }}">
-                                    <span class="text-secondary">{{ $event->scheduled_at->format('H:i') }}</span>
+                                <a href="{{ $event->url }}" class="d-block small mb-1 calendar-event calendar-event-{{ $event->status }} calendar-event-{{ $event->kind }} {{ $event->overdue ? 'calendar-event-overdue-task' : '' }}"
+                                   @if ($event->style) style="{{ $event->style }}" @endif>
+                                    @if ($event->overdue)
+                                        <i class="bi bi-exclamation-triangle-fill text-danger" title="Atrasada" aria-label="Atrasada"></i>
+                                    @endif
+                                    @unless ($event->allDay)
+                                        <span class="text-secondary">{{ $event->scheduled_at->format('H:i') }}</span>
+                                    @endunless
                                     <span class="badge text-bg-light">{{ $event->typeLabel }}</span>
                                     {{ $event->title }}
                                 </a>

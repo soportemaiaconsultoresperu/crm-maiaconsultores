@@ -14,9 +14,29 @@
         </div>
         <div class="card-body p-0">
             @php
-                $eventsByHour = $events->groupBy(fn ($event) => $event->scheduled_at->format('H'));
+                [$allDayEvents, $timedEvents] = $events->partition(fn ($event) => $event->allDay);
+                $eventsByHour = $timedEvents->groupBy(fn ($event) => $event->scheduled_at->format('H'));
             @endphp
             <ul class="list-group list-group-flush">
+                @if ($allDayEvents->isNotEmpty())
+                    <li class="list-group-item" data-testid="calendar-day-all-day">
+                        <div class="d-flex gap-3">
+                            <div class="text-secondary small" style="min-width: 4rem;">Todo el día</div>
+                            <div class="flex-grow-1">
+                                @foreach ($allDayEvents as $event)
+                                    <a href="{{ $event->url }}" class="d-block mb-1 calendar-event calendar-event-{{ $event->status }} calendar-event-{{ $event->kind }} {{ $event->overdue ? 'calendar-event-overdue-task' : '' }}"
+                                       @if ($event->style) style="{{ $event->style }}" @endif>
+                                        @if ($event->overdue)
+                                            <i class="bi bi-exclamation-triangle-fill text-danger" title="Atrasada" aria-label="Atrasada"></i>
+                                        @endif
+                                        {{ $event->title }}
+                                        <span class="text-secondary">({{ $event->typeLabel }})</span>
+                                    </a>
+                                @endforeach
+                            </div>
+                        </div>
+                    </li>
+                @endif
                 @for ($hour = 0; $hour < 24; $hour++)
                     @php
                         $hourKey = str_pad((string) $hour, 2, '0', STR_PAD_LEFT);

@@ -2,16 +2,23 @@
 
 namespace App\Services;
 
+use App\Enums\InternalProjects\TaskStatus;
 use App\Models\Activity;
 use App\Models\Customer;
 use App\Models\CustomerInvoice;
 use App\Models\InternalActivity;
+use App\Models\InternalProjects\InternalProject;
+use App\Models\InternalProjects\InternalProjectTask;
 use App\Models\Lead;
 use App\Models\Opportunity;
 use App\Models\SupportTicket;
 use App\Models\User;
 use App\Support\Calendar\CalendarEventItem;
+use App\Support\Content\PeruTime;
+use App\Support\Content\ProjectColor;
 use App\Support\DateRange;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class CalendarEventService
@@ -29,12 +36,18 @@ class CalendarEventService
     {
         // Calendar layer (odd/tasks/internal-activities.md): '' shows commercial
         // and internal events, 'commercial' hides internal ones, 'internal'
-        // shows only the organization's internal activities.
+        // shows only the organization's internal activities. 'projects'
+        // (odd/tasks/internal-projects.md, S4.3) shows only internal project
+        // milestones and task due dates; '' includes them too.
         $layer = (string) ($filters['layer'] ?? '');
         unset($filters['layer']);
 
         if ($layer === 'internal') {
             return $this->internalEvents($user, $range)->sortBy('scheduled_at')->values();
+        }
+
+        if ($layer === 'projects') {
+            return $this->projectEvents($user, $range)->sortBy('scheduled_at')->values();
         }
 
         $commercial = $this->commercialEvents($user, $range, $filters);
@@ -43,12 +56,17 @@ class CalendarEventService
             return $commercial;
         }
 
-        return $commercial->merge($this->internalEvents($user, $range))->sortBy('scheduled_at')->values();
+        return $commercial
+            ->merge($this->internalEvents($user, $range))
+            ->merge($this->projectEvents($user, $range))
+            ->sortBy('scheduled_at')
+            ->values();
     }
 
     /**
-     * Internal activities carry no subject, owner, type or status, so any of
-     * those filters means the user is narrowing commercial events only.
+     * Internal activities and project tasks carry no subject, owner, type or
+     * commercial status, so any of those filters means the user is narrowing
+     * commercial events only.
      *
      * @param array<string, mixed> $filters
      */
@@ -87,6 +105,55 @@ class CalendarEventService
                 url: route('internal-activities.show', $activity),
             ), $activity->occurrencesBetween($range->start(), $range->end())))
             ->all());
+    }
+
+    /**
+     * Milestones and due dates of open tasks of the projects the user may see.
+     * Done tasks drop out (nothing left to watch) but milestones always show
+     * so the plan stays readable. A due date is a Lima calendar day with no
+     * hour, so the event sits at that day's start and renders as all-day.
+     *
+     * @return Collection<int, CalendarEventItem>
+     */
+    private function projectEvents(User $user, DateRange $range): Collection
+    {
+        $today = InternalProjectTask::limaToday();
+
+        return collect(InternalProjectTask::query()
+            ->whereHas('project', fn (Builder $project) => $project->visibleTo($user))
+            ->whereNotNull('due_on')
+            ->whereDate('due_on', '>=', $range->start()->toDateString())
+            ->whereDate('due_on', '<=', $range->end()->toDateString())
+            ->where(fn (Builder $open) => $open->where('is_milestone', true)
+                ->orWhere('status', '!=', TaskStatus::Done->value))
+            ->with(['project:id,name,code,color', 'responsible:id,name'])
+            ->orderBy('due_on')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (InternalProjectTask $task) => $this->fromProjectTask($task, $today))
+            ->all());
+    }
+
+    private function fromProjectTask(InternalProjectTask $task, string $today): CalendarEventItem
+    {
+        /** @var InternalProject $project */
+        $project = $task->project;
+        $dueOn = $task->due_on->toDateString();
+
+        return new CalendarEventItem(
+            kind: 'project_task',
+            id: 'project-task-'.$task->id,
+            scheduled_at: CarbonImmutable::parse($dueOn, PeruTime::TIMEZONE)->startOfDay(),
+            title: ($task->is_milestone ? '◆ ' : '').'['.$project->code.'] '.$task->title,
+            status: $task->status->value,
+            typeLabel: $task->is_milestone ? 'Hito' : 'Proyecto',
+            subjectLabel: $project->name,
+            ownerName: $task->responsible?->name,
+            url: route('internal-projects.show', $project).'#task-'.$task->id,
+            allDay: true,
+            style: ProjectColor::softStyle($project->color),
+            overdue: ! $task->isDone() && $dueOn < $today,
+        );
     }
 
     /**

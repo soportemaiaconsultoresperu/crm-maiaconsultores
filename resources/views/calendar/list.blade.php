@@ -23,8 +23,16 @@
         @slot('rows')
             @forelse ($events as $event)
                     <tr data-testid="calendar-list-row">
-                    <td class="text-nowrap">{{ $event->scheduled_at->format('d/m/Y H:i') }}</td>
-                    <td>{{ $event->title }}</td>
+                    <td class="text-nowrap">{{ $event->scheduled_at->format($event->allDay ? 'd/m/Y' : 'd/m/Y H:i') }}</td>
+                    <td>
+                        @if ($event->style)
+                            <span class="calendar-event-swatch" style="{{ $event->style }}" aria-hidden="true"></span>
+                        @endif
+                        {{ $event->title }}
+                        @if ($event->overdue)
+                            <span class="badge text-bg-danger">Atrasada</span>
+                        @endif
+                    </td>
                     <td>{{ $event->typeLabel }}</td>
                     <td>{{ $event->subjectLabel }}</td>
                     <td><x-badge-status :status="$event->status"/></td>
