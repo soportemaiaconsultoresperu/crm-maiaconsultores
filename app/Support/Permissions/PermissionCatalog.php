@@ -212,6 +212,7 @@ final class PermissionCatalog
         'products.update' => ['products', 'editar', 'Editar productos', 'Modifica precios y datos de los productos.', false, 'editar'],
         'products.deactivate' => ['products', 'editar', 'Desactivar productos', 'Retira productos del catálogo sin borrarlos.', false, 'desactivar'],
         'products.export' => ['products', 'especiales', 'Exportar productos', 'Descarga el catálogo de productos a un archivo.', true, 'exportar'],
+        'products.import' => ['products', 'especiales', 'Importar productos', 'Carga productos masivamente desde un archivo.', true, 'importar'],
 
         // Cotizaciones
         'quotations.view.any' => ['quotations', 'ver', 'Ver todas las cotizaciones', 'Ve las cotizaciones de toda la empresa.', false, 'ver todas'],
