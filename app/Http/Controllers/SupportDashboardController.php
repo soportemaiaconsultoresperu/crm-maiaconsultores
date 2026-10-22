@@ -2,21 +2,43 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\{Customer, SupportCategory, SupportPriority, SupportStatus, SupportTicketType, Team, User};
-use App\Services\SupportDashboardService;
+use App\Models\{Customer, SupportCategory, SupportPriority, SupportStatus, SupportTicket, SupportTicketType, Team, User};
+use App\Services\{SupportDashboardService, SupportTicketScopeService};
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SupportDashboardController extends Controller
 {
-    public function __construct(private readonly SupportDashboardService $dashboard) {}
+    public function __construct(private readonly SupportDashboardService $dashboard, private readonly SupportTicketScopeService $scope) {}
 
     public function index(Request $request): View
     {
         abort_unless($request->user()->can('support.reports.view'), 403);
         $filters=$this->filters($request);
-        return view('support.dashboard', ['metrics'=>$this->dashboard->metrics($filters, $request->user()), 'filters'=>$filters, 'customers'=>Customer::query()->orderBy('code')->get(['id','code']), 'users'=>User::query()->where('is_active',true)->orderBy('name')->get(['id','name']), 'teams'=>Team::query()->where('is_active',true)->orderBy('name')->get(['id','name']), 'types'=>SupportTicketType::query()->orderBy('sort')->get(['id','name']), 'categories'=>SupportCategory::query()->orderBy('sort')->get(['id','name']), 'priorities'=>SupportPriority::query()->orderBy('sort')->get(['id','name']), 'statuses'=>SupportStatus::query()->orderBy('sort')->get(['id','name'])]);
+        return view('support.dashboard', array_merge(['metrics'=>$this->dashboard->metrics($filters, $request->user()), 'filters'=>$filters], $this->scopedOptions($request->user()), ['types'=>SupportTicketType::query()->orderBy('sort')->get(['id','name']), 'categories'=>SupportCategory::query()->orderBy('sort')->get(['id','name']), 'priorities'=>SupportPriority::query()->orderBy('sort')->get(['id','name']), 'statuses'=>SupportStatus::query()->orderBy('sort')->get(['id','name'])]));
+    }
+
+    /**
+     * Customer/responsible/team dropdowns: everything for support.view.any, otherwise only
+     * what appears in the tickets the user can see (plus the user), so filters never leak other scopes.
+     *
+     * @return array{customers:\Illuminate\Support\Collection,users:\Illuminate\Support\Collection,teams:\Illuminate\Support\Collection}
+     */
+    private function scopedOptions(User $user): array
+    {
+        $customers = Customer::query()->orderBy('code');
+        $users = User::query()->where('is_active', true)->orderBy('name');
+        $teams = Team::query()->where('is_active', true)->orderBy('name');
+
+        if (! $user->can('support.view.any')) {
+            $visible = fn (string $column) => $this->scope->apply(SupportTicket::query(), $user)->whereNotNull($column)->distinct()->select($column);
+            $customers->whereIn('id', $visible('customer_id'));
+            $users->where(fn ($q) => $q->whereIn('id', $visible('responsible_id'))->orWhere('id', $user->id));
+            $teams->whereIn('id', $visible('team_id'));
+        }
+
+        return ['customers' => $customers->get(['id', 'code']), 'users' => $users->get(['id', 'name']), 'teams' => $teams->get(['id', 'name'])];
     }
 
     public function export(Request $request): StreamedResponse

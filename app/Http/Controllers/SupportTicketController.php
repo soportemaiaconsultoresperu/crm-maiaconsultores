@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\InvalidOperationException;
-use App\Http\Requests\SupportTicketStoreRequest;
-use App\Models\{Activity, ActivityType, Contact, Customer, SupportCategory, SupportChannel, SupportObservation, SupportPriority, SupportSessionDetail, SupportStatus, SupportTicket, SupportTicketType, Team, User};
+use App\Http\Requests\{SupportTicketStoreRequest, SupportTicketUpdateRequest};
+use App\Models\{Activity, ActivityType, Contact, Customer, SupportCategory, SupportChannel, SupportObservation, SupportPriority, SupportReschedule, SupportSessionDetail, SupportStatus, SupportTicket, SupportTicketType, Team, User};
 use App\Services\{SupportTicketLifecycleService, SupportTicketScopeService, SupportTicketService};
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -21,8 +21,16 @@ class SupportTicketController extends Controller
         Gate::authorize('viewAny', SupportTicket::class);
         $query = $this->scope->apply(SupportTicket::query(), $request->user())->with(['customer:id,code,legal_name,trade_name', 'requester:id,first_name,last_name,email', 'type:id,name', 'priority:id,name,color', 'status:id,name,slug', 'responsible:id,name', 'team:id,name'])->latest();
         foreach (['status_id', 'priority_id'] as $filter) if ($request->filled($filter)) $query->where($filter, (int) $request->query($filter));
+        if ($request->boolean('mine')) $query->where('responsible_id', $request->user()->id);
+        $search = trim((string) $request->query('q', ''));
+        if ($search !== '') {
+            // `%` and `_` typed by the user are literal: escaped with '!' (works on SQLite and MySQL).
+            $like = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search).'%';
+            $query->where(fn ($q) => $q->whereRaw("code LIKE ? ESCAPE '!'", [$like])->orWhereRaw("title LIKE ? ESCAPE '!'", [$like])
+                ->orWhereHas('customer', fn ($c) => $c->whereRaw("code LIKE ? ESCAPE '!'", [$like])->orWhereRaw("legal_name LIKE ? ESCAPE '!'", [$like])->orWhereRaw("trade_name LIKE ? ESCAPE '!'", [$like])));
+        }
         $pageSize = (int) \App\Models\Setting::query()->where('key', 'pagination_size')->value('value');
-        return view('support.tickets.index', ['tickets' => $query->paginate(max(1, $pageSize ?: 25))->withQueryString(), 'statuses' => SupportStatus::query()->orderBy('sort')->get(), 'priorities' => SupportPriority::query()->orderBy('sort')->get(), 'filters' => $request->only(['status_id', 'priority_id'])]);
+        return view('support.tickets.index', ['tickets' => $query->paginate(max(1, $pageSize ?: 25))->withQueryString(), 'statuses' => SupportStatus::query()->orderBy('sort')->get(), 'priorities' => SupportPriority::query()->orderBy('sort')->get(), 'filters' => $request->only(['status_id', 'priority_id', 'q', 'mine'])]);
     }
 
     public function create(): View { Gate::authorize('create', SupportTicket::class); return view('support.tickets.create', $this->formData()); }
@@ -31,8 +39,83 @@ class SupportTicketController extends Controller
     public function show(SupportTicket $ticket): View
     {
         Gate::authorize('view', $ticket);
-        $ticket->load(['customer', 'requester', 'type', 'category', 'channel', 'priority', 'status', 'responsible', 'team', 'assignments', 'updates.author', 'documents', 'activities.type', 'sessionDetails.participants', 'sessionDetails.documents', 'incidentDetail.documents', 'observations.documents', 'observations.histories']);
-        return view('support.tickets.show', ['ticket' => $ticket, 'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id','name']), 'teams' => Team::query()->where('is_active', true)->orderBy('name')->get(['id','name']), 'activityTypes' => ActivityType::query()->where('is_active', true)->orderBy('name')->get(['id','name'])]);
+        $ticket->load(['customer', 'requester', 'type', 'category', 'channel', 'priority', 'status', 'responsible', 'team', 'assignments' => fn ($q) => $q->orderBy('assigned_at')->orderBy('id'), 'statusPeriods' => fn ($q) => $q->orderBy('started_at')->orderBy('id'), 'updates.author', 'documents', 'activities.type', 'sessionDetails.participants', 'sessionDetails.documents', 'incidentDetail.documents', 'observations.documents', 'observations.histories']);
+        $reschedules = SupportReschedule::query()->where('ticket_id', $ticket->id)->with('activity:id,title')->orderBy('created_at')->orderBy('id')->get();
+        $userIds = $ticket->assignments->flatMap(fn ($a) => [$a->previous_responsible_id, $a->new_responsible_id, $a->assigned_by])
+            ->merge($reschedules->flatMap(fn ($r) => [$r->rescheduled_by, $r->responsible_id]))
+            ->merge($ticket->observations->pluck('responsible_id'))->filter()->unique();
+        $teamIds = $ticket->assignments->flatMap(fn ($a) => [$a->previous_team_id, $a->new_team_id])->filter()->unique();
+
+        return view('support.tickets.show', [
+            'ticket' => $ticket,
+            'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id','name']),
+            'teams' => Team::query()->where('is_active', true)->orderBy('name')->get(['id','name']),
+            'activityTypes' => ActivityType::query()->where('is_active', true)->orderBy('name')->get(['id','name']),
+            'priorities' => SupportPriority::query()->active()->orderBy('sort')->get(['id','name']),
+            'reschedules' => $reschedules,
+            'userNames' => User::query()->whereIn('id', $userIds)->pluck('name', 'id'),
+            'teamNames' => Team::query()->whereIn('id', $teamIds)->pluck('name', 'id'),
+            'statusNames' => SupportStatus::query()->pluck('name', 'id'),
+            'allowed' => SupportTicketLifecycleService::allowedTransitions($ticket->status?->slug),
+        ]);
+    }
+
+    public function edit(SupportTicket $ticket): View|RedirectResponse
+    {
+        Gate::authorize('update', $ticket);
+        if (in_array($ticket->status?->slug, [SupportStatus::SLUG_CLOSED, SupportStatus::SLUG_CANCELLED], true)) {
+            return redirect()->route('support.tickets.show', $ticket)->with('error', 'No se puede editar un ticket cerrado o cancelado.');
+        }
+
+        return view('support.tickets.edit', ['ticket' => $ticket, 'types' => SupportTicketType::query()->active()->orderBy('sort')->get(), 'categories' => SupportCategory::query()->active()->orderBy('sort')->get(), 'channels' => SupportChannel::query()->active()->orderBy('sort')->get()]);
+    }
+
+    public function update(SupportTicket $ticket, SupportTicketUpdateRequest $request): RedirectResponse
+    {
+        Gate::authorize('view', $ticket);
+
+        try {
+            $this->tickets->updateDetails($ticket, $request->validated(), $request->user());
+        } catch (InvalidOperationException $exception) {
+            return redirect()->back()->with('error', $exception->getMessage());
+        }
+
+        return redirect()->route('support.tickets.show', $ticket)->with('status', 'Ticket actualizado.');
+    }
+
+    public function changePriority(SupportTicket $ticket, Request $request): RedirectResponse
+    {
+        $this->authorizeAction($request, $ticket, 'support.priority.update');
+        $data = $request->validate([
+            'priority_id' => ['required', 'integer', Rule::exists('support_priorities', 'id')->where('is_active', true)],
+            'reason' => ['nullable', 'string', 'max:10000'],
+        ], [
+            'priority_id.required' => 'Seleccione una prioridad.',
+            'priority_id.exists' => 'La prioridad de soporte no está activa.',
+        ]);
+
+        return $this->attempt(fn () => $this->tickets->changePriority($ticket, (int) $data['priority_id'], $request->user(), $data['reason'] ?? null), 'Prioridad actualizada.');
+    }
+
+    public function hold(SupportTicket $ticket, Request $request): RedirectResponse
+    {
+        $this->authorizeAction($request, $ticket, 'support.attention.start');
+        $data = $request->validate([
+            'kind' => ['required', Rule::in(array_keys(SupportTicketLifecycleService::HOLD_STATES))],
+            'reason' => ['nullable', 'string', 'max:10000'],
+        ], [
+            'kind.required' => 'Seleccione el tipo de espera: cliente o interna.',
+            'kind.in' => 'Seleccione el tipo de espera: cliente o interna.',
+        ]);
+
+        return $this->attempt(fn () => $this->lifecycle->putOnHold($ticket, $data['kind'], $request->user(), $data['reason'] ?? null), $data['kind'] === 'cliente' ? 'Ticket en espera del cliente.' : 'Ticket en espera interna.');
+    }
+
+    public function resume(SupportTicket $ticket, Request $request): RedirectResponse
+    {
+        $this->authorizeAction($request, $ticket, 'support.attention.start');
+
+        return $this->attempt(fn () => $this->lifecycle->resumeFromHold($ticket, $request->user()), 'Atención reanudada.');
     }
 
     public function assign(SupportTicket $ticket, Request $request): RedirectResponse
