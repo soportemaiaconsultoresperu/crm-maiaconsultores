@@ -174,12 +174,13 @@ class AutomationServiceProvider extends ServiceProvider
             ->first();
 
         if ($admin !== null) {
-            // Grant additively instead of syncPermissions(): givePermissionTo()
+            // Grant once (SeededGrants ledger) instead of syncPermissions(): an admin
+            // removal on the roles screen survives later boots. givePermissionTo()
             // only attaches the missing role_has_permissions rows, whereas
             // syncPermissions() detaches every row and re-inserts it, which
             // races on the role_has_permissions primary key when parallel
             // artisan processes boot against the same DB.
-            $admin->givePermissionTo($permissions);
+            \App\Support\Permissions\SeededGrants::grantOnce($admin, $permissions);
         }
 
         $supervisor = Role::query()
@@ -190,7 +191,7 @@ class AutomationServiceProvider extends ServiceProvider
         if ($supervisor !== null) {
             // Additive grant — see the admin branch above for the
             // concurrent-boot duplicate-key rationale.
-            $supervisor->givePermissionTo(['automations.view']);
+            \App\Support\Permissions\SeededGrants::grantOnce($supervisor, ['automations.view']);
         }
     }
 

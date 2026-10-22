@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\InvalidOperationException;
+use App\Models\Activity;
 use App\Models\Contact;
 use App\Models\SupportAssignment;
 use App\Models\SupportCategory;
@@ -12,13 +13,23 @@ use App\Models\SupportStatus;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketType;
 use App\Models\SupportTicketUpdate;
+use App\Models\Team;
 use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class SupportTicketService
 {
-    public function __construct(private readonly CodeGeneratorService $codes) {}
+    /** Descriptive fields editable through updateDetails(); status, customer and responsible have their own flows. */
+    public const EDITABLE_FIELDS = ['title', 'description', 'impact', 'general_observations', 'type_id', 'category_id', 'channel_id'];
+
+    /** States where priority and details can no longer change. */
+    private const FROZEN_STATES = [SupportStatus::SLUG_CLOSED, SupportStatus::SLUG_CANCELLED];
+
+    public const INACTIVE_TEAM_MESSAGE = 'El equipo seleccionado no existe o no está activo.';
+
+    public function __construct(private readonly CodeGeneratorService $codes, private readonly SupportTicketLifecycleService $lifecycle) {}
 
     /**
      * @param  array<string, mixed>  $data
@@ -47,32 +58,56 @@ class SupportTicketService
         });
     }
 
+    /**
+     * Nuevo/Reabierto move to Asignado through the lifecycle; other open states
+     * keep their status and only record the (re)assignment history.
+     */
     public function assign(SupportTicket $ticket, User $newResponsible, User $actor, ?int $teamId = null, ?string $reason = null): SupportTicket
     {
-        if ($ticket->status?->slug === SupportStatus::SLUG_CANCELLED) {
-            throw new InvalidOperationException('No se puede asignar un ticket cancelado.');
+        if (! User::query()->whereKey($newResponsible->id)->where('is_active', true)->exists()) {
+            throw ValidationException::withMessages(['responsible_id' => 'El responsable debe ser un usuario activo.']);
         }
 
-        $wasAssigned = $ticket->responsible_id !== null;
-
-        if ($wasAssigned && trim((string) $reason) === '') {
-            throw ValidationException::withMessages([
-                'reason' => 'El motivo de reasignación es obligatorio.',
-            ]);
+        if ($teamId !== null && ! Team::query()->whereKey($teamId)->where('is_active', true)->exists()) {
+            throw ValidationException::withMessages(['team_id' => self::INACTIVE_TEAM_MESSAGE]);
         }
 
-        return DB::transaction(function () use ($ticket, $newResponsible, $actor, $teamId, $reason, $wasAssigned): SupportTicket {
+        return DB::transaction(function () use ($ticket, $newResponsible, $actor, $teamId, $reason): SupportTicket {
+            $ticket = $this->lifecycle->lockTicket($ticket);
+            $statusSlug = $ticket->status?->slug;
+
+            if (in_array($statusSlug, [SupportStatus::SLUG_RESOLVED, SupportStatus::SLUG_CLOSED, SupportStatus::SLUG_CANCELLED], true)) {
+                throw new InvalidOperationException('No se puede asignar un ticket resuelto, cerrado o cancelado.');
+            }
+
+            $movesToAssigned = in_array($statusSlug, [SupportStatus::SLUG_NEW, SupportStatus::SLUG_REOPENED], true);
+
+            if (! $movesToAssigned && (int) $ticket->responsible_id === $newResponsible->id && $ticket->team_id === $teamId) {
+                return $ticket;
+            }
+
+            $wasAssigned = $ticket->responsible_id !== null;
+
+            if ($wasAssigned && trim((string) $reason) === '') {
+                throw ValidationException::withMessages([
+                    'reason' => 'El motivo de reasignación es obligatorio.',
+                ]);
+            }
+
             $previousResponsibleId = $ticket->responsible_id;
             $previousTeamId = $ticket->team_id;
 
             $ticket->responsible_id = $newResponsible->id;
             $ticket->team_id = $teamId;
-            $ticket->status_id = $this->statusBySlug(SupportStatus::SLUG_ASSIGNED)->id;
             if ($ticket->assigned_at === null) {
                 $ticket->assigned_at = now();
             }
             $ticket->updated_by = $actor->id;
             $ticket->save();
+
+            if ($movesToAssigned) {
+                $ticket = $this->lifecycle->transition($ticket, SupportStatus::SLUG_ASSIGNED, $actor);
+            }
 
             SupportAssignment::query()->create([
                 'ticket_id' => $ticket->id,
@@ -97,6 +132,34 @@ class SupportTicketService
         });
     }
 
+    /**
+     * Starts the attention; a new unassigned ticket is first assigned to the actor.
+     * Both steps share one transaction, so a refused start leaves the ticket untouched.
+     */
+    public function startAttention(SupportTicket $ticket, User $actor): SupportTicket
+    {
+        return DB::transaction(function () use ($ticket, $actor): SupportTicket {
+            $this->selfAssignIfNew($ticket, $actor, 'Inicio de atención por el responsable');
+
+            return $this->lifecycle->transition($ticket, SupportStatus::SLUG_IN_PROGRESS, $actor);
+        });
+    }
+
+    /**
+     * Schedules a session; a new unassigned ticket is first assigned to the actor, atomically.
+     *
+     * @param  array<string, mixed>  $activityData
+     * @param  array<string, mixed>  $sessionData
+     */
+    public function scheduleAttention(SupportTicket $ticket, array $activityData, array $sessionData, User $actor): Activity
+    {
+        return DB::transaction(function () use ($ticket, $activityData, $sessionData, $actor): Activity {
+            $this->selfAssignIfNew($ticket, $actor, 'Programación de atención por el responsable');
+
+            return $this->lifecycle->schedule($ticket, $activityData, $sessionData, $actor);
+        });
+    }
+
     public function cancel(SupportTicket $ticket, User $actor, string $reason): SupportTicket
     {
         $reason = trim($reason);
@@ -104,21 +167,92 @@ class SupportTicketService
             throw ValidationException::withMessages(['reason' => 'El motivo de cancelación es obligatorio.']);
         }
 
-        if (in_array($ticket->status?->slug, [SupportStatus::SLUG_CANCELLED, SupportStatus::SLUG_CLOSED], true)) {
-            throw new InvalidOperationException('El ticket no admite cancelación desde su estado actual.');
-        }
-
         return DB::transaction(function () use ($ticket, $actor, $reason): SupportTicket {
+            $ticket = $this->lifecycle->lockTicket($ticket);
             $oldStatus = $ticket->status?->slug;
-            $ticket->status_id = $this->statusBySlug(SupportStatus::SLUG_CANCELLED)->id;
-            $ticket->cancel_reason = $reason;
-            $ticket->updated_by = $actor->id;
-            $ticket->save();
+
+            if ($oldStatus === SupportStatus::SLUG_CANCELLED) {
+                return $ticket;
+            }
+
+            if (! in_array(SupportStatus::SLUG_CANCELLED, SupportTicketLifecycleService::allowedTransitions($oldStatus), true)) {
+                throw new InvalidOperationException('El ticket no admite cancelación desde su estado actual.');
+            }
+
+            $ticket = $this->lifecycle->transition($ticket, SupportStatus::SLUG_CANCELLED, $actor, $reason);
 
             $this->log($ticket, $actor, 'support-ticket-cancelled', 'Ticket de soporte cancelado', [
                 'old_status_slug' => $oldStatus,
                 'new_status_slug' => SupportStatus::SLUG_CANCELLED,
                 'reason' => $reason,
+            ]);
+
+            return $ticket->refresh();
+        });
+    }
+
+    public function changePriority(SupportTicket $ticket, SupportPriority|int $priority, User $actor, ?string $reason = null): SupportTicket
+    {
+        $this->authorize($actor, 'support.priority.update', 'No tiene permiso para cambiar la prioridad.');
+        $priorityId = $priority instanceof SupportPriority ? $priority->id : $priority;
+
+        if (! SupportPriority::query()->whereKey($priorityId)->where('is_active', true)->exists()) {
+            throw ValidationException::withMessages(['priority_id' => 'La prioridad de soporte no está activa.']);
+        }
+
+        return DB::transaction(function () use ($ticket, $priorityId, $actor, $reason): SupportTicket {
+            $ticket = $this->lifecycle->lockTicket($ticket);
+            $this->assertNotFrozen($ticket, 'No se puede cambiar la prioridad de un ticket cerrado o cancelado.');
+
+            if ((int) $ticket->priority_id === (int) $priorityId) {
+                return $ticket;
+            }
+
+            $previousPriorityId = $ticket->priority_id;
+            $ticket->priority_id = $priorityId;
+            $ticket->updated_by = $actor->id;
+            $ticket->save();
+
+            $this->log($ticket, $actor, 'support-ticket-priority-changed', 'Prioridad del ticket de soporte actualizada', [
+                'previous_priority_id' => $previousPriorityId,
+                'new_priority_id' => $priorityId,
+                'reason' => trim((string) $reason) ?: null,
+            ]);
+
+            return $ticket->refresh();
+        });
+    }
+
+    /** @param  array<string, mixed>  $data  only EDITABLE_FIELDS are applied */
+    public function updateDetails(SupportTicket $ticket, array $data, User $actor): SupportTicket
+    {
+        $this->authorize($actor, 'support.update', 'No tiene permiso para editar el ticket.');
+        $data = array_intersect_key($data, array_flip(self::EDITABLE_FIELDS));
+
+        foreach (['title', 'description', 'type_id', 'category_id', 'channel_id'] as $field) {
+            if (array_key_exists($field, $data) && trim((string) $data[$field]) === '') {
+                throw ValidationException::withMessages([$field => 'Este campo es obligatorio.']);
+            }
+        }
+
+        $this->assertActiveCatalogs($data);
+
+        return DB::transaction(function () use ($ticket, $data, $actor): SupportTicket {
+            $ticket = $this->lifecycle->lockTicket($ticket);
+            $this->assertNotFrozen($ticket, 'No se puede editar un ticket cerrado o cancelado.');
+
+            $ticket->fill($data);
+            $changed = array_keys($ticket->getDirty());
+
+            if ($changed === []) {
+                return $ticket;
+            }
+
+            $ticket->updated_by = $actor->id;
+            $ticket->save();
+
+            $this->log($ticket, $actor, 'support-ticket-details-updated', 'Datos del ticket de soporte actualizados', [
+                'changed_fields' => $changed,
             ]);
 
             return $ticket->refresh();
@@ -168,6 +302,15 @@ class SupportTicketService
         });
     }
 
+    private function selfAssignIfNew(SupportTicket $ticket, User $actor, string $reason): void
+    {
+        $locked = $this->lifecycle->lockTicket($ticket);
+
+        if ($locked->status?->slug === SupportStatus::SLUG_NEW && $locked->responsible_id === null) {
+            $this->assign($locked, $actor, $actor, $locked->team_id, $reason);
+        }
+    }
+
     private function statusBySlug(string $slug): SupportStatus
     {
         $status = SupportStatus::query()->where('slug', $slug)->first();
@@ -177,6 +320,20 @@ class SupportTicketService
         }
 
         return $status;
+    }
+
+    private function authorize(User $actor, string $permission, string $message): void
+    {
+        if (! $actor->can($permission)) {
+            throw new AuthorizationException($message);
+        }
+    }
+
+    private function assertNotFrozen(SupportTicket $ticket, string $message): void
+    {
+        if (in_array($ticket->status?->slug, self::FROZEN_STATES, true)) {
+            throw new InvalidOperationException($message);
+        }
     }
 
     /**
@@ -210,6 +367,10 @@ class SupportTicketService
         ];
 
         foreach ($checks as $field => [$model, $message]) {
+            if (! array_key_exists($field, $data)) {
+                continue;
+            }
+
             $exists = $model::query()
                 ->whereKey((int) $data[$field])
                 ->where('is_active', true)

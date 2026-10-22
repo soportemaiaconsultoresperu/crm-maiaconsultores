@@ -4,34 +4,51 @@
 @section('page-title', 'Nuevo rol')
 
 @section('content')
-    <form method="POST" action="{{ route('admin.roles.store') }}" class="card">
-        @csrf
-        <div class="card-body">
-            <x-text-input name="name" label="Nombre del rol" required help="Usa nombres cortos en minúsculas (ej. 'coordinador')."/>
-
-            <h4 class="h6 mt-4">Permisos del rol</h4>
-            <div class="row">
-                @foreach ($permissions as $group)
-                    <div class="col-md-6 mb-3">
-                        <div class="border rounded p-2">
-                            <div class="fw-medium mb-2">{{ ucfirst($group['module']) }}</div>
-                            @foreach ($group['items'] as $perm)
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox"
-                                           name="permissions[]" value="{{ $perm['name'] }}"
-                                           id="perm-{{ md5($perm['name']) }}"
-                                           @checked(in_array($perm['name'], old('permissions', $selectedPermissions), true))>
-                                    <label class="form-check-label small" for="perm-{{ md5($perm['name']) }}">{{ $perm['label'] }}</label>
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-                @endforeach
+    <form method="GET" action="{{ route('admin.roles.create') }}" class="card mb-3" id="copy-from-form">
+        <div class="card-body row g-2 align-items-end">
+            <div class="col-md-6">
+                <label for="copy_from" class="form-label">Copiar permisos de otro rol</label>
+                <select name="copy_from" id="copy_from" class="form-select">
+                    <option value="">Empezar sin permisos</option>
+                    @foreach ($copyableRoles as $copyable)
+                        <option value="{{ $copyable->id }}" @selected($copyFrom?->id === $copyable->id)>{{ ucfirst($copyable->name) }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-auto">
+                <button type="submit" class="btn btn-outline-primary">
+                    <i class="bi bi-files me-1" aria-hidden="true"></i> Copiar permisos
+                </button>
+            </div>
+            <div class="col-12 form-text mt-1">
+                @if ($copyFrom)
+                    Se marcaron los permisos del rol «{{ ucfirst($copyFrom->name) }}». Ajústelos y guarde el nuevo rol.
+                @else
+                    Opcional: parta de un rol existente y ajuste solo lo que cambie.
+                @endif
             </div>
         </div>
-        <div class="card-footer d-flex justify-content-end gap-2">
-            <a href="{{ route('admin.roles.index') }}" class="btn btn-outline-secondary">Cancelar</a>
-            <button type="submit" class="btn btn-primary">Crear rol</button>
-        </div>
     </form>
+
+    @include('admin.roles._form', [
+        'action' => route('admin.roles.store'),
+        'method' => 'POST',
+        'submitLabel' => 'Crear rol',
+        'cancelLabel' => 'Cancelar',
+    ])
 @endsection
+
+@push('scripts')
+    <script>
+        (function () {
+            'use strict';
+
+            var select = document.getElementById('copy_from');
+            if (select !== null) {
+                select.addEventListener('change', function () {
+                    document.getElementById('copy-from-form').submit();
+                });
+            }
+        })();
+    </script>
+@endpush

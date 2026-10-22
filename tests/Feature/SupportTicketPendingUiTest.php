@@ -93,7 +93,7 @@ class SupportTicketPendingUiTest extends TestCase
             ->from(route('support.tickets.show', $ticket))
             ->post(route('support.tickets.assign', $ticket), ['responsible_id' => $nextResponsible->id])
             ->assertRedirect(route('support.tickets.show', $ticket))
-            ->assertSessionHasErrors('reason');
+            ->assertSessionHasErrors('reason', null, 'assign');
     }
 
     public function test_schedule_route_assigns_new_unassigned_ticket_and_persists_split_session_payload(): void
@@ -175,15 +175,17 @@ class SupportTicketPendingUiTest extends TestCase
 
         $content = $this->actingAs($actor)->get(route('support.tickets.show', $ticket->fresh()))->assertOk()->getContent();
 
-        foreach (['support.tickets.assign', 'support.tickets.start', 'support.tickets.resolve', 'support.tickets.close', 'support.tickets.reopen', 'support.tickets.cancel', 'support.tickets.notes.store', 'support.tickets.responses.store', 'support.tickets.schedule', 'support.tickets.incident.store', 'support.tickets.observations.store'] as $routeName) {
+        // Programado: only the moves allowed from this state are rendered (resolve/close/reopen are not).
+        foreach (['support.tickets.assign', 'support.tickets.start', 'support.tickets.hold', 'support.tickets.cancel', 'support.tickets.notes.store', 'support.tickets.responses.store', 'support.tickets.schedule', 'support.tickets.observations.store'] as $routeName) {
             $this->assertStringContainsString('action="'.route($routeName, $ticket).'"', $content);
         }
+        foreach (['support.tickets.resolve', 'support.tickets.close', 'support.tickets.reopen', 'support.tickets.incident.store'] as $routeName) {
+            $this->assertStringNotContainsString('action="'.route($routeName, $ticket).'"', $content);
+        }
 
-        $this->assertStringContainsString('support/tickets/'.$ticket->id.'/activities/', $content);
-        $this->assertStringContainsString('support/tickets/'.$ticket->id.'/observations/', $content);
         $this->assertStringContainsString('support/tickets/'.$ticket->id.'/sessions/', $content);
-        $this->assertSame(14, substr_count($content, 'data-swal-confirm'));
-        $this->assertSame(14, substr_count($content, 'data-swal-loading'));
+        $this->assertSame(9, substr_count($content, 'data-swal-confirm'));
+        $this->assertSame(9, substr_count($content, 'data-swal-loading'));
     }
 
     public function test_resolve_close_reopen_and_cancel_texts_remain_visible_on_ticket_detail(): void

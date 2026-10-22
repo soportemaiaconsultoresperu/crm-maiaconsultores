@@ -28,7 +28,7 @@ class SetActiveRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'reason.required_if' => 'Indica un motivo para desactivar al usuario.',
+            'reason.required_if' => 'Indique un motivo para desactivar al usuario.',
         ];
     }
 

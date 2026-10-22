@@ -62,7 +62,8 @@ class SupportTicketS02S07Test extends TestCase
     /** @return array{0:\App\Models\SupportTicket,1:User} */
     private function ticket(): array
     {
-        $actor=User::factory()->create(); $customer=Customer::factory()->create(); $contact=Contact::factory()->forCustomer($customer)->create();
+        // Observation transitions are permission-guarded in the service (S8).
+        $actor=User::factory()->create(); foreach (['support.observations.lift','support.observations.validate','support.observations.reject'] as $permission) \Spatie\Permission\Models\Permission::firstOrCreate(['name'=>$permission,'guard_name'=>'web']); $actor->givePermissionTo(['support.observations.lift','support.observations.validate','support.observations.reject']); $customer=Customer::factory()->create(); $contact=Contact::factory()->forCustomer($customer)->create();
         return [app(SupportTicketService::class)->create(['title'=>'Support','customer_id'=>$customer->id,'requester_contact_id'=>$contact->id,'type_id'=>SupportTicketType::query()->where('slug','capacitacion')->value('id'),'category_id'=>SupportCategory::query()->where('slug','capacitacion')->value('id'),'channel_id'=>SupportChannel::query()->where('slug','registro-interno')->value('id'),'priority_id'=>SupportPriority::query()->where('slug','media')->value('id'),'description'=>'Test'], $actor),$actor];
     }
 }

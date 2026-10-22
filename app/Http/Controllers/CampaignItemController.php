@@ -59,7 +59,7 @@ class CampaignItemController extends Controller
         Gate::authorize('markRealized', [$item]); // override permission
         $reason = (string) $request->input('reason');
         $this->overrides->reopenCompleted($item, $reason, $request->user());
-        return back()->with('status', 'Item reabierto. Ahora puedes reprogramarlo.');
+        return back()->with('status', 'Item reabierto. Ahora puede reprogramarlo.');
     }
 
     /**

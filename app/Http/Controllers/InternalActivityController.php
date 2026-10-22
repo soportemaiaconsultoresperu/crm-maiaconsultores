@@ -1,0 +1,192 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\InternalActivityRequest;
+use App\Models\InternalActivity;
+use App\Models\User;
+use App\Notifications\InternalActivityNotice;
+use App\Services\GoogleCalendarInternalActivitySyncService;
+use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Spatie\Permission\Models\Role;
+
+/**
+ * Internal activities CRUD (odd/tasks/internal-activities.md, T1).
+ * Listing is scoped by InternalActivity::visibleTo(); single records go
+ * through InternalActivityPolicy.
+ */
+class InternalActivityController extends Controller
+{
+    public function index(Request $request): View
+    {
+        Gate::authorize('viewAny', InternalActivity::class);
+
+        $scope = $request->query('scope') === 'past' ? 'past' : 'upcoming';
+
+        $activities = InternalActivity::query()
+            ->visibleTo($request->user())
+            ->with(['creator:id,name', 'participants:id,name'])
+            ->when($scope === 'upcoming',
+                fn ($q) => $q->where('starts_at', '>=', now()->startOfDay())->orderBy('starts_at'),
+                fn ($q) => $q->where('starts_at', '<', now()->startOfDay())->orderByDesc('starts_at'))
+            ->paginate(20)
+            ->withQueryString();
+
+        return view('internal-activities.index', compact('activities', 'scope'));
+    }
+
+    public function create(Request $request): View
+    {
+        Gate::authorize('create', InternalActivity::class);
+
+        return view('internal-activities.create', $this->formData() + [
+            'activity' => null,
+            'defaultDate' => $request->query('date'),
+        ]);
+    }
+
+    public function store(InternalActivityRequest $request): RedirectResponse
+    {
+        Gate::authorize('create', InternalActivity::class);
+
+        $activity = DB::transaction(function () use ($request): InternalActivity {
+            $activity = InternalActivity::create($this->attributes($request) + [
+                'created_by' => $request->user()->id,
+            ]);
+            $this->syncRelations($activity, $request);
+
+            return $activity;
+        });
+
+        $this->notifyParticipants($activity, $request->user(), [], InternalActivityNotice::INVITED);
+        app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($activity);
+
+        return redirect()->route('internal-activities.show', $activity)
+            ->with('status', 'Actividad interna creada.');
+    }
+
+    public function show(InternalActivity $internalActivity): View
+    {
+        Gate::authorize('view', $internalActivity);
+
+        $internalActivity->load(['creator:id,name', 'participants:id,name', 'audienceRoles:id,name', 'audienceUsers:id,name']);
+
+        return view('internal-activities.show', ['activity' => $internalActivity]);
+    }
+
+    public function edit(InternalActivity $internalActivity): View
+    {
+        Gate::authorize('update', $internalActivity);
+
+        $internalActivity->load(['participants:id', 'audienceRoles:id', 'audienceUsers:id']);
+
+        return view('internal-activities.edit', $this->formData() + [
+            'activity' => $internalActivity,
+            'defaultDate' => null,
+        ]);
+    }
+
+    public function update(InternalActivityRequest $request, InternalActivity $internalActivity): RedirectResponse
+    {
+        Gate::authorize('update', $internalActivity);
+
+        $previousIds = array_map('intval', $internalActivity->participants()->pluck('users.id')->all());
+
+        DB::transaction(function () use ($request, $internalActivity): void {
+            $internalActivity->update($this->attributes($request) + [
+                'updated_by' => $request->user()->id,
+            ]);
+            $this->syncRelations($internalActivity, $request);
+        });
+
+        $this->notifyParticipants($internalActivity->fresh(), $request->user(), $previousIds, InternalActivityNotice::UPDATED);
+        app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($internalActivity);
+
+        return redirect()->route('internal-activities.show', $internalActivity)
+            ->with('status', 'Actividad interna actualizada.');
+    }
+
+    public function destroy(InternalActivity $internalActivity): RedirectResponse
+    {
+        Gate::authorize('delete', $internalActivity);
+
+        $internalActivity->delete();
+        app(GoogleCalendarInternalActivitySyncService::class)->queueInternalActivity($internalActivity);
+
+        return redirect()->route('internal-activities.index')
+            ->with('status', 'Actividad interna eliminada.');
+    }
+
+    /**
+     * Notify active participants other than the actor. On create every
+     * participant is invited; on update new participants are invited and the
+     * ones that were already there get an "updated" notice.
+     *
+     * @param  list<int>  $previousIds
+     */
+    private function notifyParticipants(InternalActivity $activity, User $actor, array $previousIds, string $kind): void
+    {
+        $participants = $activity->participants()->where('is_active', true)->where('users.id', '!=', $actor->id)->get();
+
+        foreach ($participants as $participant) {
+            $participant->notify(new InternalActivityNotice(
+                in_array($participant->id, $previousIds, true) ? $kind : InternalActivityNotice::INVITED,
+                $activity->id,
+                $activity->title,
+                $activity->starts_at->toIso8601String(),
+                $actor->name,
+            ));
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function attributes(InternalActivityRequest $request): array
+    {
+        $attributes = $request->safe()->only(['title', 'description', 'location', 'starts_at', 'ends_at', 'audience_type']);
+        $frequency = $request->validated('recurrence_frequency') ?: null;
+
+        return $attributes + [
+            'recurrence_frequency' => $frequency,
+            'recurrence_until' => $frequency !== null ? $request->validated('recurrence_until') : null,
+        ];
+    }
+
+    private function syncRelations(InternalActivity $activity, InternalActivityRequest $request): void
+    {
+        $audience = $activity->audience_type;
+
+        $activity->audienceRoles()->sync($audience === InternalActivity::AUDIENCE_ROLES
+            ? array_map('intval', $request->input('role_ids', []))
+            : []);
+        $activity->audienceUsers()->sync($audience === InternalActivity::AUDIENCE_USERS
+            ? array_map('intval', $request->input('user_ids', []))
+            : []);
+
+        $responsibleId = $request->filled('responsible_id') ? (int) $request->input('responsible_id') : null;
+        $participantIds = array_map('intval', $request->input('participant_ids', []));
+        if ($responsibleId !== null) {
+            $participantIds[] = $responsibleId;
+        }
+
+        $activity->participants()->sync(collect(array_unique($participantIds))
+            ->mapWithKeys(fn (int $id) => [$id => ['is_responsible' => $id === $responsibleId]])
+            ->all());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formData(): array
+    {
+        return [
+            'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'roles' => Role::query()->orderBy('name')->get(['id', 'name']),
+        ];
+    }
+}

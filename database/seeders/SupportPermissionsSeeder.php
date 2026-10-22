@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -86,9 +87,6 @@ class SupportPermissionsSeeder extends Seeder
             return;
         }
 
-        $role->syncPermissions(array_values(array_unique(array_merge(
-            $role->permissions->pluck('name')->all(),
-            $permissions,
-        ))));
+        SeededGrants::grantOnce($role, $permissions);
     }
 }

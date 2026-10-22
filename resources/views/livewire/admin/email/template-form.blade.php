@@ -140,7 +140,7 @@
                             formaction="{{ route('admin.email.templates.send', $templateId) }}"
                             class="btn btn-outline-warning"
                             onclick="event.preventDefault();
-                                const to = prompt('¿A qué correo quieres enviar la prueba?');
+                                const to = prompt('¿A qué correo quiere enviar la prueba?');
                                 if (to) {
                                     const f = this.closest('form');
                                     const input = document.createElement('input');

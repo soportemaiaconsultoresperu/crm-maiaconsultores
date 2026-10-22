@@ -14,12 +14,14 @@ use App\Models\Document;
 use App\Models\User;
 use App\Services\Courses\CertificateQrTokenService;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use InvalidArgumentException;
+use Mockery;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -47,6 +49,29 @@ class CourseCertificateQrSecurityTest extends TestCase
         $response->assertOk();
         $this->assertSame('application/pdf', $response->headers->get('content-type'));
         $this->assertStringContainsString('%PDF current certificate', $response->streamedContent());
+        $this->assertNotNull($academic->fresh()->qr_token_last_used_at);
+    }
+
+    public function test_public_qr_redirects_to_a_signed_url_when_the_documents_disk_is_cloud_backed(): void
+    {
+        Storage::fake('docs');
+        $academic = $this->currentAcademicDocument('%PDF current certificate');
+        $token = app(CertificateQrTokenService::class)->createFor($academic);
+
+        // The disk is mocked so `exists()` never reaches the network while the
+        // signed-URL branch is exercised.
+        $disk = Mockery::mock(FilesystemAdapter::class);
+        $disk->shouldReceive('exists')->andReturn(true);
+        $disk->shouldReceive('providesTemporaryUrls')->andReturn(true);
+        $disk->shouldReceive('temporaryUrl')->andReturn(
+            'https://crm-files.s3.amazonaws.com/private/docs/certificate.pdf?X-Amz-Signature=abc&X-Amz-Expires=299'
+        );
+        Storage::set('docs', $disk);
+
+        $response = $this->get("/certificate/qr/{$token}");
+
+        $response->assertRedirect();
+        $this->assertStringContainsString('X-Amz-Signature=', (string) $response->headers->get('Location'));
         $this->assertNotNull($academic->fresh()->qr_token_last_used_at);
     }
 

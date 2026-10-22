@@ -300,7 +300,14 @@ datos.
 
 La instalación usa cuatro volúmenes nombrados: MySQL (`mysql-data`), archivos
 de aplicación (`storage-data`) y estado/configuración de Caddy (`caddy-data`,
-`caddy-config`). Identificá los nombres con prefijo de Compose:
+`caddy-config`).
+
+> **Con AWS:** cuando el CRM usa S3 (`AWS_BUCKET`, `AWS_ACCESS_KEY_ID` y
+> `AWS_SECRET_ACCESS_KEY`), los archivos de usuario ya no viven en `storage-data`
+> y ese respaldo no los cubre. El bucket necesita su propio versionado y
+> respaldo; ver [ALMACENAMIENTO.md](ALMACENAMIENTO.md) § 5.
+
+Identificá los nombres con prefijo de Compose:
 
 ```bash
 docker volume ls --format '{{.Name}}' | grep -E '(mysql-data|storage-data|caddy-data|caddy-config)$'

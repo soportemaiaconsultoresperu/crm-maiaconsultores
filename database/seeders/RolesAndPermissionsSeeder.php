@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -13,19 +14,20 @@ use Spatie\Permission\PermissionRegistrar;
  *
  * Application code must check PERMISSIONS ONLY, never role names.
  * Idempotent: permissions and roles are created via firstOrCreate;
- * assignments use syncPermissions so re-seeding converges.
+ * default assignments go through SeededGrants::grantOnce, so production's
+ * seed-on-every-deploy never revokes nor re-grants what the admin adjusted
+ * on the role screen.
  */
 class RolesAndPermissionsSeeder extends Seeder
 {
     /**
      * Campaign permissions (RF-CAMP-001..015).
      *
-     * The campaign migration creates these rows, but this seeder is the only
-     * thing that decides which role HOLDS what, and it uses `syncPermissions`,
-     * which detaches everything missing from its own lists. Leaving the campaign
-     * rows out of the canonical list is what orphaned all 20 of them: the rows
+     * The campaign migration creates these rows, but this seeder decides which
+     * role holds them by default. When it still used `syncPermissions`, leaving
+     * the campaign rows out of its lists orphaned all 20 of them: the rows
      * existed and no role held any (audit A-2). They are listed here so the
-     * seeder is the single source of truth for role -> permission. Adding them
+     * seeder is the single source of the default role -> permission grants. Adding them
      * creates no new rows on a database that already ran the campaign migration
      * (they are the same names).
      *
@@ -96,7 +98,7 @@ class RolesAndPermissionsSeeder extends Seeder
 
         // admin: everything.
         $admin = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
-        $admin->syncPermissions($all);
+        SeededGrants::grantOnce($admin, $all);
 
 // supervisor: team visibility, create/update, reports and audit.
         $supervisorPermissions = [];
@@ -117,12 +119,11 @@ $supervisorPermissions[] = 'documents.view.team';
         $supervisorPermissions[] = 'audit.view';
 
         // Campaigns: the migration grants the full flat campaign vocabulary to
-        // the supervisor, so the seeder keeps that intent. Omitting them here is
-        // exactly what detached them from every role before (audit A-2).
+        // the supervisor, so the seeder keeps that intent (audit A-2).
         $supervisorPermissions = array_merge($supervisorPermissions, self::CAMPAIGN_PERMISSIONS);
 
         $supervisor = Role::firstOrCreate(['name' => 'supervisor', 'guard_name' => 'web']);
-        $supervisor->syncPermissions(array_intersect($supervisorPermissions, $all));
+        SeededGrants::grantOnce($supervisor, array_intersect($supervisorPermissions, $all));
 
 // vendedor: own visibility, create/update, export/convert, pipeline actions.
         $vendedorPermissions = [];
@@ -157,7 +158,7 @@ $vendedorPermissions = array_merge($vendedorPermissions, [
         $vendedorPermissions = array_merge($vendedorPermissions, self::CAMPAIGN_VENDEDOR_PERMISSIONS);
 
         $vendedor = Role::firstOrCreate(['name' => 'vendedor', 'guard_name' => 'web']);
-        $vendedor->syncPermissions(array_intersect($vendedorPermissions, $all));
+        SeededGrants::grantOnce($vendedor, array_intersect($vendedorPermissions, $all));
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();
     }

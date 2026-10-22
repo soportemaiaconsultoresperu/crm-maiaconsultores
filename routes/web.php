@@ -5,6 +5,16 @@ use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\Content\ContentProjectController;
+use App\Http\Controllers\Content\ContentAttachmentController;
+use App\Http\Controllers\Content\ContentCalendarController;
+use App\Http\Controllers\Content\ContentCatalogController;
+use App\Http\Controllers\Content\ContentExportController;
+use App\Http\Controllers\Content\ContentFieldSchemaController;
+use App\Http\Controllers\Content\ContentStandardFieldsController;
+use App\Http\Controllers\Content\ContentIdeaController;
+use App\Http\Controllers\Content\ContentItemController;
+use App\Http\Controllers\Content\ContentTrashController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentController;
 use App\Http\Controllers\CourseTalks\CourseAcademicDocumentDeliveryController;
@@ -21,6 +31,7 @@ use App\Http\Controllers\CourseTalks\CourseGradeController;
 use App\Http\Controllers\CustomerInvoiceController;
 use App\Http\Controllers\CustomerProductController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\InternalActivityController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\LeadConversionController;
 use App\Http\Controllers\NotificationController;
@@ -59,6 +70,9 @@ Route::middleware(['auth', 'active'])
             Route::post('activities', 'store')->name('activities.store');
         });
 
+        // Edit and guarded delete of activities and dictados.
+        require __DIR__.'/course-catalog.php';
+
         // Activity-scoped edition creation. Static segments and the teacher
         // management routes are registered before the read-only group's
         // `editions/{edition}` binding so it is never shadowed.
@@ -76,6 +90,8 @@ Route::middleware(['auth', 'active'])
             // `course-talks.sessions.manage` permission really gates a surface
             // (the policy also accepts the coarser `editions.manage`, so no
             // existing actor lost access).
+            Route::post('editions/{edition}/state', 'updateState')->name('editions.state.update');
+
             Route::get('editions/{edition}/sessions', 'sessions')->name('editions.sessions');
             Route::post('editions/{edition}/sessions', 'syncSessions')->name('editions.sessions.sync');
         });
@@ -137,6 +153,7 @@ Route::middleware(['auth', 'active'])
             Route::post('documents/{academicDocument}/email', 'email')->name('documents.email');
             Route::post('documents/{academicDocument}/whatsapp', 'whatsapp')->name('documents.whatsapp');
             Route::post('documents/{academicDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('documents.whatsapp.confirm');
+            Route::post('documents/{academicDocument}/whatsapp/discard', 'discardWhatsApp')->name('documents.whatsapp.discard');
         });
 
         // Slice 6.f-1 — commercial documents of one edition (register an
@@ -166,6 +183,7 @@ Route::middleware(['auth', 'active'])
             Route::post('commercial-documents/{commercialDocument}/email', 'email')->name('commercial-documents.email');
             Route::post('commercial-documents/{commercialDocument}/whatsapp', 'whatsapp')->name('commercial-documents.whatsapp');
             Route::post('commercial-documents/{commercialDocument}/whatsapp/confirm', 'confirmWhatsApp')->name('commercial-documents.whatsapp.confirm');
+            Route::post('commercial-documents/{commercialDocument}/whatsapp/discard', 'discardWhatsApp')->name('commercial-documents.whatsapp.discard');
         });
 
         // Slice 6.t2 — certificate template management (list, create, edit,
@@ -387,6 +405,11 @@ Route::get('support/tickets', 'index')->name('support.tickets.index');
 Route::get('support/tickets/create', 'create')->name('support.tickets.create');
 Route::post('support/tickets', 'store')->name('support.tickets.store');
 Route::get('support/tickets/{ticket}', 'show')->name('support.tickets.show');
+Route::get('support/tickets/{ticket}/edit', 'edit')->name('support.tickets.edit');
+Route::put('support/tickets/{ticket}', 'update')->name('support.tickets.update');
+Route::patch('support/tickets/{ticket}/priority', 'changePriority')->name('support.tickets.priority.update');
+Route::post('support/tickets/{ticket}/hold', 'hold')->name('support.tickets.hold');
+Route::post('support/tickets/{ticket}/resume', 'resume')->name('support.tickets.resume');
 Route::post('support/tickets/{ticket}/assign', 'assign')->name('support.tickets.assign');
 Route::post('support/tickets/{ticket}/start', 'start')->name('support.tickets.start');
 Route::post('support/tickets/{ticket}/resolve', 'resolve')->name('support.tickets.resolve');
@@ -517,6 +540,11 @@ Route::get('campaign-runs', 'index')->name('campaign_runs.index');
 Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('calendar', [CalendarController::class, 'index'])
         ->name('calendar.index');
+
+    // Internal organization activities: the "Interno" calendar layer
+    // (odd/tasks/internal-activities.md). Open to any active user; the
+    // policy enforces audience visibility and creator-only edits.
+    Route::resource('internal-activities', InternalActivityController::class);
 });
 
 /*
@@ -882,3 +910,251 @@ Route::middleware(['auth', 'active'])->controller(\App\Http\Controllers\ReportCo
                     ->whereNumber('template');
             });
         });
+
+/*
+ * Content scheduling module — project administration UI (T3).
+ *
+ * Additive module group: the same `auth,active` middleware, a named group
+ * (`content.`) and the static `projects/create` segment registered before the
+ * `projects/{contentProject}` binding so it is never swallowed by it. Every
+ * record-level action resolves the project through
+ * ContentProjectScopeService and reports a project the user may not reach as
+ * 404, never 403, so a foreign project's existence is not disclosed.
+ */
+// Resolve reachability before FormRequest validation can disclose existence.
+// Keep archived records eligible: canAccess(), not the default listing, owns
+// the reachability rule. This parameter is exclusive to the content module.
+Route::bind('contentProject', function (string $value): \App\Models\Content\ContentProject {
+    $project = \App\Models\Content\ContentProject::query()->findOrFail($value);
+    $user = request()->user();
+
+    abort_unless($user && app(\App\Services\Content\ContentProjectScopeService::class)
+        ->canAccess($user, $project), 404);
+
+    return $project;
+});
+
+Route::middleware(['auth', 'active'])
+    ->prefix('content')
+    ->name('content.')
+    ->group(function (): void {
+        // Catalog static segments precede the project detail binding.
+        Route::controller(ContentCatalogController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/catalogs', 'index')->name('catalogs.index');
+            Route::post('projects/{contentProject}/catalogs/{catalogGroup}', 'store')->name('catalogs.store');
+            Route::post('projects/{contentProject}/catalogs/{catalogGroup}/{catalogOption}/state', 'state')
+                ->whereNumber('catalogOption')->name('catalogs.state');
+            Route::post('projects/{contentProject}/catalogs/{catalogGroup}/{catalogOption}/reorder', 'reorder')
+                ->whereNumber('catalogOption')->name('catalogs.reorder');
+            Route::put('projects/{contentProject}/catalogs/{catalogGroup}/{catalogOption}', 'update')
+                ->whereNumber('catalogOption')->name('catalogs.update');
+        });
+
+        // Custom-field sections, definitions and list options (T5b). Additive
+        // block inside the same group: the addressed project still resolves
+        // through the `contentProject` binding, so an unreachable project is
+        // 404 before any validation runs.
+        // Optional standard fields a project hides (S2). `fields/{fieldDefinition}`
+        // is numeric-only, so the static `fields/standard` segment never collides.
+        Route::put('projects/{contentProject}/fields/standard', [ContentStandardFieldsController::class, 'update'])
+            ->name('fields.standard.update');
+
+        Route::controller(ContentFieldSchemaController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/fields', 'index')->name('fields.index');
+
+            Route::post('projects/{contentProject}/fields/sections', 'storeSection')->name('fields.sections.store');
+            Route::put('projects/{contentProject}/fields/sections/{fieldSection}', 'updateSection')
+                ->whereNumber('fieldSection')->name('fields.sections.update');
+            Route::post('projects/{contentProject}/fields/sections/{fieldSection}/state', 'stateSection')
+                ->whereNumber('fieldSection')->name('fields.sections.state');
+            Route::post('projects/{contentProject}/fields/sections/{fieldSection}/reorder', 'reorderSection')
+                ->whereNumber('fieldSection')->name('fields.sections.reorder');
+
+            Route::post('projects/{contentProject}/fields', 'storeField')->name('fields.store');
+            Route::put('projects/{contentProject}/fields/{fieldDefinition}', 'updateField')
+                ->whereNumber('fieldDefinition')->name('fields.update');
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/state', 'stateField')
+                ->whereNumber('fieldDefinition')->name('fields.state');
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/reorder', 'reorderField')
+                ->whereNumber('fieldDefinition')->name('fields.reorder');
+
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/options', 'storeOption')
+                ->whereNumber('fieldDefinition')->name('fields.options.store');
+            Route::put('projects/{contentProject}/fields/{fieldDefinition}/options/{fieldOption}', 'updateOption')
+                ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.update');
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/options/{fieldOption}/state', 'stateOption')
+                ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.state');
+            Route::post('projects/{contentProject}/fields/{fieldDefinition}/options/{fieldOption}/reorder', 'reorderOption')
+                ->whereNumber('fieldDefinition')->whereNumber('fieldOption')->name('fields.options.reorder');
+        });
+
+        // Grid exports (T10). Additive block placed before the dynamic
+        // `contents/{contentItem}` routes: static `export/excel` and
+        // `export/pdf` segments can never be swallowed by the numeric child
+        // route. The same `contentProject` binding answers 404 for an
+        // unreachable project, reads ask the policy for `view`, and the filter
+        // payload is the grid's own ContentGridFilterRequest, so an export
+        // cannot interpret the filters differently from the screen.
+        Route::controller(ContentExportController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/contents/export/excel', 'excel')
+                ->name('projects.contents.export.excel');
+            Route::get('projects/{contentProject}/contents/export/pdf', 'pdf')
+                ->name('projects.contents.export.pdf');
+        });
+
+        Route::controller(ContentItemController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/contents', 'index')->name('projects.contents.index');
+            // Static segment first so `contents/{contentItem}` never shadows it.
+            Route::get('projects/{contentProject}/contents/create', 'create')->name('projects.contents.create');
+            Route::post('projects/{contentProject}/contents', 'store')->name('projects.contents.store');
+            Route::get('projects/{contentProject}/contents/{contentItem}', 'show')
+                ->whereNumber('contentItem')->name('projects.contents.show');
+            Route::get('projects/{contentProject}/contents/{contentItem}/edit', 'edit')
+                ->whereNumber('contentItem')->name('projects.contents.edit');
+            Route::put('projects/{contentProject}/contents/{contentItem}', 'update')
+                ->whereNumber('contentItem')->name('projects.contents.update');
+            // Lifecycle actions (T8a). Static extra segments, so they never
+            // collide with the bare `contents/{contentItem}` routes above.
+            Route::post('projects/{contentProject}/contents/{contentItem}/duplicate', 'duplicate')
+                ->whereNumber('contentItem')->name('projects.contents.duplicate');
+            Route::put('projects/{contentProject}/contents/{contentItem}/reschedule', 'reschedule')
+                ->whereNumber('contentItem')->name('projects.contents.reschedule');
+        });
+
+        // Attachments and links for a content (T7). Additive block: the same
+        // `contentProject` binding resolves reachability (404 before
+        // validation) and the content/attachment ids are resolved inside the
+        // addressed project, so a foreign media row can never be fetched.
+        Route::controller(ContentAttachmentController::class)->group(function (): void {
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments', 'store')
+                ->whereNumber('contentItem')->name('projects.contents.attachments.store');
+            // Static segment first so it is never swallowed by the id routes.
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments/link', 'storeLink')
+                ->whereNumber('contentItem')->name('projects.contents.attachments.link');
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/reorder', 'reorder')
+                ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.reorder');
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/retire', 'retire')
+                ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.retire');
+            Route::post('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/restore', 'restore')
+                ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.restore');
+            Route::get('projects/{contentProject}/contents/{contentItem}/attachments/{attachment}/download', 'download')
+                ->whereNumber('contentItem')->whereNumber('attachment')->name('projects.contents.attachments.download');
+        });
+
+        // Trash and permanence lifecycle (T8b). Additive block: the same
+        // `contentProject` binding resolves reachability and a child id is
+        // resolved inside the addressed project. The static `trash` segment is
+        // a GET of its own; `contents/{contentItem}` stays numeric-only, so it
+        // can never swallow it.
+        Route::controller(ContentTrashController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/contents/trash', 'index')->name('projects.contents.trash');
+            Route::delete('projects/{contentProject}/contents/trash', 'empty')->name('projects.contents.trash.empty');
+            Route::delete('projects/{contentProject}/contents/{contentItem}', 'destroy')
+                ->whereNumber('contentItem')->name('projects.contents.destroy');
+            Route::post('projects/{contentProject}/contents/{contentItem}/restore', 'restore')
+                ->whereNumber('contentItem')->name('projects.contents.restore');
+            Route::delete('projects/{contentProject}/contents/{contentItem}/purge', 'purge')
+                ->whereNumber('contentItem')->name('projects.contents.purge');
+        });
+
+        // Ideas section (T6d). Additive block: the same `contentProject`
+        // binding resolves reachability (404 before validation), and a child id
+        // is resolved inside the project as an idea, so a converted row is 404.
+        Route::controller(ContentIdeaController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/ideas', 'index')->name('projects.ideas.index');
+            // Static segment first so `ideas/{contentIdea}` never shadows it.
+            Route::get('projects/{contentProject}/ideas/create', 'create')->name('projects.ideas.create');
+            Route::post('projects/{contentProject}/ideas', 'store')->name('projects.ideas.store');
+            Route::get('projects/{contentProject}/ideas/{contentIdea}', 'show')
+                ->whereNumber('contentIdea')->name('projects.ideas.show');
+            Route::get('projects/{contentProject}/ideas/{contentIdea}/edit', 'edit')
+                ->whereNumber('contentIdea')->name('projects.ideas.edit');
+            Route::put('projects/{contentProject}/ideas/{contentIdea}', 'update')
+                ->whereNumber('contentIdea')->name('projects.ideas.update');
+            Route::post('projects/{contentProject}/ideas/{contentIdea}/convert', 'convert')
+                ->whereNumber('contentIdea')->name('projects.ideas.convert');
+        });
+
+        // Important-dates calendar (T9). Additive block: the addressed project
+        // still resolves through the `contentProject` binding, so an
+        // unreachable project is 404 before validation, reads ask the policy for
+        // `view` and annotation mutations for `update`, and a child annotation
+        // id is resolved inside the project. The bare `calendar` route is the
+        // consolidated administrator view, guarded by
+        // `content_projects.view_all` in its controller (403 without it).
+        Route::controller(ContentCalendarController::class)->group(function (): void {
+            Route::get('projects/{contentProject}/calendar', 'index')->name('projects.calendar');
+            Route::post('projects/{contentProject}/calendar/annotations', 'store')
+                ->name('projects.calendar.annotations.store');
+            Route::put('projects/{contentProject}/calendar/annotations/{annotation}', 'update')
+                ->whereNumber('annotation')->name('projects.calendar.annotations.update');
+            Route::delete('projects/{contentProject}/calendar/annotations/{annotation}', 'destroy')
+                ->whereNumber('annotation')->name('projects.calendar.annotations.destroy');
+            Route::get('calendar', 'consolidated')->name('calendar.consolidated');
+        });
+
+        Route::controller(ContentProjectController::class)->group(function (): void {
+            Route::get('projects', 'index')->name('projects.index');
+            // Static segment first so `projects/{contentProject}` never shadows it.
+            Route::get('projects/create', 'create')->name('projects.create');
+            Route::post('projects', 'store')->name('projects.store');
+            Route::get('projects/{contentProject}', 'show')->name('projects.show');
+            Route::get('projects/{contentProject}/edit', 'edit')->name('projects.edit');
+            Route::put('projects/{contentProject}', 'update')->name('projects.update');
+            Route::post('projects/{contentProject}/archive', 'archive')->name('projects.archive');
+            Route::post('projects/{contentProject}/reactivate', 'reactivate')->name('projects.reactivate');
+            Route::post('projects/{contentProject}/members', 'syncMembers')->name('projects.members.sync');
+        });
+    });
+
+/*
+ * Internal projects (odd/tasks/internal-projects.md, T2): dashboard, CRUD,
+ * phases, tasks and task statuses. Open to any active user; a project the
+ * user may not see is reported as 404 by the `internalProject` binding, and
+ * phases/tasks are scoped to their project (404 from another one). Writes are
+ * guarded by InternalProjectPolicy (`update` responsible/admin, `manageWork`
+ * team).
+ */
+Route::bind('internalProject', function (string $value): \App\Models\InternalProjects\InternalProject {
+    $project = \App\Models\InternalProjects\InternalProject::query()->findOrFail($value);
+    $user = request()->user();
+
+    abort_unless($user && $project->isVisibleTo($user), 404);
+
+    return $project;
+});
+
+Route::middleware(['auth', 'active'])
+    ->prefix('internal-projects')
+    ->name('internal-projects.')
+    ->scopeBindings()
+    ->group(function (): void {
+        Route::controller(\App\Http\Controllers\InternalProjects\InternalProjectController::class)->group(function (): void {
+            Route::get('/', 'index')->name('index');
+            Route::get('create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::get('{internalProject}', 'show')->whereNumber('internalProject')->name('show');
+            Route::get('{internalProject}/edit', 'edit')->whereNumber('internalProject')->name('edit');
+            Route::put('{internalProject}', 'update')->whereNumber('internalProject')->name('update');
+            Route::delete('{internalProject}', 'destroy')->whereNumber('internalProject')->name('destroy');
+        });
+
+        Route::get('{internalProject}/timeline', [\App\Http\Controllers\InternalProjects\InternalProjectTimelineController::class, 'show'])
+            ->whereNumber('internalProject')->name('timeline');
+
+        Route::controller(\App\Http\Controllers\InternalProjects\InternalProjectPhaseController::class)->group(function (): void {
+            Route::post('{internalProject}/phases', 'store')->whereNumber('internalProject')->name('phases.store');
+            Route::put('{internalProject}/phases/{phase}', 'update')->whereNumber('internalProject')->name('phases.update');
+            Route::delete('{internalProject}/phases/{phase}', 'destroy')->whereNumber('internalProject')->name('phases.destroy');
+        });
+
+        Route::controller(\App\Http\Controllers\InternalProjects\InternalProjectTaskController::class)->group(function (): void {
+            Route::post('{internalProject}/tasks', 'store')->whereNumber('internalProject')->name('tasks.store');
+            Route::put('{internalProject}/tasks/{task}', 'update')->whereNumber('internalProject')->name('tasks.update');
+            Route::patch('{internalProject}/tasks/{task}/status', 'status')->whereNumber('internalProject')->name('tasks.status');
+            Route::delete('{internalProject}/tasks/{task}', 'destroy')->whereNumber('internalProject')->name('tasks.destroy');
+        });
+    });
+
+// "Ver PDF" for course documents (authorized, then a short-lived signed link).
+require __DIR__.'/course-documents.php';

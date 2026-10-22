@@ -24,11 +24,11 @@ final class CourseGradeService
             $enrollment->loadMissing('edition.activity');
 
             if ($session->course_edition_id !== $enrollment->course_edition_id) {
-                throw new InvalidArgumentException('Session and enrollment must belong to the same edition.');
+                throw new InvalidArgumentException('La sesión y la inscripción deben pertenecer al mismo dictado.');
             }
 
             if ($enrollment->edition->activity->type === CourseActivityType::Talk) {
-                throw new InvalidArgumentException('Talk editions do not accept grades.');
+                throw new InvalidArgumentException('Los dictados de charlas no llevan notas.');
             }
 
             CourseGradeCalculator::calculate([$grade]);

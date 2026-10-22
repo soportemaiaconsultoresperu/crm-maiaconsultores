@@ -9,12 +9,15 @@ use App\Enums\Courses\CourseModality;
 use App\Enums\Courses\PaymentStatus;
 use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
+use App\Models\Courses\CourseEditionTeacher;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\Courses\CourseEnrollmentGroup;
 use App\Models\Courses\CourseParticipant;
 use App\Models\Courses\CourseSession;
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -66,6 +69,131 @@ class CourseDomainFoundationTest extends TestCase
 
         $this->assertStringContainsString('course_commercial_documents.status', $doc);
         $this->assertStringContainsString('reserved', $doc);
+    }
+
+    public function test_course_edition_teachers_have_stable_identity_audit_and_soft_delete_columns(): void
+    {
+        foreach (['id', 'created_by', 'updated_by', 'created_at', 'updated_at', 'deleted_at'] as $column) {
+            $this->assertTrue(Schema::hasColumn('course_edition_teachers', $column), "Missing teacher column {$column}");
+        }
+
+        $edition = CourseEdition::factory()->create();
+        $first = CourseEditionTeacher::query()->create([
+            'course_edition_id' => $edition->id,
+            'display_name' => 'Ana Docente',
+            'sort_order' => 1,
+        ]);
+        $second = CourseEditionTeacher::query()->create([
+            'course_edition_id' => $edition->id,
+            'display_name' => 'Luis Docente',
+            'sort_order' => 2,
+        ]);
+
+        $this->assertIsInt($first->id);
+        $this->assertIsInt($second->id);
+        $this->assertNotSame($first->id, $second->id);
+        $this->assertNotNull($first->created_at);
+    }
+
+    public function test_course_edition_teachers_keep_active_order_unique_while_soft_deleted_rows_release_their_slot(): void
+    {
+        $edition = CourseEdition::factory()->create();
+        $teacher = CourseEditionTeacher::query()->create([
+            'course_edition_id' => $edition->id,
+            'display_name' => 'Ana Docente',
+            'sort_order' => 1,
+        ]);
+
+        $teacher->forceFill(['sort_order' => null])->save();
+        $teacher->delete();
+
+        CourseEditionTeacher::query()->create([
+            'course_edition_id' => $edition->id,
+            'display_name' => 'Luis Docente',
+            'sort_order' => 1,
+        ]);
+
+        $this->assertDatabaseHas('course_edition_teachers', [
+            'id' => $teacher->id,
+            'sort_order' => null,
+        ]);
+        $this->assertSame(1, CourseEditionTeacher::query()->count());
+        $this->assertSame(2, CourseEditionTeacher::withTrashed()->count());
+    }
+
+    public function test_teacher_identity_migration_preserves_existing_sqlite_rows_with_deterministic_ids(): void
+    {
+        $editionA = CourseEdition::factory()->create();
+        $editionB = CourseEdition::factory()->create();
+
+        Schema::disableForeignKeyConstraints();
+        Schema::drop('course_edition_teachers');
+        Schema::create('course_edition_teachers', function (Blueprint $table): void {
+            $table->unsignedBigInteger('course_edition_id');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('display_name');
+            $table->string('email')->nullable();
+            $table->unsignedSmallInteger('sort_order')->default(1);
+            $table->primary(['course_edition_id', 'sort_order']);
+        });
+
+        DB::table('course_edition_teachers')->insert([
+            ['course_edition_id' => $editionB->id, 'display_name' => 'B Uno', 'sort_order' => 1],
+            ['course_edition_id' => $editionA->id, 'display_name' => 'A Uno', 'sort_order' => 1],
+            ['course_edition_id' => $editionA->id, 'display_name' => 'A Dos', 'sort_order' => 2],
+        ]);
+
+        $migration = require database_path('migrations/2026_09_14_000001_convert_course_edition_teachers_to_stable_identity.php');
+        $migration->up();
+
+        $rows = DB::table('course_edition_teachers')->orderBy('id')->get(['id', 'course_edition_id', 'display_name', 'sort_order']);
+        $this->assertCount(3, $rows);
+        $this->assertSame([1, 2, 3], $rows->pluck('id')->all());
+        $this->assertSame(['A Uno', 'A Dos', 'B Uno'], $rows->pluck('display_name')->all());
+        $this->assertTrue(Schema::hasColumn('course_edition_teachers', 'deleted_at'));
+    }
+
+    public function test_session_teacher_assignment_migration_backfills_only_exact_unambiguous_matches(): void
+    {
+        $edition = CourseEdition::factory()->create();
+        $other = CourseEdition::factory()->create();
+        CourseEditionTeacher::query()->create(['course_edition_id' => $edition->id, 'display_name' => 'Ana Docente', 'sort_order' => 1]);
+        CourseEditionTeacher::query()->create(['course_edition_id' => $edition->id, 'display_name' => 'Nombre Duplicado', 'sort_order' => 2]);
+        CourseEditionTeacher::query()->create(['course_edition_id' => $edition->id, 'display_name' => 'Nombre Duplicado', 'sort_order' => 3]);
+        CourseEditionTeacher::query()->create(['course_edition_id' => $other->id, 'display_name' => 'Ana Docente', 'sort_order' => 1]);
+
+        Schema::disableForeignKeyConstraints();
+        Schema::drop('course_sessions');
+        Schema::create('course_sessions', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('course_edition_id')->constrained('course_editions');
+            $table->date('session_date')->nullable();
+            $table->time('starts_at')->nullable();
+            $table->time('ends_at')->nullable();
+            $table->string('teacher_name')->nullable();
+            $table->string('topic');
+            $table->unsignedSmallInteger('sort_order')->default(1);
+            $table->unique(['course_edition_id', 'sort_order']);
+            $table->foreignId('created_by')->nullable()->constrained('users');
+            $table->foreignId('updated_by')->nullable()->constrained('users');
+            $table->timestamps();
+            $table->softDeletes();
+        });
+        Schema::enableForeignKeyConstraints();
+
+        DB::table('course_sessions')->insert([
+            ['course_edition_id' => $edition->id, 'teacher_name' => ' Ana   Docente ', 'topic' => 'Exacta', 'sort_order' => 1],
+            ['course_edition_id' => $edition->id, 'teacher_name' => 'Sin coincidencia', 'topic' => 'No match', 'sort_order' => 2],
+            ['course_edition_id' => $edition->id, 'teacher_name' => 'Nombre Duplicado', 'topic' => 'Ambigua', 'sort_order' => 3],
+        ]);
+
+        (require database_path('migrations/2026_09_14_000002_add_teacher_assignment_to_course_sessions.php'))->up();
+
+        $rows = DB::table('course_sessions')->orderBy('sort_order')->get(['teacher_name', 'teacher_id']);
+        $this->assertTrue(Schema::hasColumn('course_sessions', 'teacher_id'));
+        $this->assertNotNull($rows[0]->teacher_id);
+        $this->assertNull($rows[1]->teacher_id);
+        $this->assertNull($rows[2]->teacher_id);
     }
 
     public function test_activity_codes_and_enrollments_are_unique(): void

@@ -6,7 +6,7 @@
 @section('content')
         @if (! $template)
             <x-alert type="warning">
-                Selecciona una plantilla activa antes de crear una ejecución.
+                Seleccione una plantilla activa antes de crear una ejecución.
                 <a href="{{ route('admin.campaign_templates.index') }}" class="alert-link">Ver plantillas</a>.
             </x-alert>
         @else
@@ -197,7 +197,7 @@ listEl.addEventListener('click', (e) => {
                     if (selected.size === 0) {
                         e.preventDefault();
                         listEl.scrollIntoView({behavior: 'smooth', block: 'center'});
-                        listEl.innerHTML = '<p class="text-danger text-center mb-0 py-2">Seleccioná al menos un contacto antes de crear la ejecución.</p>';
+                        listEl.innerHTML = '<p class="text-danger text-center mb-0 py-2">Seleccione al menos un contacto antes de crear la ejecución.</p>';
                     }
                 });
             </script>

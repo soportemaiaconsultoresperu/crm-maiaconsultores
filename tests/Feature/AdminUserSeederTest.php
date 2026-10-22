@@ -88,4 +88,38 @@ class AdminUserSeederTest extends TestCase
         $this->assertTrue(Hash::check('updated-password', $admin->password));
         $this->assertTrue($admin->hasRole('admin'));
     }
+
+    public function test_local_environment_falls_back_to_fixed_development_credentials(): void
+    {
+        $this->setAdminEnvironment('', '', '');
+        $this->app['env'] = 'local';
+        $this->seed(RolesAndPermissionsSeeder::class);
+        $this->seed(AdminUserSeeder::class);
+
+        $admin = User::query()->sole();
+        $this->assertSame(AdminUserSeeder::LOCAL_EMAIL, $admin->email);
+        $this->assertSame('admin@maia.local', $admin->email);
+        $this->assertTrue(Hash::check('Maia2026!', $admin->password));
+        $this->assertTrue($admin->hasRole('admin'));
+    }
+
+    public function test_non_local_environment_still_requires_env_credentials(): void
+    {
+        $this->setAdminEnvironment('', '', '');
+        $this->seed(RolesAndPermissionsSeeder::class);
+        $this->app['env'] = 'production';
+
+        try {
+            // Called directly: db:seed would prompt for confirmation in production.
+            $this->app->make(AdminUserSeeder::class)->run();
+            $this->fail('Expected the seeder to refuse missing credentials outside local.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame(
+                'ADMIN_EMAIL and ADMIN_PASSWORD must be defined in .env to seed the admin user.',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertSame(0, User::count());
+    }
 }

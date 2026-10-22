@@ -2,22 +2,28 @@
 
 namespace App\Http\Controllers\CourseTalks;
 
+use App\Enums\Courses\CourseEditionState;
 use App\Enums\Courses\CourseModality;
 use App\Exceptions\Courses\InvalidCourseEditionData;
+use App\Exceptions\Courses\InvalidCourseEditionTransition;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CourseTalks\StoreCourseEditionRequest;
 use App\Http\Requests\CourseTalks\SyncEditionSessionsRequest;
 use App\Http\Requests\CourseTalks\SyncEditionTeachersRequest;
+use App\Http\Requests\CourseTalks\UpdateCourseEditionRequest;
 use App\Models\Courses\CourseActivity;
 use App\Models\Courses\CourseEdition;
+use App\Models\User;
 use App\Services\Courses\CourseEditionService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 /**
- * Authenticated edition creation scoped to its parent activity, plus the
- * edition's teacher and session list management.
+ * Authenticated edition creation scoped to its parent activity, its edition and
+ * guarded deletion, plus the edition's teacher and session list management.
  *
  * Thin by design: each FormRequest validates the attributes the matching
  * CourseEditionService method consumes, the policy authorizes, and the service
@@ -31,13 +37,24 @@ class CourseEditionController extends Controller
         private readonly CourseEditionService $editions,
     ) {}
 
-    public function create(CourseActivity $activity): View
+    public function create(CourseActivity $activity): View|RedirectResponse
     {
         Gate::authorize('create', CourseEdition::class);
+
+        // An inactive activity takes no new dictados: the operator is sent back to
+        // the activity with the reason instead of filling a form store() refuses.
+        try {
+            CourseEditionService::ensureActivityAcceptsNewEditions($activity);
+        } catch (InvalidCourseEditionData $exception) {
+            return redirect()
+                ->route('course-talks.activities.show', $activity)
+                ->with('error', $exception->getMessage());
+        }
 
         return view('course-talks.editions.create', [
             'activity' => $activity,
             'modalities' => CourseModality::cases(),
+            'responsibleOptions' => $this->responsibleOptions(),
         ]);
     }
 
@@ -53,7 +70,51 @@ class CourseEditionController extends Controller
 
         return redirect()
             ->route('course-talks.editions.show', $edition)
-            ->with('status', "Edición ".($edition->code ?: 'sin código')." creada correctamente.");
+            ->with('status', "Dictado ".($edition->code ?: 'sin código')." creado correctamente.");
+    }
+
+    public function edit(CourseEdition $edition): View
+    {
+        Gate::authorize('update', CourseEdition::class);
+
+        return view('course-talks.editions.edit', [
+            'edition' => $edition->load('activity'),
+            'activity' => $edition->activity,
+            'modalities' => CourseModality::cases(),
+            'responsibleOptions' => $this->responsibleOptions($edition->responsible_user_id),
+        ]);
+    }
+
+    public function update(UpdateCourseEditionRequest $request, CourseEdition $edition): RedirectResponse
+    {
+        Gate::authorize('update', CourseEdition::class);
+
+        try {
+            $edition = $this->editions->update($edition, $request->validated());
+        } catch (InvalidCourseEditionData $exception) {
+            return back()->withInput()->withErrors($this->fieldErrors($exception));
+        }
+
+        return redirect()
+            ->route('course-talks.editions.show', $edition)
+            ->with('status', 'Dictado '.($edition->code ?: 'sin código').' actualizado correctamente.');
+    }
+
+    public function destroy(CourseEdition $edition): RedirectResponse
+    {
+        Gate::authorize('delete', CourseEdition::class);
+
+        try {
+            $this->editions->delete($edition);
+        } catch (InvalidCourseEditionData $exception) {
+            return redirect()
+                ->route('course-talks.editions.show', $edition)
+                ->with('error', $exception->getMessage());
+        }
+
+        return redirect()
+            ->route('course-talks.activities.show', $edition->course_activity_id)
+            ->with('status', 'Dictado '.($edition->code ?: 'sin código').' eliminado correctamente.');
     }
 
     /**
@@ -84,7 +145,7 @@ class CourseEditionController extends Controller
 
         return redirect()
             ->route('course-talks.editions.teachers', $edition)
-            ->with('status', 'Docentes de la edición actualizados correctamente.');
+            ->with('status', 'Docentes del dictado actualizados correctamente.');
     }
 
     /**
@@ -119,7 +180,43 @@ class CourseEditionController extends Controller
 
         return redirect()
             ->route('course-talks.editions.sessions', $edition)
-            ->with('status', 'Sesiones de la edición actualizadas correctamente.');
+            ->with('status', 'Sesiones del dictado actualizadas correctamente.');
+    }
+
+    /**
+     * Move the delivery along its lifecycle.
+     *
+     * The state machine lives in the service (`allowedTransitions`), so a rendered button
+     * can never offer a step the service would refuse. Reaching `finished` also completes
+     * the edition validations, which is the eligibility condition `CourseEligibilityService`
+     * checks before a certificate may be issued — and which nothing in the application
+     * could previously set, so every enrollment stayed permanently ineligible.
+     *
+     * Authorized by the same `update` ability the other edition write surfaces use.
+     */
+    public function updateState(Request $request, CourseEdition $edition): RedirectResponse
+    {
+        Gate::authorize('update', CourseEdition::class);
+
+        $validated = $request->validate([
+            'state' => ['required', Rule::enum(CourseEditionState::class)],
+        ]);
+
+        $target = CourseEditionState::from($validated['state']);
+
+        try {
+            $this->editions->transitionState($edition, $target);
+
+            if ($target === CourseEditionState::Finished) {
+                $this->editions->completeValidations($edition);
+            }
+        } catch (InvalidCourseEditionTransition $exception) {
+            return back()->withErrors(['edition' => $exception->getMessage()]);
+        }
+
+        return redirect()
+            ->route('course-talks.editions.show', $edition)
+            ->with('status', 'Estado del dictado actualizado a «'.$target->label().'».');
     }
 
     /**
@@ -133,5 +230,20 @@ class CourseEditionController extends Controller
     private function fieldErrors(InvalidCourseEditionData $exception): array
     {
         return [($exception->field() ?? 'edition') => $exception->getMessage()];
+    }
+
+    /**
+     * The users a dictado can be assigned to: the active ones, plus the current
+     * responsible even when deactivated, so editing never silently drops them.
+     *
+     * @return array<int, string>
+     */
+    private function responsibleOptions(?int $currentId = null): array
+    {
+        return User::query()
+            ->where(fn ($query) => $query->where('is_active', true)->when($currentId !== null, fn ($query) => $query->orWhereKey($currentId)))
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
     }
 }

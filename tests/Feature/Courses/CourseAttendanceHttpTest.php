@@ -279,7 +279,7 @@ class CourseAttendanceHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('must belong to the same edition');
+            ->assertSee('deben pertenecer al mismo dictado');
     }
 
     public function test_an_invalid_status_from_the_service_surfaces_as_a_visible_error(): void
@@ -296,7 +296,7 @@ class CourseAttendanceHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('Attendance status is invalid');
+            ->assertSee('El estado de asistencia no es válido');
     }
 
     public function test_an_enrollment_from_another_edition_is_reported_without_persisting_anything(): void
@@ -315,7 +315,7 @@ class CourseAttendanceHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('must belong to the same edition');
+            ->assertSee('deben pertenecer al mismo dictado');
     }
 
     public function test_unknown_or_incomplete_cells_are_reported_as_validation_errors(): void
@@ -444,7 +444,7 @@ class CourseAttendanceHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('Todavía no hay participantes inscritos en esta edición.')
+            ->assertSee('Todavía no hay participantes inscritos en este dictado.')
             ->assertDontSee('Guardar asistencia')
             ->assertDontSee('cells[');
     }

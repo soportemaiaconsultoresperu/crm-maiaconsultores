@@ -119,7 +119,7 @@
     $dateTimeFields = ['scheduled_at'];
     $numberFields = ['estimated_amount', 'total', 'days_overdue', 'lead_id', 'customer_id', 'opportunity_id'];
     $groupLabel = $logicalOperatorLabels[$logicalOperator] ?? $logicalOperator;
-    $groupHelp = $logicalOperatorHelp[$logicalOperator] ?? 'Definí cómo se evalúan las condiciones de este bloque.';
+    $groupHelp = $logicalOperatorHelp[$logicalOperator] ?? 'Defina cómo se evalúan las condiciones de este bloque.';
 @endphp
 
 <div class="automation-condition-group" wire:key="group-{{ $groupIndex }}">
@@ -174,7 +174,7 @@
                                     name="groups[{{ $groupIndex }}][conditions][{{ $index }}][field]"
                                     class="form-select form-select-sm"
                                     wire:model.live="conditions.{{ $index }}.field">
-                                <option value="">— Elegí el dato del CRM —</option>
+                                <option value="">— Elija el dato del CRM —</option>
                                 @foreach ($fieldGroups as $groupName => $fields)
                                     <optgroup label="{{ $groupName }}">
                                         @foreach ($fields as $fieldValue => $fieldLabel)
@@ -186,7 +186,7 @@
                                     <option value="{{ $currentField }}">Dato personalizado guardado: {{ $currentField }}</option>
                                 @endif
                             </select>
-                            <div class="form-text">Elegí el dato de negocio que el CRM debe evaluar. El sistema guarda el campo interno correcto.</div>
+                            <div class="form-text">Elija el dato de negocio que el CRM debe evaluar. El sistema guarda el campo interno correcto.</div>
                         </div>
                     <div class="col-md-3">
                         <label class="form-label small mb-1" for="group-{{ $groupIndex }}-condition-{{ $index }}-operator">Cómo compararlo</label>
@@ -227,7 +227,7 @@
                                     'title' => 'Ej. Llamar al cliente',
                                     'days_overdue' => 'Ej. 3',
                                     'estimated_amount', 'total' => 'Ej. 1500',
-                                    default => 'Elegí o escribí el valor',
+                                    default => 'Elija o escriba el valor',
                                 };
                                 $operatorDoesNotNeedValue = in_array($currentOperator, ['is_null', 'is_not_null'], true);
                             @endphp
@@ -245,7 +245,7 @@
                                         name="groups[{{ $groupIndex }}][conditions][{{ $index }}][value]"
                                         class="form-select form-select-sm"
                                         wire:model="conditions.{{ $index }}.value">
-                                    <option value="">— Elegí el valor —</option>
+                                    <option value="">— Elija el valor —</option>
                                     @foreach ($valueOptions as $optionValue => $optionLabel)
                                         <option value="{{ $optionValue }}">{{ $optionLabel }}</option>
                                     @endforeach
@@ -261,7 +261,7 @@
                                        class="form-control form-control-sm"
                                        wire:model="conditions.{{ $index }}.value" autocomplete="off"
                                        placeholder="{{ $valuePlaceholder }}">
-                                <div class="form-text">Para “entre” o “varios valores”, separá opciones con coma.</div>
+                                <div class="form-text">Para “entre” o “varios valores”, separe opciones con coma.</div>
                             @endif
                         </div>
                     <input type="hidden" name="groups[{{ $groupIndex }}][conditions][{{ $index }}][position]" value="{{ $condition['position'] ?? ($index + 1) }}">
@@ -285,7 +285,7 @@
         @empty
             <div class="automation-empty-state small mb-3">
                 <strong>Sin condiciones todavía.</strong>
-                <span>Agregá una fila para definir cuándo aplica esta regla. Ejemplo: origen es igual a Web.</span>
+                <span>Agregue una fila para definir cuándo aplica esta regla. Ejemplo: origen es igual a Web.</span>
             </div>
         @endforelse
             <button type="button"

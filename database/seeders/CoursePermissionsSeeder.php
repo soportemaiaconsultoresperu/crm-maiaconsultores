@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -42,8 +43,7 @@ class CoursePermissionsSeeder extends Seeder
             ->first();
 
         if ($admin !== null) {
-            $existing = $admin->permissions->pluck('name')->all();
-            $admin->syncPermissions(array_values(array_unique(array_merge($existing, self::PERMISSIONS))));
+            SeededGrants::grantOnce($admin, self::PERMISSIONS);
         }
 
         $supervisor = Role::query()
@@ -52,8 +52,7 @@ class CoursePermissionsSeeder extends Seeder
             ->first();
 
         if ($supervisor !== null) {
-            $existing = $supervisor->permissions->pluck('name')->all();
-            $supervisor->syncPermissions(array_values(array_unique(array_merge($existing, ['course-talks.view']))));
+            SeededGrants::grantOnce($supervisor, ['course-talks.view']);
         }
 
         app()[PermissionRegistrar::class]->forgetCachedPermissions();

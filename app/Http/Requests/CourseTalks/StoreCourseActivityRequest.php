@@ -10,8 +10,14 @@ use Illuminate\Validation\Rule;
  * Validates exactly the attributes the existing CourseActivityService::create()
  * contract consumes. Domain rules stay in the service: `code` uniqueness is not
  * re-implemented here, and `slug`, `official_academic_hours`, `base_syllabus_json`,
- * `talk_includes_certificate`, `talk_certificate_price` and `is_active` keep their
- * service-side defaults when the request omits them.
+ * `talk_includes_certificate` and `is_active` keep their service-side defaults
+ * when the request omits them.
+ *
+ * `talk_certificate_price` is NOT declared and must not come back: the column was
+ * dropped when the certificate charge moved to the delivery, so a rule here would
+ * only give a dead input a plausible-looking home. An operator's cached form can
+ * still post the key; undeclared keys are ignored, which is the behaviour we want
+ * (reporting an error the operator cannot fix would be worse than accepting it).
  */
 class StoreCourseActivityRequest extends FormRequest
 {
@@ -61,12 +67,31 @@ class StoreCourseActivityRequest extends FormRequest
             'type' => ['required', Rule::enum(CourseActivityType::class)],
             'code' => ['required', 'string', 'max:60'],
             'name' => ['required', 'string', 'max:255'],
-            'official_academic_hours' => ['nullable', 'numeric', 'min:0', 'max:999999.99'],
+            // Required by the spec and NOT NULL in the column, with no default. While
+            // this was `nullable`, leaving the field blank sent an empty string that
+            // ConvertEmptyStringsToNull turned into a NULL, and the insert died as an
+            // uncaught QueryException instead of telling the operator what was missing
+            // — the same defect the edition price had.
+            'official_academic_hours' => ['required', 'numeric', 'min:0', 'max:999999.99'],
             'base_syllabus_json' => ['nullable', 'array'],
             'base_syllabus_json.*' => ['string', 'max:255'],
             'talk_includes_certificate' => ['nullable', 'boolean'],
-            'talk_certificate_price' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return [
+            'type' => 'tipo',
+            'code' => 'código',
+            'name' => 'nombre',
+            'official_academic_hours' => 'horas académicas',
+            'base_syllabus_json' => 'temario base',
+            'base_syllabus_json.*' => 'tema del temario base',
+            'talk_includes_certificate' => 'charla con certificado',
+            'is_active' => 'activa',
         ];
     }
 }

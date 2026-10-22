@@ -657,6 +657,27 @@ textarea.form-control {
 	border-left-color: var(--bs-warning);
 }
 
+.calendar-event-internal {
+	border-left-color: #7c3aed;
+	background: #f5f3ff;
+}
+
+/* Internal project tasks: colour comes inline from the project (S4.3). */
+.calendar-event-overdue-task {
+	outline: 1px solid var(--bs-danger);
+	outline-offset: -1px;
+}
+
+.calendar-event-swatch {
+	display: inline-block;
+	width: 0.75rem;
+	height: 0.75rem;
+	margin-right: 0.25rem;
+	vertical-align: middle;
+	border-left: 3px solid;
+	border-radius: 0.2rem;
+}
+
 [data-calendar-page][aria-busy="true"] {
 	opacity: 0.65;
 	pointer-events: none;
@@ -1580,4 +1601,195 @@ textarea.form-control {
 	.automation-submit-bar .btn {
 		width: 100%;
 	}
+}
+
+/* Enhanced multiple select (resources/js/multi-select.js). */
+.ms {
+	position: relative;
+}
+
+.ms-native {
+	position: absolute !important;
+	width: 1px !important;
+	height: 1px !important;
+	opacity: 0;
+	pointer-events: none;
+	bottom: 0;
+	left: 50%;
+}
+
+.ms-control {
+	display: flex;
+	align-items: center;
+	min-height: calc(1.5em + 0.75rem + 2px);
+	height: auto;
+	cursor: pointer;
+	padding-top: 0.25rem;
+	padding-bottom: 0.25rem;
+}
+
+.ms-control:focus {
+	border-color: #86b7fe;
+	box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+	outline: 0;
+}
+
+.ms-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+}
+
+.ms-placeholder {
+	color: var(--bs-secondary-color);
+}
+
+.ms-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.15rem;
+	padding: 0.1rem 0.15rem 0.1rem 0.55rem;
+	border-radius: 999px;
+	background: rgba(37, 99, 235, 0.1);
+	color: #1e40af;
+	font-size: 0.85em;
+	line-height: 1.4;
+}
+
+.ms-chip-remove {
+	border: 0;
+	background: transparent;
+	color: inherit;
+	padding: 0 0.2rem;
+	border-radius: 999px;
+	line-height: 1;
+}
+
+.ms-chip-remove:hover,
+.ms-chip-remove:focus-visible {
+	background: rgba(37, 99, 235, 0.2);
+}
+
+.ms-panel {
+	/* Fixed so cards/tables with overflow never clip it; JS sets top/left/width. */
+	position: fixed;
+	z-index: 1060;
+	min-width: 14rem;
+	padding: 0.5rem;
+	background: var(--bs-body-bg);
+	border: 1px solid var(--bs-border-color);
+	border-radius: 0.65rem;
+	box-shadow: 0 0.5rem 1.5rem rgba(15, 23, 42, 0.12);
+}
+
+.ms-search {
+	margin-bottom: 0.5rem;
+}
+
+.ms-toolbar {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-size: 0.8rem;
+	color: var(--bs-secondary-color);
+	padding: 0 0.25rem 0.35rem;
+	border-bottom: 1px solid var(--bs-border-color);
+	margin-bottom: 0.25rem;
+}
+
+.ms-list {
+	max-height: 15rem;
+	overflow-y: auto;
+	/* Always show that the list scrolls, and keep the wheel inside it. */
+	overscroll-behavior: contain;
+	scrollbar-gutter: stable;
+	scrollbar-width: thin;
+	scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+.ms-list::-webkit-scrollbar {
+	width: 8px;
+}
+
+.ms-list::-webkit-scrollbar-track {
+	background: #f1f5f9;
+	border-radius: 4px;
+}
+
+.ms-list::-webkit-scrollbar-thumb {
+	background: #94a3b8;
+	border-radius: 4px;
+}
+
+.ms-option {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	margin: 0;
+	padding: 0.35rem 0.5rem;
+	border-radius: 0.4rem;
+	cursor: pointer;
+	user-select: none;
+}
+
+.ms-option:hover,
+.ms-option.is-active {
+	background: var(--bs-tertiary-bg);
+}
+
+.ms-option.is-selected {
+	font-weight: 500;
+}
+
+.ms-empty {
+	padding: 0.5rem;
+	color: var(--bs-secondary-color);
+	font-size: 0.875rem;
+}
+
+.ms-sm .ms-control {
+	min-height: calc(1.5em + 0.5rem + 2px);
+	font-size: 0.875rem;
+}
+
+/* Content projects — colour identity (S1) */
+.content-project-band {
+	padding: 0.5rem 0.75rem;
+	border-left: 0.375rem solid;
+	border-radius: var(--bs-border-radius);
+}
+
+.content-project-swatch {
+	display: inline-block;
+	flex-shrink: 0;
+	width: 0.875rem;
+	height: 0.875rem;
+	border-radius: 50%;
+	vertical-align: middle;
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.content-color-swatch {
+	display: inline-block;
+	width: 1.75rem;
+	height: 1.75rem;
+	border-radius: 50%;
+	cursor: pointer;
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.btn-check:checked + .content-color-swatch {
+	box-shadow: 0 0 0 2px var(--bs-body-bg), 0 0 0 4px var(--bs-emphasis-color);
+}
+
+.btn-check:focus-visible + .content-color-swatch {
+	outline: 2px solid var(--bs-primary);
+	outline-offset: 3px;
+}
+
+.content-calendar-entry {
+	margin-bottom: 0.25rem;
+	padding: 0.125rem 0.25rem;
+	border-left: 0.25rem solid;
+	border-radius: var(--bs-border-radius-sm);
 }

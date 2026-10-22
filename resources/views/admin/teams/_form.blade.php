@@ -14,7 +14,7 @@
             label="Supervisor"
             :options="$supervisors->pluck('name', 'id')->all()"
             :value="$team->supervisor_id"
-            placeholder="Selecciona un supervisor"
+            placeholder="Seleccione un supervisor"
             required
         />
     </div>

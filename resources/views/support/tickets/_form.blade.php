@@ -70,10 +70,33 @@
                 <x-validation-error name="channel_id" />
             </div>
 
+            <div class="col-md-4">
+                <label class="form-label" for="team_id">Equipo</label>
+                <select id="team_id" name="team_id" class="form-select @error('team_id') is-invalid @enderror">
+                    <option value="">Sin equipo</option>
+                    @foreach ($teams as $team)
+                        <option value="{{ $team->id }}" @selected(old('team_id') == $team->id)>{{ $team->name }}</option>
+                    @endforeach
+                </select>
+                <div class="form-text">Opcional. El responsable se asigna después, desde el ticket.</div>
+                <x-validation-error name="team_id" />
+            </div>
+            <div class="col-md-8">
+                <label class="form-label" for="impact">Impacto</label>
+                <input id="impact" name="impact" maxlength="100" value="{{ old('impact') }}" class="form-control @error('impact') is-invalid @enderror" placeholder="Por ejemplo: detiene la facturación de toda la empresa">
+                <x-validation-error name="impact" />
+            </div>
+
             <div class="col-12">
                 <label class="form-label" for="description">Descripción <span class="text-danger">*</span></label>
                 <textarea id="description" name="description" rows="5" class="form-control @error('description') is-invalid @enderror" required>{{ old('description') }}</textarea>
                 <x-validation-error name="description" />
+            </div>
+
+            <div class="col-12">
+                <label class="form-label" for="general_observations">Observaciones generales</label>
+                <textarea id="general_observations" name="general_observations" rows="3" class="form-control @error('general_observations') is-invalid @enderror">{{ old('general_observations') }}</textarea>
+                <x-validation-error name="general_observations" />
             </div>
         </div>
     </div>

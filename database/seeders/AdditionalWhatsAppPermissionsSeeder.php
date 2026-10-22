@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -13,7 +14,7 @@ use Spatie\Permission\PermissionRegistrar;
  * B14 — Idempotent seeder for the WhatsApp module permissions.
  *
  * Always created via firstOrCreate so re-running the seeder is a no-op.
- * Also grants the right baseline to admin (everything) and supervisor
+ * Also grants (once, via SeededGrants::grantOnce) the right baseline to admin (everything) and supervisor
  * (read-only view) when those roles exist.
  *
  * The companion {@see \App\Providers\WhatsAppServiceProvider} runs the
@@ -83,18 +84,14 @@ class AdditionalWhatsAppPermissionsSeeder extends Seeder
             return;
         }
 
-        $existing = $admin->permissions->pluck('name')->all();
-
-        $toGrant = array_values(array_unique(array_merge($existing, [
+        SeededGrants::grantOnce($admin, [
             'whatsapp.view',
             'whatsapp.send',
             'whatsapp.template.manage',
             'whatsapp.account.manage',
             'whatsapp.conversation.assign',
             'whatsapp.audit',
-        ])));
-
-        $admin->syncPermissions($toGrant);
+        ]);
     }
 
     private function grantSupervisor(): void
@@ -108,10 +105,6 @@ class AdditionalWhatsAppPermissionsSeeder extends Seeder
             return;
         }
 
-        $existing = $supervisor->permissions->pluck('name')->all();
-
-        $toGrant = array_values(array_unique(array_merge($existing, $this->supervisorGrants)));
-
-        $supervisor->syncPermissions($toGrant);
+        SeededGrants::grantOnce($supervisor, $this->supervisorGrants);
     }
 }

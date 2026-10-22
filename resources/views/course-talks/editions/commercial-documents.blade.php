@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Comprobantes comerciales de la edición')
-@section('page-title', 'Comprobantes comerciales de la edición')
+@section('title', 'Comprobantes comerciales del dictado')
+@section('page-title', 'Comprobantes comerciales del dictado')
 
 @section('content')
     @php
@@ -16,11 +16,12 @@
             'boleta' => 'Boleta',
             'recibo' => 'Recibo',
         ];
+        // Only the states an action can reach: registration writes `pending_file`
+        // and the upload writes `registered`. Sending and discarding are recorded in
+        // the delivery status (next map), never in this one.
         $statusMeta = [
             'pending_file' => ['Pendiente de archivo', 'text-bg-warning'],
             'registered' => ['Registrado', 'text-bg-success'],
-            'sent' => ['Enviado', 'text-bg-primary'],
-            'discarded' => ['Descartado', 'text-bg-light'],
         ];
         $deliveryStatusMeta = [
             'pending' => ['Entrega pendiente', 'text-bg-secondary'],
@@ -51,21 +52,50 @@
             'mail' => ['Correo', 'text-bg-info'],
             'whatsapp' => ['WhatsApp', 'text-bg-success'],
         ];
-        $attemptStatusMeta = [
-            'queued' => ['En cola', 'text-bg-secondary'],
-            'sending' => ['Enviando', 'text-bg-info'],
-            'sent' => ['Enviado', 'text-bg-success'],
-            'delivered' => ['Entregado', 'text-bg-success'],
-            'failed' => ['Intento fallido', 'text-bg-danger'],
-            'skipped' => ['Omitido', 'text-bg-light'],
-        ];
+            $attemptStatusMeta = [
+                'queued' => ['En cola', 'text-bg-secondary'],
+                'sending' => ['Enviando', 'text-bg-info'],
+                'sent' => ['Enviado', 'text-bg-success'],
+                'delivered' => ['Entregado', 'text-bg-success'],
+                'failed' => ['Intento fallido', 'text-bg-danger'],
+                'skipped' => ['Omitido', 'text-bg-light'],
+            ];
+
+            // A WhatsApp `queued` row is not waiting on a queue: it waits on the operator,
+            // who sends the message by hand from WhatsApp. "En cola" promised something
+            // that would never happen on its own. Mail keeps that name because its own
+            // `queued` row really is mid-flight.
+            $attemptStatus = static function ($delivery) use ($attemptStatusMeta): array {
+                if ($delivery->status === 'queued' && $delivery->channel === 'whatsapp') {
+                    return ['Pendiente de confirmar', 'text-bg-warning'];
+                }
+
+                return $attemptStatusMeta[$delivery->status] ?? [$delivery->status, 'text-bg-secondary'];
+            };
 
         // A handoff stays pending until the user confirms it: the confirmation
         // control is offered only while an opened WhatsApp handoff is unresolved.
-        $pendingHandoffOf = static fn ($documentDeliveries) => $documentDeliveries->first(
-            static fn ($delivery): bool => $delivery->channel === 'whatsapp'
-                && in_array($delivery->status, ['queued', 'sending'], true),
-        );
+            $pendingHandoffOf = static fn ($documentDeliveries) => $documentDeliveries->first(
+                static fn ($delivery): bool => $delivery->channel === 'whatsapp'
+                    && in_array($delivery->status, ['queued', 'sending'], true)
+                    && ! $documentDeliveries->contains(
+                        static fn ($other): bool => $other->channel === 'whatsapp'
+                            && $other->status === 'sent'
+                            && $other->recipient_ref === $delivery->recipient_ref,
+                    ),
+            );
+
+            // Pending WhatsApp handoffs for the whole listing, read from the SAME resolver the
+            // row uses so the two can never disagree. They used to be visible only inside one
+            // comprobante's delivery history: an operator who had just sent a message from
+            // WhatsApp had nowhere obvious to confirm it from.
+            $pendingHandoffs = [];
+            foreach ($commercialDocuments as $commercial) {
+                $pending = $pendingHandoffOf($deliveries[$commercial->id] ?? collect());
+                if ($pending !== null) {
+                    $pendingHandoffs[] = ['document' => $commercial, 'handoff' => $pending];
+                }
+            }
 
         // The recipient prefill comes from the real data the domain already holds
         // for the comprobante's only target: the participant of its enrollment, or
@@ -89,14 +119,47 @@
         $deliverableStatuses = ['registered', 'sent'];
     @endphp
 
-    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver a la edición</a>
+    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver al dictado</a>
+
+    @if ($pendingHandoffs !== [])
+        <x-alert type="warning" data-testid="course-talks-commercial-documents-whatsapp-pending">
+            <p class="mb-1 fw-semibold">
+                {{ count($pendingHandoffs) === 1
+                    ? 'Tiene un envío por WhatsApp pendiente de confirmar.'
+                    : 'Tiene '.count($pendingHandoffs).' envíos por WhatsApp pendientes de confirmar.' }}
+            </p>
+            <p class="small mb-0">Marque cada uno como enviado cuando lo haya enviado desde WhatsApp, o descártelo si no lo va a usar.</p>
+
+            @foreach ($pendingHandoffs as $entry)
+                <div class="d-flex flex-wrap align-items-center gap-2 border-top pt-2 mt-2" data-testid="course-talks-commercial-documents-whatsapp-pending-{{ $entry['handoff']->id }}">
+                    <span class="small"><strong>{{ $typeLabels[$entry['document']->type->value] ?? 'Comprobante' }}</strong> {{ $entry['document']->series ?: '—' }}-{{ $entry['document']->number ?: '—' }} · {{ $entry['handoff']->recipient_ref }}</span>
+
+                    {{-- The number travels hidden and comes from the handoff itself, so the
+                         confirmation cannot be refused for a phone the operator retyped. --}}
+                    <form method="POST" action="{{ route('course-talks.commercial-documents.whatsapp.confirm', $entry['document']) }}" class="d-flex flex-wrap gap-1">
+                        @csrf
+                        <input type="hidden" name="operation_key" value="{{ \Illuminate\Support\Str::uuid() }}">
+                        <input type="hidden" name="handoff" value="{{ $entry['handoff']->id }}">
+                        <input type="hidden" name="recipient_phone" value="{{ $entry['handoff']->recipient_ref }}">
+                        <button type="submit" class="btn btn-sm btn-success">Marcar como enviado</button>
+                    </form>
+
+                    <form method="POST" action="{{ route('course-talks.commercial-documents.whatsapp.discard', $entry['document']) }}" class="d-flex flex-wrap gap-1">
+                        @csrf
+                        <input type="hidden" name="handoff" value="{{ $entry['handoff']->id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Descartar intento</button>
+                    </form>
+                </div>
+            @endforeach
+        </x-alert>
+    @endif
 
     <div class="card mb-3" data-testid="course-talks-commercial-edition">
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-3">Actividad</dt>
+                <dt class="col-sm-3">Curso o charla</dt>
                 <dd class="col-sm-9">{{ $edition->activity->name }} · {{ $edition->activity->type->label() }}</dd>
-                <dt class="col-sm-3">Edición</dt>
+                <dt class="col-sm-3">Dictado</dt>
                 <dd class="col-sm-9"><code>{{ $edition->code ?: '—' }}</code> · {{ $edition->modality->label() }}</dd>
                 <dt class="col-sm-3">Comprobantes registrados</dt>
                 <dd class="col-sm-9">{{ $commercialDocuments->count() }}</dd>
@@ -117,7 +180,7 @@
         </x-alert>
     @endif
 
-    <x-table title="Comprobantes comerciales de la edición">
+    <x-table title="Comprobantes comerciales del dictado">
         @slot('headers')
             <tr>
                 <th scope="col">Comprobante</th>
@@ -174,6 +237,12 @@
                         @if ($commercial->document)
                             <span class="badge text-bg-success">Adjunto cargado</span>
                             <div class="text-secondary small">{{ $commercial->document->name }}</div>
+                            {{-- Offered only where the signed download link would serve the
+                                 file; an attachment that is not a PDF is named as a file. The
+                                 link is minted at click time, never rendered here. --}}
+                            @if (($deliverability[$commercial->id] ?? false) && Route::has('course-talks.commercial-documents.pdf'))
+                                <a href="{{ route('course-talks.commercial-documents.pdf', $commercial) }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary mt-1" data-testid="course-talks-commercial-view-{{ $commercial->id }}">{{ strtolower((string) $commercial->document->extension) === 'pdf' ? 'Ver PDF' : 'Ver archivo' }}</a>
+                            @endif
                         @else
                             <span class="badge text-bg-warning">Sin adjunto</span>
                             @if ($canManage)
@@ -204,7 +273,7 @@
                             @forelse ($documentDeliveries as $delivery)
                                 <div class="small" data-testid="course-talks-commercial-delivery-{{ $commercial->id }}-{{ $delivery->id }}">
                                     <span class="badge {{ $channelMeta[$delivery->channel][1] ?? 'text-bg-secondary' }}">{{ $channelMeta[$delivery->channel][0] ?? $delivery->channel }}</span>
-                                    <span class="badge {{ $attemptStatusMeta[$delivery->status][1] ?? 'text-bg-secondary' }}">{{ $attemptStatusMeta[$delivery->status][0] ?? $delivery->status }}</span>
+                                    <span class="badge {{ $attemptStatus($delivery)[1] }}">{{ $attemptStatus($delivery)[0] }}</span>
                                     <span class="text-secondary">{{ $delivery->recipient_ref }}</span>
                                     <span class="text-secondary">· Intentos: {{ $delivery->attempts }}</span>
                                     <span class="text-secondary">· {{ $delivery->updated_at?->format('d/m/Y H:i') ?? '—' }}</span>
@@ -265,8 +334,17 @@
                                         <label class="visually-hidden" for="commercial-whatsapp-confirm-phone-{{ $commercial->id }}">Teléfono confirmado de {{ $deliveryLabel }}</label>
                                         <input type="tel" class="form-control form-control-sm w-auto" id="commercial-whatsapp-confirm-phone-{{ $commercial->id }}" name="recipient_phone" maxlength="30" required value="{{ old('recipient_phone', $pendingHandoff->recipient_ref) }}">
                                         <button type="submit" class="btn btn-sm btn-success">Marcar como enviado</button>
-                                    </form>
-                                    <p class="small text-secondary mb-0 mt-1" data-testid="course-talks-commercial-whatsapp-pending-{{ $commercial->id }}">WhatsApp pendiente de confirmación: use «Marcar como enviado» cuando haya enviado el mensaje.</p>
+                                        </form>
+
+                                        {{-- An opened handoff had no way out before this: it stayed pending
+                                             for good and left a number nobody would use sitting in the
+                                             history. Discarding skips it instead of deleting it. --}}
+                                        <form method="POST" action="{{ route('course-talks.commercial-documents.whatsapp.discard', $commercial) }}" class="d-flex flex-wrap gap-1 mt-1" data-testid="course-talks-commercial-whatsapp-discard-form-{{ $commercial->id }}">
+                                            @csrf
+                                            <input type="hidden" name="handoff" value="{{ $pendingHandoff->id }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Descartar intento</button>
+                                        </form>
+                                        <p class="small text-secondary mb-0 mt-1" data-testid="course-talks-commercial-whatsapp-pending-{{ $commercial->id }}">WhatsApp pendiente de confirmación: use «Marcar como enviado» cuando haya enviado el mensaje.</p>
                                 @endif
                             </div>
                         @endif
@@ -274,7 +352,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="12" class="text-center text-secondary py-4" data-testid="course-talks-commercial-empty">Todavía no se ha registrado ningún comprobante comercial en esta edición.</td>
+                    <td colspan="12" class="text-center text-secondary py-4" data-testid="course-talks-commercial-empty">Todavía no se ha registrado ningún comprobante comercial en este dictado.</td>
                 </tr>
             @endforelse
         @endslot
@@ -283,7 +361,7 @@
     @if ($canManage)
         <h2 class="h5 mt-4">Registrar comprobante por matrícula</h2>
         <p class="text-secondary small">
-            El desglose lo calcula el sistema con el precio de la actividad, el cargo por certificado y el descuento de cada
+            El desglose lo calcula el sistema con el precio del curso o charla y el cargo por certificado de cada
             matrícula. La compra de un grupo con un solo pagador se factura en la sección de grupos.
         </p>
 
@@ -391,12 +469,12 @@
                 </div>
             </div>
         @empty
-            <x-alert type="info" data-testid="course-talks-commercial-enrollments-empty">Todavía no hay participantes inscritos en esta edición.</x-alert>
+            <x-alert type="info" data-testid="course-talks-commercial-enrollments-empty">Todavía no hay participantes inscritos en este dictado.</x-alert>
         @endforelse
 
         <h2 class="h5 mt-4" id="grupos-de-matricula">Registrar comprobante por grupo</h2>
         <p class="text-secondary small">
-            El desglose lo calcula el sistema sumando el precio de la actividad, el cargo por certificado y el descuento de
+            El desglose lo calcula el sistema sumando el precio del curso o charla y el cargo por certificado de
             las matrículas facturables de cada grupo. El pagador es el propio grupo.
         </p>
 
@@ -504,7 +582,7 @@
                 </div>
             </div>
         @empty
-            <x-alert type="info" data-testid="course-talks-commercial-groups-empty">Todavía no hay grupos de matrícula en esta edición.</x-alert>
+            <x-alert type="info" data-testid="course-talks-commercial-groups-empty">Todavía no hay grupos de matrícula en este dictado.</x-alert>
         @endforelse
     @endif
 @endsection

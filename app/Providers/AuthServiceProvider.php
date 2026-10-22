@@ -11,6 +11,9 @@ use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Courses\CourseEdition;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\CustomerInvoice;
+use App\Models\SupportIncidentDetail;
+use App\Models\SupportObservation;
+use App\Models\SupportSessionDetail;
 use App\Models\SupportTicket;
 use App\Policies\Courses\CourseAcademicDocumentPolicy;
 use App\Policies\Courses\CourseActivityPolicy;
@@ -19,6 +22,9 @@ use App\Policies\Courses\CourseCommercialDocumentPolicy;
 use App\Policies\Courses\CourseEditionPolicy;
 use App\Policies\Courses\CourseEnrollmentPolicy;
 use App\Policies\CustomerInvoicePolicy;
+use App\Policies\SupportIncidentDetailPolicy;
+use App\Policies\SupportObservationPolicy;
+use App\Policies\SupportSessionDetailPolicy;
 use App\Policies\SupportTicketPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as BaseAuthServiceProvider;
 use Illuminate\Support\Facades\Gate;
@@ -66,7 +72,12 @@ class AuthServiceProvider extends BaseAuthServiceProvider
         CourseEdition::class => CourseEditionPolicy::class,
         CourseEnrollment::class => CourseEnrollmentPolicy::class,
         CustomerInvoice::class => CustomerInvoicePolicy::class,
+        \App\Models\InternalActivity::class => \App\Policies\InternalActivityPolicy::class,
+        \App\Models\InternalProjects\InternalProject::class => \App\Policies\InternalProjects\InternalProjectPolicy::class,
         SupportTicket::class => SupportTicketPolicy::class,
+        SupportObservation::class => SupportObservationPolicy::class,
+        SupportIncidentDetail::class => SupportIncidentDetailPolicy::class,
+        SupportSessionDetail::class => SupportSessionDetailPolicy::class,
     ];
 
     public function boot(): void
@@ -90,8 +101,17 @@ class AuthServiceProvider extends BaseAuthServiceProvider
         //     `PermissionDoesNotExist` for unknown permissions; the try/catch
         //     converts that to `null` so the Gate falls through to its default
         //     policy / closure lookup instead of crashing the framework.
-        Gate::before(static function ($user, string $ability) {
+        Gate::before(static function ($user, string $ability, array $arguments = []) {
             if ($user === null) {
+                return null;
+            }
+
+            // An archived content project is read-only for everybody, the
+            // admin included: let ContentProjectPolicy decide instead of the
+            // bypass below. The policy still allows reading and the `archive`
+            // ability that reactivates the project.
+            $subject = $arguments[0] ?? null;
+            if ($subject instanceof \App\Models\Content\ContentProject && $subject->isArchived()) {
                 return null;
             }
 

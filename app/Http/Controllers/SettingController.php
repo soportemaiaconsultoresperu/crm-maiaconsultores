@@ -6,12 +6,12 @@ use App\Http\Requests\SettingsUpdateRequest;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\SettingsService;
+use App\Services\Storage\PrivateFileResponder;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -29,6 +29,7 @@ class SettingController extends Controller
 {
     public function __construct(
         private readonly SettingsService $settings,
+        private readonly PrivateFileResponder $responder,
     ) {}
 
     /**
@@ -125,7 +126,7 @@ class SettingController extends Controller
                     'mimetypes:image/jpeg,image/png,image/webp',
                 ],
             ], [
-                'logo.required' => 'Seleccioná un archivo de imagen.',
+                'logo.required' => 'Seleccione un archivo de imagen.',
                 'logo.file'     => 'El archivo enviado no es válido.',
                 'logo.max'      => 'El logo no puede superar los 2 MB.',
                 'logo.mimes'    => 'El logo debe ser JPG, PNG o WEBP.',
@@ -198,7 +199,7 @@ class SettingController extends Controller
          * Stream the current company logo inline so the <img> preview can
          * render it without exposing a public URL. Authorised users only.
          */
-        public function previewLogo(Request $request): Response
+        public function previewLogo(Request $request): Response|RedirectResponse
         {
             if (! $request->user()->can('settings.view') && ! $request->user()->can('settings.manage')) {
                 abort(403);
@@ -210,7 +211,6 @@ class SettingController extends Controller
                 abort(404);
             }
 
-            $absolute = Storage::disk($disk)->path($path);
             // MIME inferred from the extension — the upload route already
             // restricts the whitelist to jpg/jpeg/png/webp, so we don't need
             // a separate filesystem probe here.
@@ -221,7 +221,27 @@ class SettingController extends Controller
                 default       => 'application/octet-stream',
             };
 
-            return new BinaryFileResponse($absolute, 200, [
+            // The permission check above already passed, so a signed URL is
+            // only ever issued for a logo this user may see. A local disk
+            // keeps streaming; a cloud-backed logo disk redirects instead, so
+            // the signed URL carries the image type and name the streamed
+            // response below would send.
+            $redirect = $this->responder->signedUrlRedirect(
+                $disk,
+                $path,
+                basename($path),
+                $mime,
+                PrivateFileResponder::DISPOSITION_INLINE,
+            );
+            if ($redirect !== null) {
+                return $redirect;
+            }
+
+            // Read the stored bytes instead of resolving a filesystem path:
+            // ->path() only works on a local disk and breaks on S3.
+            $bytes = (string) Storage::disk($disk)->get($path);
+
+            return response($bytes, 200, [
                 'Content-Type' => $mime,
                 'Cache-Control' => 'private, max-age=300',
             ]);

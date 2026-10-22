@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
-@section('title', 'Documentos académicos de la edición')
-@section('page-title', 'Documentos académicos de la edición')
+@section('title', 'Documentos académicos del dictado')
+@section('page-title', 'Documentos académicos del dictado')
 
 @section('content')
     @php
@@ -14,9 +14,10 @@
         $missingMeta = [
             'payment' => 'Pago pendiente de completar',
             'participant_data' => 'Datos del participante incompletos',
-            'edition_validations' => 'Validaciones de la edición pendientes',
+            'edition_validations' => 'Validaciones del dictado pendientes',
             'academic_result' => 'Resultado académico o participación pendiente',
             'participation' => 'Participación de la charla sin confirmar',
+            'talk_without_certificate' => 'La charla no emite certificado: no corresponde documento',
             'enrollment_state' => 'La matrícula está retirada o el participante no asistió',
         ];
         $documentTypeMeta = [
@@ -63,31 +64,95 @@
             'mail' => ['Correo', 'text-bg-info'],
             'whatsapp' => ['WhatsApp', 'text-bg-success'],
         ];
-        $attemptStatusMeta = [
-            'queued' => ['En cola', 'text-bg-secondary'],
-            'sending' => ['Enviando', 'text-bg-info'],
-            'sent' => ['Enviado', 'text-bg-success'],
-            'delivered' => ['Entregado', 'text-bg-success'],
-            'failed' => ['Intento fallido', 'text-bg-danger'],
-            'skipped' => ['Omitido', 'text-bg-light'],
-        ];
+            $attemptStatusMeta = [
+                'queued' => ['En cola', 'text-bg-secondary'],
+                'sending' => ['Enviando', 'text-bg-info'],
+                'sent' => ['Enviado', 'text-bg-success'],
+                'delivered' => ['Entregado', 'text-bg-success'],
+                'failed' => ['Intento fallido', 'text-bg-danger'],
+                'skipped' => ['Omitido', 'text-bg-light'],
+            ];
+
+            // A WhatsApp `queued` row is not waiting on a queue: it waits on the operator,
+            // who sends the message by hand from WhatsApp. "En cola" promised something
+            // that would never happen on its own. Mail keeps that name because its own
+            // `queued` row really is mid-flight.
+            $attemptStatus = static function ($delivery) use ($attemptStatusMeta): array {
+                if ($delivery->status === 'queued' && $delivery->channel === 'whatsapp') {
+                    return ['Pendiente de confirmar', 'text-bg-warning'];
+                }
+
+                return $attemptStatusMeta[$delivery->status] ?? [$delivery->status, 'text-bg-secondary'];
+            };
 
         // A handoff stays pending until the user confirms it: the confirmation
         // control is offered only while an opened WhatsApp handoff is unresolved.
         $pendingHandoffOf = static fn ($documentDeliveries) => $documentDeliveries->first(
             static fn ($delivery): bool => $delivery->channel === 'whatsapp'
-                && in_array($delivery->status, ['queued', 'sending'], true),
+                && in_array($delivery->status, ['queued', 'sending'], true)
+                && ! $documentDeliveries->contains(
+                    static fn ($other): bool => $other->channel === 'whatsapp'
+                        && $other->status === 'sent'
+                        && $other->recipient_ref === $delivery->recipient_ref,
+                ),
         );
+
+        // Pending WhatsApp handoffs for the whole delivery, read from the SAME resolver the
+        // row uses so the two can never disagree. They used to be visible only inside one
+        // document's delivery history, three levels down: an operator who had just sent a
+        // message from WhatsApp had nowhere obvious to confirm it from.
+        $pendingHandoffs = [];
+        foreach ($enrollments as $enrollment) {
+            foreach ($enrollment->academicDocuments as $document) {
+                $pending = $pendingHandoffOf($deliveries[$document->id] ?? collect());
+                if ($pending !== null) {
+                    $pendingHandoffs[] = ['document' => $document, 'handoff' => $pending];
+                }
+            }
+        }
     @endphp
 
-    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver a la edición</a>
+    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver al dictado</a>
+
+    @if ($pendingHandoffs !== [])
+        <x-alert type="warning" data-testid="course-talks-documents-whatsapp-pending">
+            <p class="mb-1 fw-semibold">
+                {{ count($pendingHandoffs) === 1
+                    ? 'Tiene un envío por WhatsApp pendiente de confirmar.'
+                    : 'Tiene '.count($pendingHandoffs).' envíos por WhatsApp pendientes de confirmar.' }}
+            </p>
+            <p class="small mb-0">Marque cada uno como enviado cuando lo haya enviado desde WhatsApp, o descártelo si no lo va a usar.</p>
+
+            @foreach ($pendingHandoffs as $entry)
+                <div class="d-flex flex-wrap align-items-center gap-2 border-top pt-2 mt-2" data-testid="course-talks-documents-whatsapp-pending-{{ $entry['handoff']->id }}">
+                    <span class="small"><strong>{{ $entry['document']->code }}</strong> · {{ $entry['handoff']->recipient_ref }}</span>
+
+                    {{-- The number travels hidden and comes from the handoff itself, so the
+                         confirmation cannot be refused for a phone the operator retyped. --}}
+                    <form method="POST" action="{{ route('course-talks.documents.whatsapp.confirm', $entry['document']) }}" class="d-flex flex-wrap gap-1">
+                        @csrf
+                        <input type="hidden" name="operation_key" value="{{ \Illuminate\Support\Str::uuid() }}">
+                        <input type="hidden" name="handoff" value="{{ $entry['handoff']->id }}">
+                        <input type="hidden" name="recipient_phone" value="{{ $entry['handoff']->recipient_ref }}">
+                        <button type="submit" class="btn btn-sm btn-success">Marcar como enviado</button>
+                    </form>
+
+                    <form method="POST" action="{{ route('course-talks.documents.whatsapp.discard', $entry['document']) }}" class="d-flex flex-wrap gap-1">
+                        @csrf
+                        <input type="hidden" name="handoff" value="{{ $entry['handoff']->id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Descartar intento</button>
+                    </form>
+                </div>
+            @endforeach
+        </x-alert>
+    @endif
 
     <div class="card mb-3" data-testid="course-talks-documents-edition">
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-3">Actividad</dt>
+                <dt class="col-sm-3">Curso o charla</dt>
                 <dd class="col-sm-9">{{ $edition->activity->name }} · {{ $edition->activity->type->label() }}</dd>
-                <dt class="col-sm-3">Edición</dt>
+                <dt class="col-sm-3">Dictado</dt>
                 <dd class="col-sm-9"><code>{{ $edition->code ?: '—' }}</code> · {{ $edition->modality->label() }}</dd>
                 <dt class="col-sm-3">Participantes</dt>
                 <dd class="col-sm-9">{{ $enrollments->count() }}</dd>
@@ -128,7 +193,9 @@
                 <tr data-testid="course-talks-documents-row-{{ $enrollment->id }}">
                     <td>
                         <strong>{{ $enrollment->participant->last_name }}, {{ $enrollment->participant->first_name }}</strong>
-                        <div class="text-secondary small">{{ $enrollment->participant->document_type }} {{ $enrollment->participant->document_number }}</div>
+                        @if ($document = $enrollment->participant->displayDocument())
+                            <div class="text-secondary small">{{ $document }}</div>
+                        @endif
                     </td>
                     <td data-testid="course-talks-documents-expected-{{ $enrollment->id }}">
                         @if ($result->documentType)
@@ -172,6 +239,13 @@
                                     <div class="small text-secondary">Motivo registrado: {{ $document->annul_reason }}</div>
                                 @endif
 
+                                {{-- Offered only where the signed document link would serve the
+                                     file (a current, non-revoked document with its PDF present).
+                                     The link is minted at click time, never rendered here. --}}
+                                @if (($deliverability[$document->id] ?? false) && Route::has('course-talks.documents.pdf'))
+                                    <a href="{{ route('course-talks.documents.pdf', $document) }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary mt-2" data-testid="course-talks-document-view-{{ $document->id }}">Ver PDF</a>
+                                @endif
+
                                 @if ($current !== null && $current->id === $document->id)
                                     @if ($canRegenerate)
                                         {{-- Plain HTML form on purpose: interpolation
@@ -207,7 +281,7 @@
                                     @forelse ($documentDeliveries as $delivery)
                                         <div class="small" data-testid="course-talks-document-delivery-{{ $document->id }}-{{ $delivery->id }}">
                                             <span class="badge {{ $channelMeta[$delivery->channel][1] ?? 'text-bg-secondary' }}">{{ $channelMeta[$delivery->channel][0] ?? $delivery->channel }}</span>
-                                            <span class="badge {{ $attemptStatusMeta[$delivery->status][1] ?? 'text-bg-secondary' }}">{{ $attemptStatusMeta[$delivery->status][0] ?? $delivery->status }}</span>
+                                            <span class="badge {{ $attemptStatus($delivery)[1] }}">{{ $attemptStatus($delivery)[0] }}</span>
                                             <span class="text-secondary">{{ $delivery->recipient_ref }}</span>
                                             <span class="text-secondary">· Intentos: {{ $delivery->attempts }}</span>
                                             <span class="text-secondary">· {{ $delivery->updated_at?->format('d/m/Y H:i') ?? '—' }}</span>
@@ -267,8 +341,17 @@
                                                 <label class="visually-hidden" for="document-whatsapp-confirm-phone-{{ $document->id }}">Teléfono confirmado de {{ $document->code }}</label>
                                                 <input type="tel" class="form-control form-control-sm w-auto" id="document-whatsapp-confirm-phone-{{ $document->id }}" name="recipient_phone" maxlength="30" required value="{{ old('recipient_phone', $pendingHandoff->recipient_ref) }}">
                                                 <button type="submit" class="btn btn-sm btn-success">Marcar como enviado</button>
-                                            </form>
-                                            <p class="small text-secondary mb-0 mt-1" data-testid="course-talks-document-whatsapp-pending-{{ $document->id }}">WhatsApp pendiente de confirmación: use «Marcar como enviado» cuando haya enviado el mensaje.</p>
+                                                </form>
+
+                                                {{-- An opened handoff had no way out before this: it stayed pending
+                                                     for good and left a number nobody would use sitting in the
+                                                     history. Discarding skips it instead of deleting it. --}}
+                                                <form method="POST" action="{{ route('course-talks.documents.whatsapp.discard', $document) }}" class="d-flex flex-wrap gap-1 mt-1" data-testid="course-talks-document-whatsapp-discard-form-{{ $document->id }}">
+                                                    @csrf
+                                                    <input type="hidden" name="handoff" value="{{ $pendingHandoff->id }}">
+                                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Descartar intento</button>
+                                                </form>
+                                                <p class="small text-secondary mb-0 mt-1" data-testid="course-talks-document-whatsapp-pending-{{ $document->id }}">WhatsApp pendiente de confirmación: use «Marcar como enviado» cuando haya enviado el mensaje.</p>
                                         @endif
                                     @endif
                                 </div>
@@ -289,7 +372,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="4" class="text-center text-secondary py-4" data-testid="course-talks-documents-empty">Todavía no hay participantes inscritos en esta edición.</td>
+                    <td colspan="4" class="text-center text-secondary py-4" data-testid="course-talks-documents-empty">Todavía no hay participantes inscritos en este dictado.</td>
                 </tr>
             @endforelse
         @endslot

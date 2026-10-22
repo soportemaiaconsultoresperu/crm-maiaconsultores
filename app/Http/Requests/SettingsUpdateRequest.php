@@ -33,7 +33,7 @@ class SettingsUpdateRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'settings.required' => 'Debes enviar al menos un parámetro para guardar.',
+            'settings.required' => 'Debe enviar al menos un parámetro para guardar.',
             'settings.*.type.in' => 'El tipo debe ser uno de: string, integer, decimal, boolean o json.',
             'settings.*.key.regex' => 'La clave solo puede contener letras, números, guiones y guiones bajos.',
         ];

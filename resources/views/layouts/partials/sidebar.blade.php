@@ -55,6 +55,16 @@
                                 <i class="nav-icon bi bi-calendar3" aria-hidden="true"></i><p>Calendario</p>
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a href="{{ route('internal-activities.index') }}" class="nav-link {{ request()->routeIs('internal-activities.*') ? 'active' : '' }}" data-testid="sidebar-internal-activities">
+                                <i class="nav-icon bi bi-people" aria-hidden="true"></i><p>Actividades internas</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ route('internal-projects.index') }}" class="nav-link {{ request()->routeIs('internal-projects.*') ? 'active' : '' }}" data-testid="sidebar-internal-projects">
+                                <i class="nav-icon bi bi-kanban" aria-hidden="true"></i><p>Proyectos internos</p>
+                            </a>
+                        </li>
                         @can('viewAny', \App\Models\Courses\CourseActivity::class)
                             <li class="nav-item">
                                 <a href="{{ route('course-talks.activities.index') }}" class="nav-link {{ request()->routeIs('course-talks.*') ? 'active' : '' }}" aria-current="{{ request()->routeIs('course-talks.*') ? 'page' : 'false' }}" data-testid="sidebar-course-talks">
@@ -64,8 +74,22 @@
                         @endcan
                         @can('viewAny', \App\Models\SupportTicket::class)
                             <li class="nav-item">
-                                <a href="{{ route('support.tickets.index') }}" class="nav-link {{ request()->routeIs('support.*') ? 'active' : '' }}">
+                                <a href="{{ route('support.tickets.index') }}" class="nav-link {{ request()->routeIs('support.tickets.*') ? 'active' : '' }}">
                                     <i class="nav-icon bi bi-headset" aria-hidden="true"></i><p>Soporte</p>
+                                </a>
+                            </li>
+                        @endcan
+                        @can('support.reports.view')
+                            <li class="nav-item">
+                                <a href="{{ route('support.dashboard') }}" class="nav-link {{ request()->routeIs('support.dashboard') ? 'active' : '' }}" aria-current="{{ request()->routeIs('support.dashboard') ? 'page' : 'false' }}" data-testid="sidebar-support-dashboard">
+                                    <i class="nav-icon bi bi-bar-chart-line" aria-hidden="true"></i><p>Dashboard de soporte</p>
+                                </a>
+                            </li>
+                        @endcan
+                        @can('viewAny', \App\Models\Content\ContentProject::class)
+                            <li class="nav-item">
+                                <a href="{{ route('content.projects.index') }}" class="nav-link {{ request()->routeIs('content.*') ? 'active' : '' }}" aria-current="{{ request()->routeIs('content.*') ? 'page' : 'false' }}" data-testid="sidebar-content-projects">
+                                    <i class="nav-icon bi bi-calendar2-week" aria-hidden="true"></i><p>Cronograma de contenidos</p>
                                 </a>
                             </li>
                         @endcan

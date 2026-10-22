@@ -223,7 +223,7 @@ class ProductController extends Controller
             $request->validate([
                 'file' => ['required', 'file', 'max:10240', 'mimes:xlsx,xls,csv'],
             ], [
-                'file.required' => 'Seleccioná un archivo Excel.',
+                'file.required' => 'Seleccione un archivo Excel.',
                 'file.max'      => 'El archivo no puede superar los 10 MB.',
                 'file.mimes'    => 'El archivo debe ser XLSX, XLS o CSV.',
             ]);

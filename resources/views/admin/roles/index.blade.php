@@ -32,9 +32,10 @@
 
         @slot('headers')
             <tr>
-                <th>Nombre</th>
-                <th>Permisos</th>
-                <th>Usuarios</th>
+                <th>Rol</th>
+                <th>Acceso a módulos</th>
+                <th class="text-center">Usuarios</th>
+                <th class="text-center">Permisos</th>
                 <th class="text-end">Acciones</th>
             </tr>
         @endslot
@@ -42,9 +43,29 @@
         @slot('rows')
             @forelse ($roles as $role)
                 <tr>
-                    <td><strong>{{ $role->name }}</strong></td>
-                    <td>{{ $role->permissions_count }}</td>
-                    <td>{{ $role->users_count }}</td>
+                    <td>
+                        <strong>{{ ucfirst($role->name) }}</strong>
+                        @if (in_array($role->name, $protectedRoles, true))
+                            <span class="badge text-bg-light border ms-1" title="Rol del sistema: no puede eliminarse">Del sistema</span>
+                        @endif
+                    </td>
+                    <td>
+                        @if ($role->name === \App\Support\Permissions\PermissionCatalog::FULL_ACCESS_ROLE)
+                            <span class="badge text-bg-success"><i class="bi bi-shield-check me-1" aria-hidden="true"></i>Acceso total</span>
+                        @else
+                            @php($moduleNames = collect($summaries[$role->id] ?? [])->pluck('name'))
+                            @forelse ($moduleNames->take(6) as $moduleName)
+                                <span class="badge rounded-pill text-bg-light border fw-normal">{{ $moduleName }}</span>
+                            @empty
+                                <span class="small text-secondary">Sin permisos asignados</span>
+                            @endforelse
+                            @if ($moduleNames->count() > 6)
+                                <span class="badge rounded-pill text-bg-secondary fw-normal" title="{{ $moduleNames->slice(6)->implode(', ') }}">+{{ $moduleNames->count() - 6 }}</span>
+                            @endif
+                        @endif
+                    </td>
+                    <td class="text-center">{{ $role->users_count }}</td>
+                    <td class="text-center">{{ $role->permissions_count }}</td>
                     <td class="text-end text-nowrap">
                         <a href="{{ route('admin.roles.show', $role) }}" class="btn btn-sm btn-outline-secondary" title="Ver">
                             <i class="bi bi-eye me-1" aria-hidden="true"></i>
@@ -57,7 +78,7 @@
                                 <form method="POST" action="{{ route('admin.roles.destroy', $role) }}" class="d-inline">
                                     @csrf
                                     <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            onclick="return confirm('¿Eliminar el rol {{ $role->name }}?')">
+                                            onclick="return confirm('¿Eliminar el rol {{ ucfirst($role->name) }}?')">
                                         <i class="bi bi-trash me-1" aria-hidden="true"></i>
                                     Eliminar</button>
                                 </form>
@@ -67,7 +88,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="4">
+                    <td colspan="5">
                         @include('layouts.partials.empty-state', ['message' => 'No hay roles que coincidan.'])
                     </td>
                 </tr>

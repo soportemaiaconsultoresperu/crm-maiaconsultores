@@ -20,25 +20,66 @@ class CourseEnrollmentService
     public function enroll(CourseEdition $edition, array $participantData, array $enrollmentData = [], ?CourseEnrollmentGroup $group = null): CourseEnrollment
     {
         return DB::transaction(function () use ($edition, $participantData, $enrollmentData, $group): CourseEnrollment {
+            CourseEditionService::lockLiveEdition($edition);
+
             $participant = $this->resolveParticipant($participantData);
 
             if (CourseEnrollment::where('course_edition_id', $edition->id)
                 ->where('course_participant_id', $participant->id)
                 ->exists()) {
-                throw new InvalidCourseEditionData('This participant is already enrolled in the selected edition.');
+                throw new InvalidCourseEditionData('Este participante ya está inscrito en este dictado.');
             }
 
-            return CourseEnrollment::create(array_merge([
+            $certificateCharge = $edition->certificateCharge();
+
+            $attributes = array_merge([
                 'course_edition_id' => $edition->id,
                 'course_participant_id' => $participant->id,
                 'course_enrollment_group_id' => $group?->id,
                 'activity_price_amount' => $edition->price_amount,
-                'certificate_charge_amount' => '0.00',
+                'certificate_charge_amount' => $certificateCharge,
                 'discount_amount' => '0.00',
-                'subtotal_amount' => $edition->price_amount,
                 'currency' => $edition->currency,
-            ], $enrollmentData))->load('participant');
+            ], $enrollmentData);
+
+            // The certificate charge belongs to the DELIVERY, not to the caller: it
+            // is resolved from the edition (and is '0.00' when the activity is not a
+            // talk that includes a certificate), so no payload can charge a certificate
+            // a course does not issue. The subtotal is then DERIVED from the values this
+            // enrollment actually carries — activity price + certificate charge -
+            // discount — which is the exact arithmetic the commercial document taxes,
+            // so the operator's total and the invoice's total are the same number by
+            // construction instead of by coincidence.
+            $attributes['certificate_charge_amount'] = $certificateCharge;
+            $attributes['subtotal_amount'] = $this->subtotalAmount(
+                (string) $attributes['activity_price_amount'],
+                $certificateCharge,
+                (string) $attributes['discount_amount'],
+            );
+
+            return CourseEnrollment::create($attributes)->load('participant');
         });
+    }
+
+    /**
+     * The enrollment's subtotal: activity price + certificate charge - discount,
+     * defined exactly as `CourseCommercialDocumentService::calculateCharges()`
+     * defines the amount it taxes.
+     *
+     * The ARITHMETIC is not here: it lives once, in `CourseEdition::sumMoney()` and
+     * `CourseEdition::subtractMoney()` — the same helpers
+     * `CourseEdition::enrollmentMoney()` renders the delivery screen from. That is
+     * what makes the total the screen shows and the subtotal persisted here the same
+     * number for the same delivery, instead of two implementations that happen to
+     * agree until one of them is edited. A negative subtotal is still refused rather
+     * than stored, mirroring the commercial service's own non-negative rule.
+     */
+    private function subtotalAmount(string $activityPrice, string $certificateCharge, string $discount): string
+    {
+        return CourseEdition::subtractMoney(
+            CourseEdition::sumMoney($activityPrice, $certificateCharge),
+            $discount,
+        );
     }
 
     public function changePaymentStatus(
@@ -57,11 +98,15 @@ class CourseEnrollmentService
             }
 
             if ($status === PaymentStatus::Waived && ! $waiverAuthorized) {
-                throw new InvalidCourseEditionData('Payment waiver requires explicit authorization.');
+                throw new InvalidCourseEditionData('Exonerar el pago requiere autorización.');
             }
 
             if (! in_array($status, $this->paymentTransitions()[$previous->value] ?? [], true)) {
-                throw new InvalidCourseEditionData("Payment transition from {$previous->value} to {$status->value} is not permitted.");
+                throw new InvalidCourseEditionData(sprintf(
+                    'No se permite cambiar el estado de pago de «%s» a «%s».',
+                    self::PAYMENT_LABELS[$previous->value],
+                    self::PAYMENT_LABELS[$status->value],
+                ));
             }
 
             $lockedEnrollment->forceFill(['payment_status' => $status])->save();
@@ -73,6 +118,18 @@ class CourseEnrollmentService
 
         return $updated;
     }
+
+    /**
+     * The Spanish name of each payment status, the same wording the participant
+     * list shows, so a rejected transition names the states the operator sees.
+     */
+    private const PAYMENT_LABELS = [
+        'pending' => 'Pendiente',
+        'partial' => 'Parcial',
+        'paid' => 'Pagado',
+        'waived' => 'Exonerado',
+        'refunded' => 'Reembolsado',
+    ];
 
     /** @return array<string, array<int, PaymentStatus>> */
     private function paymentTransitions(): array
@@ -94,10 +151,12 @@ class CourseEnrollmentService
     public function enrollGroup(CourseEdition $edition, array $payerData, array $participants): array
     {
         if ($participants === []) {
-            throw new InvalidCourseEditionData('A group enrollment requires at least one participant.');
+            throw new InvalidCourseEditionData('La inscripción de grupo necesita al menos un participante.');
         }
 
         return DB::transaction(function () use ($edition, $payerData, $participants): array {
+            CourseEditionService::lockLiveEdition($edition);
+
             $group = CourseEnrollmentGroup::create([
                 'course_edition_id' => $edition->id,
                 'payer_customer_id' => $payerData['payer_customer_id'] ?? null,
@@ -108,7 +167,7 @@ class CourseEnrollmentService
             ]);
 
             if ($group->payer_name === '') {
-                throw new InvalidCourseEditionData('A group payer name is required.');
+                throw new InvalidCourseEditionData('El nombre del pagador del grupo es obligatorio.');
             }
 
             return array_map(fn (array $data): CourseEnrollment => $this->enroll($edition, $data, [], $group), $participants);
@@ -144,7 +203,7 @@ class CourseEnrollmentService
             'contact_id' => $contact->id,
             'first_name' => $contact->first_name,
             'last_name' => $contact->last_name,
-            'document_type' => 'contact',
+            'document_type' => CourseParticipant::SYNTHETIC_DOCUMENT_TYPE,
             'document_number' => 'contact-'.$contact->id,
             'email' => $contact->email,
             'mobile' => $contact->phone ?? $contact->whatsapp,
@@ -164,7 +223,7 @@ class CourseEnrollmentService
         $mobile = trim((string) ($data['mobile'] ?? ''));
 
         if ($firstName === '' || $lastName === '' || $documentType === '' || $documentNumber === '' || $email === '' || ! str_starts_with($mobile, '+')) {
-            throw new InvalidCourseEditionData('Participants require names, document type and number, email, and a mobile number with country code.');
+            throw new InvalidCourseEditionData('Cada participante necesita nombres, apellidos, tipo y número de documento, correo y un celular con código de país (por ejemplo, +51).');
         }
 
         return [

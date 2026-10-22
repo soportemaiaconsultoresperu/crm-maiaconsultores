@@ -16,6 +16,8 @@ import Swal from "sweetalert2";
 
 import "./swal-helpers.js";
 import "./calendar-navigation.js";
+import "./multi-select.js";
+import "./course-enrollment-form.js";
 
 // Re-export for any other module that wants to use SweetAlert directly.
 window.Swal = Swal;

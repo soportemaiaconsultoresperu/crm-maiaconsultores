@@ -3,6 +3,7 @@
 namespace App\Http\Requests\CourseTalks;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 /**
  * Validates exactly the attributes the existing
@@ -48,18 +49,29 @@ class SyncEditionSessionsRequest extends FormRequest
     {
         $sessions = $this->input('sessions');
 
-        // Leave a non-array payload untouched so the `array` rule reports it.
-        if (! is_array($sessions)) {
+        // A MISSING list means "this delivery has no sessions yet", which must still
+        // let the optional "new session" slot create the first one. Only a PRESENT
+        // non-array payload is left untouched so the `array` rule reports it.
+        if ($sessions !== null && ! is_array($sessions)) {
             return;
         }
 
         // Reindex while keeping non-array entries so the wildcard rules report
         // them, and so the submitted order is exactly the service's positions.
-        $submitted = array_values($sessions);
+        $submitted = array_map(function ($session) {
+            if (is_array($session) && ($session['teacher_id'] ?? null) === '') {
+                $session['teacher_id'] = null;
+            }
+
+            return $session;
+        }, array_values($sessions ?? []));
 
         $newSession = $this->input('new_session');
 
         if (is_array($newSession) && array_filter($newSession, fn ($value): bool => $value !== null && $value !== '') !== []) {
+            if (($newSession['teacher_id'] ?? null) === '') {
+                $newSession['teacher_id'] = null;
+            }
             $submitted[] = $newSession;
         }
 
@@ -78,7 +90,25 @@ class SyncEditionSessionsRequest extends FormRequest
             'sessions.*.session_date' => ['nullable', 'date'],
             'sessions.*.starts_at' => ['nullable', 'date_format:H:i'],
             'sessions.*.ends_at' => ['nullable', 'date_format:H:i'],
+            'sessions.*.teacher_id' => ['nullable', 'integer', Rule::exists('course_edition_teachers', 'id')
+                ->where('course_edition_id', $this->route('edition')?->id)
+                ->whereNull('deleted_at')],
             'sessions.*.teacher_name' => ['nullable', 'string', 'max:255'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return [
+            'sessions' => 'sesiones',
+            'sessions.*' => 'sesión',
+            'sessions.*.topic' => 'tema',
+            'sessions.*.session_date' => 'fecha',
+            'sessions.*.starts_at' => 'hora de inicio',
+            'sessions.*.ends_at' => 'hora de fin',
+            'sessions.*.teacher_id' => 'docente asignado',
+            'sessions.*.teacher_name' => 'nombre alternativo del docente',
         ];
     }
 
@@ -94,6 +124,7 @@ class SyncEditionSessionsRequest extends FormRequest
             'session_date' => $session['session_date'] ?? null,
             'starts_at' => $session['starts_at'] ?? null,
             'ends_at' => $session['ends_at'] ?? null,
+            'teacher_id' => $session['teacher_id'] ?? null,
             'teacher_name' => $session['teacher_name'] ?? null,
         ], $this->validated('sessions') ?? []);
     }

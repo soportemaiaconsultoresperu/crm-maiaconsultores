@@ -6,7 +6,9 @@ use App\Models\Courses\CourseAcademicDocument;
 use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Document;
 use App\Models\User;
+use App\Services\Storage\PrivateFileResponder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +53,7 @@ class DocumentService
 
     public function __construct(
         private readonly DataScopeService $dataScope,
+        private readonly PrivateFileResponder $responder,
     ) {}
 
     /**
@@ -130,11 +133,12 @@ class DocumentService
      *
      * @throws \Illuminate\Auth\Access\AuthorizationException
      */
-    public function download(Document $document, User $actor): StreamedResponse
+    public function download(Document $document, User $actor): StreamedResponse|RedirectResponse
     {
         $this->assertDownloadAuthorized($document, $actor);
 
-        $disk = Storage::disk($document->disk ?: (string) config('filesystems.docs_disk', 'docs'));
+        $diskName = $document->disk ?: (string) config('filesystems.docs_disk', 'docs');
+        $disk = Storage::disk($diskName);
 
         $ip = request()?->ip();
 
@@ -149,6 +153,22 @@ class DocumentService
                 'ip' => $ip,
             ])
             ->log("Documento \"{$document->name}\" descargado");
+
+        // Authorization already passed above, so a signed URL is only ever
+        // issued for a file this actor may read. A remote disk hands out a
+        // short-lived URL carrying the same download name and content type the
+        // streamed response below would send; a local disk keeps streaming
+        // exactly as before.
+        $redirect = $this->responder->signedUrlRedirect(
+            $diskName,
+            (string) $document->path,
+            $document->name,
+            $document->mime_type,
+        );
+
+        if ($redirect !== null) {
+            return $redirect;
+        }
 
         /** @var \Illuminate\Filesystem\FilesystemAdapter $disk */
         return $disk->download($document->path, $document->name);

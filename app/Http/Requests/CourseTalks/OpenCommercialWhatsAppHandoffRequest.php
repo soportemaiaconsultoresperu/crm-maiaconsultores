@@ -9,9 +9,9 @@ use Illuminate\Foundation\Http\FormRequest;
  * Validates the assisted WhatsApp handoff payload: the phone to open WhatsApp
  * with and the idempotency key of the rendered form.
  *
- * The phone is only checked for presence and shape here. Normalizing it and
- * deciding which phone is acceptable belong to CourseDocumentDeliveryService,
- * which refuses a phone it cannot use with a visible error.
+ * The phone is checked against the service's digit rule, with the same message
+ * as the academic handoff, so a mistyped number is reported as a phone problem
+ * instead of "not deliverable". Normalizing it stays with the service.
  */
 class OpenCommercialWhatsAppHandoffRequest extends FormRequest
 {
@@ -23,7 +23,7 @@ class OpenCommercialWhatsAppHandoffRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'recipient_phone' => ['required', 'string', 'max:30'],
+            'recipient_phone' => ['required', 'string', 'max:30', OpenAcademicWhatsAppHandoffRequest::phoneDigitsRule()],
             // Presence only: the service owns the idempotency contract itself.
             'operation_key' => ['required', 'string'],
         ];

@@ -37,8 +37,8 @@
             'whatsapp' => 'WhatsApp',
         ];
         $filterLabels = [
-            'activity_type' => 'Tipo de actividad',
-            'edition_id' => 'Edición',
+            'activity_type' => 'Tipo',
+            'edition_id' => 'Dictado',
             'participant_id' => 'Participante',
             'responsible_user_id' => 'Responsable',
             'document_type' => 'Tipo de documento',
@@ -52,7 +52,7 @@
     @endphp
 
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-        <a href="{{ route('course-talks.activities.index') }}" class="btn btn-outline-secondary">Volver a las actividades</a>
+        <a href="{{ route('course-talks.activities.index') }}" class="btn btn-outline-secondary">Volver al catálogo</a>
         <p class="text-secondary small mb-0">Se listan las entregas pendientes y fallidas de documentos académicos y comprobantes vigentes.</p>
     </div>
 
@@ -115,7 +115,7 @@
     <form method="GET" action="{{ route('course-talks.alerts.index') }}" class="card card-body mb-3" data-testid="course-talks-alerts-filters">
         <div class="row g-2">
             <div class="col-6 col-md-3 col-xl-2">
-                <label class="form-label small" for="alerts-activity-type">Tipo de actividad</label>
+                <label class="form-label small" for="alerts-activity-type">Tipo</label>
                 <select class="form-select form-select-sm" id="alerts-activity-type" name="activity_type">
                     <option value="">Todas</option>
                     @foreach ($activityTypeMeta as $value => $label)
@@ -124,7 +124,7 @@
                 </select>
             </div>
             <div class="col-6 col-md-3 col-xl-2">
-                <label class="form-label small" for="alerts-edition">Edición</label>
+                <label class="form-label small" for="alerts-edition">Dictado</label>
                 <select class="form-select form-select-sm" id="alerts-edition" name="edition_id">
                     <option value="">Todas</option>
                     @foreach ($editionOptions as $value => $label)
@@ -196,7 +196,7 @@
         @slot('headers')
             <tr>
                 <th scope="col">Documento</th>
-                <th scope="col">Actividad y edición</th>
+                <th scope="col">Curso o charla y dictado</th>
                 <th scope="col">Participante y responsable</th>
                 <th scope="col">Estado de entrega</th>
                 <th scope="col">Último intento</th>

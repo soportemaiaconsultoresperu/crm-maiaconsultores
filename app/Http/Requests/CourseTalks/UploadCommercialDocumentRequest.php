@@ -25,6 +25,14 @@ class UploadCommercialDocumentRequest extends FormRequest
         ];
     }
 
+    public function attributes(): array
+    {
+        return [
+            'status' => 'estado del comprobante',
+            'file' => 'archivo del comprobante',
+        ];
+    }
+
     private function maxSizeKb(): int
     {
         $bytes = (int) \App\Models\Setting::query()

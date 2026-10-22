@@ -145,12 +145,13 @@ class NotificationServiceProvider extends ServiceProvider
             ->first();
 
         if ($admin !== null) {
-            // Grant additively instead of syncPermissions(): givePermissionTo()
+            // Grant once (SeededGrants ledger) instead of syncPermissions(): an admin
+            // removal on the roles screen survives later boots. givePermissionTo()
             // only attaches the missing role_has_permissions rows, whereas
             // syncPermissions() detaches every row and re-inserts it, which
             // races on the role_has_permissions primary key when parallel
             // artisan processes boot against the same DB.
-            $admin->givePermissionTo(self::ADMIN_GRANTS);
+            \App\Support\Permissions\SeededGrants::grantOnce($admin, self::ADMIN_GRANTS);
         }
 
         $supervisor = Role::query()
@@ -161,7 +162,7 @@ class NotificationServiceProvider extends ServiceProvider
         if ($supervisor !== null) {
             // Additive grant — see the admin branch above for the
             // concurrent-boot duplicate-key rationale.
-            $supervisor->givePermissionTo(self::SUPERVISOR_GRANTS);
+            \App\Support\Permissions\SeededGrants::grantOnce($supervisor, self::SUPERVISOR_GRANTS);
         }
     }
 }

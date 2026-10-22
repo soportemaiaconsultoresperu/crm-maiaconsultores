@@ -22,6 +22,9 @@ class StoreCourseEnrollmentRequest extends FormRequest
     /** @var list<string> */
     private const SOURCES = ['contact', 'participant', 'new'];
 
+    /** @var list<string> */
+    private const ACTIONS = ['enroll', 'enroll_and_add_another'];
+
     public function authorize(): bool
     {
         return $this->user()?->can('create', CourseEnrollment::class) ?? false;
@@ -33,6 +36,7 @@ class StoreCourseEnrollmentRequest extends FormRequest
 
         return [
             'participant_source' => ['required', Rule::in(self::SOURCES)],
+            'enrollment_action' => ['nullable', Rule::in(self::ACTIONS)],
             'contact_id' => [
                 Rule::requiredIf($source === 'contact'), 'nullable', 'integer', 'exists:contacts,id',
             ],
@@ -57,6 +61,7 @@ class StoreCourseEnrollmentRequest extends FormRequest
     {
         return [
             'participant_source' => 'origen del participante',
+            'enrollment_action' => 'acción de inscripción',
             'contact_id' => 'contacto',
             'course_participant_id' => 'participante registrado',
             'first_name' => 'nombres',
@@ -66,6 +71,11 @@ class StoreCourseEnrollmentRequest extends FormRequest
             'email' => 'correo electrónico',
             'mobile' => 'celular',
         ];
+    }
+
+    public function shouldReturnToCreate(): bool
+    {
+        return $this->validated('enrollment_action') === 'enroll_and_add_another';
     }
 
     /**

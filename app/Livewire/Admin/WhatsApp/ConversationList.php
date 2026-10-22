@@ -78,7 +78,7 @@ class ConversationList extends Component
         }
 
         if (Gate::forUser(Auth::user())->denies('whatsapp.conversation.assign')) {
-            $this->addError('assign', 'No tienes permiso para asignar conversaciones.');
+            $this->addError('assign', 'No tiene permiso para asignar conversaciones.');
 
             return;
         }
@@ -99,7 +99,7 @@ class ConversationList extends Component
         }
 
         if (Gate::forUser(Auth::user())->denies('whatsapp.send')) {
-            $this->addError('close', 'No tienes permiso para cerrar conversaciones.');
+            $this->addError('close', 'No tiene permiso para cerrar conversaciones.');
 
             return;
         }

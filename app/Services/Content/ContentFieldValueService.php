@@ -1,0 +1,404 @@
+<?php
+
+namespace App\Services\Content;
+
+use App\Enums\Content\ContentFieldType;
+use App\Models\Content\ContentFieldDefinition;
+use App\Models\Content\ContentFieldOption;
+use App\Models\Content\ContentFieldValue;
+use App\Models\Content\ContentItem;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Server-side value store for a content item's custom fields (T6b).
+ *
+ * Values are read and written from one array keyed by the definition's stable
+ * `key`, so a label rename never touches stored data. Everything a value must
+ * satisfy lives here, in one place:
+ * - a definition must belong to the item's own project;
+ * - a value must satisfy the rules its ContentFieldType declares, including
+ *   the two list types;
+ * - a required field must hold a non-empty value;
+ * - a single-selection option and every multiple-selection option must belong
+ *   to that exact definition, narrowing the T5 table-level vocabulary rule;
+ * - an inactive option is accepted only when the item already stores it (like
+ *   a retired catalog option), so a new content or idea can never choose it;
+ * - an empty entry clears the stored row instead of persisting a blank one.
+ *
+ * The service is the only writer of `content_field_values`; callers never write
+ * the model directly.
+ */
+class ContentFieldValueService
+{
+    /** Bounds of the `value_number` decimal(14,2) column. */
+    public const NUMBER_MAX = '999999999999.99';
+
+    public const NUMBER_MIN = '-999999999999.99';
+
+    /**
+     * Read a content item's stored values, keyed by each definition's `key`.
+     * Only fields that currently hold a value are returned.
+     *
+     * @return array<string, mixed>
+     */
+    public function values(ContentItem $item): array
+    {
+        if (! $item->exists) {
+            return [];
+        }
+
+        // An eager-loaded caller (the grid exports, which map many rows in one
+        // pass) already holds the rows with their definition and selected
+        // options, so reading them again would be a needless query per row.
+        $rows = $item->relationLoaded('fieldValues')
+            ? $item->fieldValues
+            : ContentFieldValue::query()
+                ->where('content_item_id', $item->getKey())
+                ->with(['definition', 'selectedOptions'])
+                ->get();
+
+        return $this->mapValues($rows);
+    }
+
+    /**
+     * Turn stored value rows into the `key => value` map, keyed by each
+     * definition's stable `key` and skipping rows whose definition is gone.
+     *
+     * @param  iterable<int, ContentFieldValue>  $rows
+     * @return array<string, mixed>
+     */
+    private function mapValues(iterable $rows): array
+    {
+        $values = [];
+
+        foreach ($rows as $row) {
+            $definition = $row->definition;
+
+            if ($definition === null) {
+                continue;
+            }
+
+            $values[$definition->key] = $this->readValue($definition, $row);
+        }
+
+        return $values;
+    }
+
+    /**
+     * Write a content item's custom values from an array keyed by field. A
+     * present value is validated and stored; a null/blank/empty entry clears
+     * the row. Required fields must have a value either in the payload or
+     * already stored, unless `$enforceRequired` is false: a duplicate copies the
+     * source's values as they are, even when a required field was added after
+     * the source was created, and a stored inactive option is copied too.
+     *
+     * @param  array<string, mixed>  $values
+     *
+     * @throws ValidationException
+     */
+    public function save(ContentItem $item, array $values, bool $enforceRequired = true): void
+    {
+        $definitions = $this->definitionsFor($item);
+
+        DB::transaction(function () use ($item, $values, $definitions, $enforceRequired): void {
+            $handled = [];
+
+            foreach ($values as $key => $value) {
+                $key = (string) $key;
+                $definition = $definitions->get($key);
+
+                if ($definition === null) {
+                    throw ValidationException::withMessages([
+                        $key => 'El campo no pertenece al proyecto del contenido.',
+                    ]);
+                }
+
+                $handled[$key] = true;
+                $this->assertDefinitionBelongsToItem($item, $definition);
+
+                if ($this->isEmpty($value)) {
+                    if ($enforceRequired && $definition->required && $definition->is_active) {
+                        throw ValidationException::withMessages([
+                            $key => 'El campo es obligatorio.',
+                        ]);
+                    }
+
+                    $this->clear($item, $definition);
+
+                    continue;
+                }
+
+                $this->store($item, $definition, $value, allowRetiredOptions: ! $enforceRequired);
+            }
+
+            foreach ($definitions as $definition) {
+                if (! $enforceRequired || ! $definition->required || ! $definition->is_active || isset($handled[$definition->key])) {
+                    continue;
+                }
+
+                if (! $this->hasStoredValue($item, $definition)) {
+                    throw ValidationException::withMessages([
+                        $definition->key => 'El campo es obligatorio.',
+                    ]);
+                }
+            }
+        });
+    }
+
+    /**
+     * Validate and persist one value for one definition. The definition must
+     * belong to the item's project and the value must satisfy its type rules.
+     * An inactive option is refused unless the item already stores it, or the
+     * caller copies stored values verbatim (`$allowRetiredOptions`).
+     *
+     * @throws ValidationException
+     */
+    public function store(ContentItem $item, ContentFieldDefinition $definition, mixed $value, bool $allowRetiredOptions = false): ContentFieldValue
+    {
+        $this->assertDefinitionBelongsToItem($item, $definition);
+
+        // A multiple selection form keeps a hidden empty entry so unticking
+        // every option still submits the field; that entry is not an option.
+        if ($definition->type === ContentFieldType::MultipleSelection && is_array($value)) {
+            $value = array_values(array_filter($value, fn (mixed $entry): bool => ! $this->isEmpty($entry)));
+        }
+
+        $this->assertValidValue($definition, $value, $allowRetiredOptions ? null : $this->storedOptionIds($item, $definition));
+
+        $row = ContentFieldValue::query()->firstOrNew([
+            'content_item_id' => $item->getKey(),
+            'content_field_definition_id' => $definition->getKey(),
+        ]);
+
+        // Reset every storage column so a row never keeps a value of the shape
+        // it no longer is (a definition's type is immutable once it has values).
+        $row->fill([
+            'value_text' => null,
+            'value_number' => null,
+            'value_date' => null,
+            'content_field_option_id' => null,
+        ]);
+        $row->save();
+
+        match ($definition->type) {
+            ContentFieldType::Text, ContentFieldType::LongText => $row->value_text = (string) $value,
+            ContentFieldType::Number => $row->value_number = $value,
+            ContentFieldType::Date => $row->value_date = $value,
+            ContentFieldType::SingleSelection => $row->content_field_option_id = (int) $value,
+            ContentFieldType::MultipleSelection => $row->selectedOptions()->sync($this->optionIds($value)),
+        };
+
+        $row->save();
+
+        return $row;
+    }
+
+    /**
+     * Remove the stored row for a definition, if any. Clearing a value is a
+     * delete, never a blank row. Any multiple-selection pivot entries go too.
+     *
+     * @throws ValidationException
+     */
+    public function clear(ContentItem $item, ContentFieldDefinition $definition): void
+    {
+        $this->assertDefinitionBelongsToItem($item, $definition);
+
+        $row = ContentFieldValue::query()
+            ->where('content_item_id', $item->getKey())
+            ->where('content_field_definition_id', $definition->getKey())
+            ->first();
+
+        if ($row === null) {
+            return;
+        }
+
+        $row->selectedOptions()->detach();
+        $row->delete();
+    }
+
+    /**
+     * A definition is only usable by an item of its own project; an unsaved
+     * item or a foreign definition is refused.
+     *
+     * @throws ValidationException
+     */
+    public function assertDefinitionBelongsToItem(ContentItem $item, ContentFieldDefinition $definition): void
+    {
+        if (! $item->exists
+            || ! $definition->exists
+            || (int) $definition->content_project_id !== (int) $item->content_project_id) {
+            throw ValidationException::withMessages([
+                'content_field_definition_id' => 'El campo no pertenece al proyecto del contenido.',
+            ]);
+        }
+    }
+
+    public function hasStoredValue(ContentItem $item, ContentFieldDefinition $definition): bool
+    {
+        if (! $item->exists || ! $definition->exists) {
+            return false;
+        }
+
+        return ContentFieldValue::query()
+            ->where('content_item_id', $item->getKey())
+            ->where('content_field_definition_id', $definition->getKey())
+            ->exists();
+    }
+
+    /**
+     * All definitions of the item's project, keyed by their stable `key`.
+     *
+     * @return Collection<string, ContentFieldDefinition>
+     */
+    private function definitionsFor(ContentItem $item): Collection
+    {
+        return ContentFieldDefinition::query()
+            ->where('content_project_id', $item->content_project_id)
+            ->get()
+            ->keyBy('key');
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    /**
+     * @param  list<int>|null  $keptOptionIds  inactive options still accepted (the ones
+     *                                       already stored); null accepts every option
+     */
+    private function assertValidValue(ContentFieldDefinition $definition, mixed $value, ?array $keptOptionIds): void
+    {
+        $type = $definition->type;
+        $key = $definition->key;
+
+        // Base rules declared by the type vocabulary (text, number, date, ...).
+        Validator::make(
+            [$key => $value],
+            [$key => $type->valueRules()],
+        )->validate();
+
+        // A number is stored as decimal(14,2): at most two decimals and twelve
+        // integer digits, so a value MySQL would reject or round is refused here.
+        if ($type === ContentFieldType::Number) {
+            Validator::make(
+                [$key => is_string($value) ? trim($value) : $value],
+                [$key => ['numeric', 'decimal:0,2', 'min:'.self::NUMBER_MIN, 'max:'.self::NUMBER_MAX]],
+                [
+                    $key.'.decimal' => 'El número admite como máximo 2 decimales.',
+                    $key.'.min' => 'El número debe estar entre '.self::NUMBER_MIN.' y '.self::NUMBER_MAX.'.',
+                    $key.'.max' => 'El número debe estar entre '.self::NUMBER_MIN.' y '.self::NUMBER_MAX.'.',
+                ],
+            )->validate();
+        }
+
+        if ($type === ContentFieldType::SingleSelection) {
+            $this->assertOptionBelongsToDefinition($definition, (int) $value, $key, $keptOptionIds);
+
+            return;
+        }
+
+        if ($type === ContentFieldType::MultipleSelection) {
+            Validator::make(
+                [$key => $value],
+                [$key.'.*' => $type->optionValueRules()],
+            )->validate();
+
+            foreach ($this->optionIds($value) as $optionId) {
+                $this->assertOptionBelongsToDefinition($definition, $optionId, $key, $keptOptionIds);
+            }
+        }
+    }
+
+    /**
+     * Narrow the vocabulary rule: an option is valid only when it belongs to
+     * this exact definition, not merely to the options table, and an inactive
+     * option only when it is one of the kept ids.
+     *
+     * @param  list<int>|null  $keptOptionIds
+     *
+     * @throws ValidationException
+     */
+    private function assertOptionBelongsToDefinition(ContentFieldDefinition $definition, int $optionId, string $key, ?array $keptOptionIds): void
+    {
+        $option = ContentFieldOption::query()
+            ->where('content_field_definition_id', $definition->getKey())
+            ->find($optionId);
+
+        if ($option === null) {
+            throw ValidationException::withMessages([
+                $key => 'La opción no pertenece al campo.',
+            ]);
+        }
+
+        if (! $option->is_active && $keptOptionIds !== null && ! in_array($optionId, $keptOptionIds, true)) {
+            throw ValidationException::withMessages([
+                $key => 'La opción "'.$option->label.'" está inactiva y no puede elegirse.',
+            ]);
+        }
+    }
+
+    /**
+     * The option ids the item currently stores for a selection definition.
+     *
+     * @return list<int>
+     */
+    private function storedOptionIds(ContentItem $item, ContentFieldDefinition $definition): array
+    {
+        $row = ContentFieldValue::query()
+            ->where('content_item_id', $item->getKey())
+            ->where('content_field_definition_id', $definition->getKey())
+            ->first();
+
+        if ($row === null) {
+            return [];
+        }
+
+        return match ($definition->type) {
+            ContentFieldType::SingleSelection => $row->content_field_option_id !== null ? [(int) $row->content_field_option_id] : [],
+            ContentFieldType::MultipleSelection => $row->selectedOptions()->pluck('content_field_options.id')->map(fn (mixed $id): int => (int) $id)->all(),
+            default => [],
+        };
+    }
+
+    private function readValue(ContentFieldDefinition $definition, ContentFieldValue $row): mixed
+    {
+        return match ($definition->type) {
+            ContentFieldType::Text, ContentFieldType::LongText => $row->value_text,
+            ContentFieldType::Number => $row->value_number,
+            ContentFieldType::Date => $row->value_date?->format('Y-m-d'),
+            ContentFieldType::SingleSelection => $row->content_field_option_id,
+            ContentFieldType::MultipleSelection => $row->selectedOptions->pluck('id')->all(),
+        };
+    }
+
+    private function isEmpty(mixed $value): bool
+    {
+        if ($value === null) {
+            return true;
+        }
+
+        if (is_string($value)) {
+            return trim($value) === '';
+        }
+
+        if (is_array($value)) {
+            return count(array_filter($value, fn (mixed $entry): bool => ! $this->isEmpty($entry))) === 0;
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function optionIds(mixed $value): array
+    {
+        return collect(is_array($value) ? $value : [])
+            ->map(fn (mixed $id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+}

@@ -199,7 +199,7 @@ class UserService
     {
         if (! $active && $user->id === $actor->id) {
             throw new InvalidOperationException(
-                'No puedes desactivarte a ti mismo; pide a otro administrador que lo haga.'
+                'No puede desactivarse a sí mismo; pida a otro administrador que lo haga.'
             );
         }
 

@@ -7,6 +7,7 @@ namespace App\Jobs\V2;
 use App\Enums\Courses\DeliveryStatus;
 use App\Models\Courses\CourseAcademicDocument;
 use App\Models\Courses\CourseCommercialDocument;
+use App\Contracts\Email\EmailProvider;
 use App\Models\Email\EmailMessage;
 use App\Models\Notification\OutboundDelivery;
 use App\Models\Quotation;
@@ -57,16 +58,8 @@ class SendEmailMessage implements ShouldQueue
             return;
         }
 
-        $account = $message->account;
-        if ($account === null) {
-            $this->markFailed($message, 'NoBoundAccount');
-
-            return;
-        }
-
-        if (! $account->is_active) {
-            $this->markFailed($message, 'AccountInactive');
-
+        $provider = $this->resolveProvider($message, $factory);
+        if ($provider === null) {
             return;
         }
 
@@ -76,7 +69,6 @@ class SendEmailMessage implements ShouldQueue
             'error_message' => null,
         ])->save();
 
-        $provider = $factory->for($account);
         $result = $provider->send($message);
 
         if (($result['retryable'] ?? false) === true && $this->attempts() < $this->tries) {
@@ -155,6 +147,48 @@ class SendEmailMessage implements ShouldQueue
             'error_message' => self::FAILURE_MESSAGE,
         ])->save();
         $this->syncCourseDelivery($message->fresh());
+    }
+
+    private function resolveProvider(EmailMessage $message, \App\Contracts\Email\EmailProviderFactory $factory): ?EmailProvider
+    {
+        if ($this->isSingleCourseDocumentDelivery($message)) {
+            return $factory->make('smtp');
+        }
+
+        $account = $message->account;
+        if ($account === null) {
+            $this->markFailed($message, 'NoBoundAccount');
+
+            return null;
+        }
+
+        if (! $account->is_active) {
+            $this->markFailed($message, 'AccountInactive');
+
+            return null;
+        }
+
+        return $factory->for($account);
+    }
+
+    /**
+     * Course documents (certificates and comprobantes alike) are sent by the
+     * system SMTP account, whether or not the message is bound to a user's mail
+     * account: the course module queues them without choosing one, and a
+     * comprobante used to fail with `NoBoundAccount` on every attempt.
+     */
+    private function isSingleCourseDocumentDelivery(EmailMessage $message): bool
+    {
+        $deliveries = OutboundDelivery::query()
+            ->where('email_message_id', $message->id)
+            ->limit(2)
+            ->get();
+
+        if ($deliveries->count() !== 1) {
+            return false;
+        }
+
+        return $this->correlatedCourseDocumentClass((string) $deliveries->first()->related_entity_type) !== null;
     }
 
     /**

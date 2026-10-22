@@ -250,15 +250,18 @@ class LeadController extends Controller
             abort_unless($request->user()->can('leads.import'), 403);
 
             $filename = 'plantilla-prospectos-' . now()->format('Ymd-His') . '.xlsx';
-            $path = storage_path('app/private/imports/' . $filename);
 
-            if (! is_dir(dirname($path))) {
-                mkdir(dirname($path), 0755, true);
-            }
+            // The template is a generated artifact, so it goes to a temporary
+            // location that works regardless of the configured storage backend
+            // instead of a real path inside storage/app.
+            $tempPath = sys_get_temp_dir()
+                . DIRECTORY_SEPARATOR
+                . uniqid('leads-template-', true)
+                . '.xlsx';
 
-            (new \App\Exports\LeadsTemplateExport())->build()->save($path);
+            (new \App\Exports\LeadsTemplateExport())->build()->save($tempPath);
 
-            return response()->download($path, $filename, [
+            return response()->download($tempPath, $filename, [
                 'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             ])->deleteFileAfterSend(true);
         }

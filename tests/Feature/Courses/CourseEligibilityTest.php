@@ -98,8 +98,10 @@ class CourseEligibilityTest extends TestCase
             ['type' => CourseActivityType::Talk, 'talk_includes_certificate' => false]
         ));
 
+        // Guide fix S15: attendance IS confirmed here, so the talk's real blocker is
+        // that it issues no certificate, not "participation".
         $this->assertFalse($withoutCertificate->eligible);
-        $this->assertSame(['participation'], $withoutCertificate->missingConditions);
+        $this->assertSame(['talk_without_certificate'], $withoutCertificate->missingConditions);
     }
 
     public function test_confirmed_paid_talk_with_certificate_is_eligible_for_talk_certificate(): void

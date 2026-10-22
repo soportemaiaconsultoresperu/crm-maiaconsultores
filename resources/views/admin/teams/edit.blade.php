@@ -96,7 +96,7 @@
                             label="Nuevo supervisor"
                             :options="$supervisorOptions"
                             :value="$team->supervisor_id"
-                            placeholder="Selecciona un supervisor"
+                            placeholder="Seleccione un supervisor"
                         />
                         <button type="submit" class="btn btn-primary mt-2">Actualizar supervisor</button>
                     </form>

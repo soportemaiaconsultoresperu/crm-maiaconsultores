@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -13,7 +14,7 @@ use Spatie\Permission\PermissionRegistrar;
  * B13 — Idempotent seeder for the email module permissions.
  *
  * Always created via firstOrCreate so re-running the seeder is a no-op.
- * Also grants the right baseline to admin (everything) and supervisor
+ * Also grants (once, via SeededGrants::grantOnce) the right baseline to admin (everything) and supervisor
  * (read-only view) when those roles exist.
  *
  * The companion {@see \App\Providers\EmailServiceProvider} runs the same
@@ -79,18 +80,14 @@ class AdditionalEmailPermissionsSeeder extends Seeder
             return;
         }
 
-        $existing = $admin->permissions->pluck('name')->all();
-
-        $toGrant = array_values(array_unique(array_merge($existing, [
+        SeededGrants::grantOnce($admin, [
             'email.send',
             'email.template.manage',
             'email.shared.use',
             'email.account.manage',
             'email.view',
             'email.audit',
-        ])));
-
-        $admin->syncPermissions($toGrant);
+        ]);
     }
 
     private function grantSupervisor(): void
@@ -104,10 +101,6 @@ class AdditionalEmailPermissionsSeeder extends Seeder
             return;
         }
 
-        $existing = $supervisor->permissions->pluck('name')->all();
-
-        $toGrant = array_values(array_unique(array_merge($existing, $this->supervisorGrants)));
-
-        $supervisor->syncPermissions($toGrant);
+        SeededGrants::grantOnce($supervisor, $this->supervisorGrants);
     }
 }

@@ -252,6 +252,29 @@ class CourseAcademicDocumentDeliveryHttpTest extends TestCase
         $this->assertSame(DeliveryStatus::Pending, $document->fresh()->delivery_status);
     }
 
+    /**
+     * A handoff that was opened and not confirmed has to be visible where the operator
+     * lands, not only inside one document's delivery history, three levels down. Without
+     * this, someone who had just sent the message from WhatsApp had nowhere obvious to
+     * confirm it from — and reloading did not help either, because nothing announced it.
+     */
+    public function test_a_pending_whatsapp_handoff_is_announced_at_the_top_of_the_list(): void
+    {
+        Storage::fake('docs');
+        $document = $this->currentDocument($this->enrollment());
+
+        $this->openWhatsApp($document, self::PARTICIPANT_MOBILE, $this->renderedKey($document, 'whatsapp'))
+            ->assertStatus(302);
+
+        $handoff = OutboundDelivery::query()->sole();
+        $html = $this->indexHtml();
+
+        $this->assertStringContainsString('course-talks-documents-whatsapp-pending-'.$handoff->id, $html);
+        $this->assertStringContainsString(self::PARTICIPANT_MOBILE, $html);
+        $this->assertStringContainsString('Marcar como enviado', $html);
+        $this->assertStringContainsString('Descartar intento', $html);
+    }
+
     public function test_the_document_list_offers_the_delivery_controls_prefilled_from_the_participant(): void
     {
         $document = $this->currentDocument($this->enrollment());

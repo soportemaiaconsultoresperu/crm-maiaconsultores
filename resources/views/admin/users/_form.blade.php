@@ -1,6 +1,7 @@
 {{--
     User create/edit form partial.
-    Variables: $user (User model with current values), $roles (array of role names), $passwordRequired (bool).
+    Variables: $user (User model with current values), $roles (array of role names), $passwordRequired (bool),
+    $roleSummaries (role name => list of module names, or null for the full-access role; optional).
 --}}
 @csrf
 
@@ -32,6 +33,22 @@
             :value="$user->roles->first()?->name"
             placeholder="Sin rol"
         />
+        @php($currentRole = (string) old('role', $user->roles->first()?->name))
+        <div class="form-text" id="role-summaries" aria-live="polite">
+            <div data-role-summary="" @class(['d-none' => $currentRole !== ''])>Sin rol, la persona no podrá usar ningún módulo.</div>
+            @foreach ($roleSummaries ?? [] as $roleName => $moduleNames)
+                <div data-role-summary="{{ $roleName }}" @class(['d-none' => $currentRole !== $roleName])>
+                    @if ($moduleNames === null)
+                        <i class="bi bi-shield-check text-success" aria-hidden="true"></i>
+                        Acceso total: puede usar todo el sistema.
+                    @elseif ($moduleNames === [])
+                        Este rol aún no tiene permisos.
+                    @else
+                        Puede usar: {{ implode(', ', $moduleNames) }}.
+                    @endif
+                </div>
+            @endforeach
+        </div>
     </div>
 
     <div class="col-md-6 d-flex align-items-end">
@@ -43,3 +60,23 @@
         </div>
     </div>
 </div>
+
+@push('scripts')
+    <script>
+        (function () {
+            'use strict';
+
+            var select = document.getElementById('role');
+            var summaries = document.querySelectorAll('#role-summaries [data-role-summary]');
+            if (select === null) {
+                return;
+            }
+
+            select.addEventListener('change', function () {
+                summaries.forEach(function (summary) {
+                    summary.classList.toggle('d-none', summary.dataset.roleSummary !== select.value);
+                });
+            });
+        })();
+    </script>
+@endpush

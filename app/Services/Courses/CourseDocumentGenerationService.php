@@ -138,7 +138,7 @@ class CourseDocumentGenerationService
     {
         Gate::forUser($actor)->authorize('generate', CourseAcademicDocument::class);
 
-        $enrollment->loadMissing('edition.activity', 'edition.sessions', 'participant', 'group');
+        $enrollment->loadMissing('edition.activity', 'edition.sessions.teacher', 'participant', 'group');
         $eligibility = ($this->eligibility ?? new CourseEligibilityService())->evaluate($enrollment);
         if (! $eligibility->eligible || ! $eligibility->documentType instanceof AcademicDocumentType) {
             throw InvalidCourseDocumentState::notEligible('La matrícula todavía no es elegible para generar documento académico.');
@@ -290,21 +290,54 @@ class CourseDocumentGenerationService
             'title' => $this->titleFor($academic->type),
             'participant' => $this->participantName($enrollment),
             'activity' => (string) $enrollment->edition->activity->name,
-            'modality' => $enrollment->edition->modality->name,
+            // The Spanish label, never the enum case name: the certificate is read by
+            // the participant, and "Presential" or "Hybrid" is internal vocabulary.
+            'modality' => $enrollment->edition->modality->label(),
             'date_range' => $this->certificateDateRange($enrollment),
             'academic_hours' => (string) $enrollment->edition->activity->official_academic_hours,
             'issue_location_date' => 'Lima, '.now()->isoFormat('D [de] MMMM [de] YYYY'),
             'certificate_code' => $academic->code,
             'qr_svg' => $qrSvg,
-            'syllabus' => $enrollment->edition->sessions->map(fn ($session): array => [
-                'class' => 'Clase '.$session->sort_order,
-                'topic' => (string) $session->topic,
-                'speaker' => (string) ($session->teacher_name ?: 'Maia Consultores'),
-                'date' => optional($session->session_date)->format('d.m.y') ?? '',
-            ])->all(),
+            'syllabus' => $this->certificateSyllabus($enrollment),
         ], $settings);
 
-        return ($this->pdfRenderer ?? new DomPdfRenderer())->render($view, ['certificate' => $viewModel]);
+        return ($this->pdfRenderer ?? new DomPdfRenderer())->render($view, [
+            'certificate' => $viewModel,
+            'syllabusTitle' => $this->syllabusTitleFor($academic->type),
+        ]);
+    }
+
+    /**
+     * The second page names the document it belongs to. It follows the document
+     * type, not the template title: a constancia must never be headed CERTIFICADO.
+     */
+    private function syllabusTitleFor(AcademicDocumentType $type): string
+    {
+        return $type === AcademicDocumentType::ParticipationConstancy
+            ? 'CONSTANCIA DE PARTICIPACIÓN'
+            : 'CERTIFICADO';
+    }
+
+    /**
+     * WHICH syllabus the certificate prints.
+     *
+     * The certificate is an evidence document for the participant's enrollment,
+     * so its syllabus is only the real session plan attached to that enrollment's
+     * own course edition. Manual delivery syllabus overrides and activity base
+     * syllabi are authoring aids/templates; they must never be printed here, even
+     * when the edition has zero sessions. In that case the view receives an empty
+     * list and renders the syllabus table with no fallback rows.
+     *
+     * @return list<array{class: string, topic: string, speaker: string, date: string}>
+     */
+    private function certificateSyllabus(CourseEnrollment $enrollment): array
+    {
+        return $enrollment->edition->sessions->map(fn ($session): array => [
+            'class' => 'Clase '.$session->sort_order,
+            'topic' => (string) $session->topic,
+            'speaker' => (string) ($session->teacher?->display_name ?: (trim((string) $session->teacher_name) ?: 'Maia Consultores')),
+            'date' => optional($session->session_date)->format('d.m.y') ?? '',
+        ])->all();
     }
 
     private function hasCurrentDocument(CourseEnrollment $enrollment): bool
@@ -345,10 +378,45 @@ class CourseDocumentGenerationService
         return (string) ($enrollment->group?->payer_name ?: 'Maia Consultores');
     }
 
+    /**
+     * Spanish month names, so the printed date never depends on the machine's locale.
+     *
+     * @var array<int, string>
+     */
+    private const MONTHS = [1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril', 5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto', 9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre'];
+
+    /**
+     * The date range AS PRINTED on the certificate: "01 al 04 de julio de 2026".
+     *
+     * It used to be cut out of the generated FILENAME, which is why it read "14-16.09.26":
+     * a file name wants a compact, sortable form and a certificate does not. The two are now
+     * built separately, and the file name keeps its own shape.
+     */
     private function certificateDateRange(CourseEnrollment $enrollment): string
     {
-        $filename = ($this->filenames ?? new CourseCertificateFilenameService())->build('', '', $enrollment->edition->starts_on, $enrollment->edition->ends_on, '');
+        $starts = $enrollment->edition->starts_on;
+        $ends = $enrollment->edition->ends_on;
 
-        return explode('_', $filename)[3];
+        if ($starts === null) {
+            return $ends === null ? '' : $this->longDate($ends);
+        }
+
+        if ($ends === null || $starts->isSameDay($ends)) {
+            return $this->longDate($starts);
+        }
+
+        if ($starts->isSameMonth($ends)) {
+            return $starts->format('d').' al '.$this->longDate($ends);
+        }
+
+        return $starts->isSameYear($ends)
+            ? $starts->format('d').' de '.self::MONTHS[$starts->month].' al '.$this->longDate($ends)
+            : $this->longDate($starts).' al '.$this->longDate($ends);
+    }
+
+    /** A single date in the certificate's own voice: "04 de julio de 2026". */
+    private function longDate(\Carbon\CarbonInterface $date): string
+    {
+        return $date->format('d').' de '.self::MONTHS[$date->month].' de '.$date->format('Y');
     }
 }

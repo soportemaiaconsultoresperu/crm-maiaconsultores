@@ -89,7 +89,7 @@ class UserServiceTest extends TestCase
     public function test_set_active_rejects_self_deactivation(): void
     {
         $this->expectException(InvalidOperationException::class);
-        $this->expectExceptionMessage('No puedes desactivarte a ti mismo');
+        $this->expectExceptionMessage('No puede desactivarse a sí mismo');
 
         $this->service->setActive($this->admin, false, $this->admin);
     }

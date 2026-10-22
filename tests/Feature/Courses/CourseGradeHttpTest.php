@@ -328,7 +328,7 @@ class CourseGradeHttpTest extends TestCase
         // The domain rejection reaches the user with the service's own message.
         $this->actingAs($this->manager)->get($this->indexUrl($talk))
             ->assertOk()
-            ->assertSee('Talk editions do not accept grades.');
+            ->assertSee('Los dictados de charlas no llevan notas.');
     }
 
     public function test_domain_rejections_are_reported_as_visible_errors_instead_of_server_errors(): void
@@ -345,7 +345,7 @@ class CourseGradeHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('must belong to the same edition');
+            ->assertSee('deben pertenecer al mismo dictado');
 
         // The accepted value range belongs to CourseGradeCalculator through the
         // service: the request never re-validates the value, so the domain
@@ -355,7 +355,7 @@ class CourseGradeHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl())
             ->assertOk()
-            ->assertSee('Invalid grade [25].')
+            ->assertSee('La nota «25» no es válida')
             ->assertSee('value="25"', false);
 
         $this->assertDatabaseCount('course_grades', 0);
@@ -392,7 +392,7 @@ class CourseGradeHttpTest extends TestCase
 
         $this->actingAs($this->manager)->get($this->indexUrl($emptyEdition))
             ->assertOk()
-            ->assertSee('Todavía no hay participantes inscritos en esta edición.')
+            ->assertSee('Todavía no hay participantes inscritos en este dictado.')
             ->assertDontSee('grades[')
             ->assertDontSee('Guardar notas');
     }

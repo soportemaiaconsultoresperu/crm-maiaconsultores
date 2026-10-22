@@ -205,7 +205,7 @@
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
             <strong>Acciones configuradas</strong>
             @can('automations.test')
-                <span class="badge text-bg-info">Podés probarla sin afectar datos reales</span>
+                <span class="badge text-bg-info">Puede probarla sin afectar datos reales</span>
             @endcan
         </div>
         <div class="card-body">
@@ -287,7 +287,7 @@
     @if ($executions->total() === 0)
         @include('layouts.partials.empty-state', [
             'message' => 'Aún no hay ejecuciones registradas para esta regla',
-            'hint' => 'Aparecerán acá cuando el CRM detecte el evento inicial y revise si corresponde ejecutar acciones.',
+            'hint' => 'Aparecerán aquí cuando el CRM detecte el evento inicial y revise si corresponde ejecutar acciones.',
         ])
     @else
         <x-table title="Ejecuciones recientes">

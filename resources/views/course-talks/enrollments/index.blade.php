@@ -1,20 +1,21 @@
 @extends('layouts.app')
 
-@section('title', 'Participantes de la edición')
-@section('page-title', 'Participantes de la edición')
+@section('title', 'Participantes del dictado')
+@section('page-title', 'Participantes del dictado')
 
 @section('content')
     @php
         // The enrollment-state and payment-status enums carry no display labels
         // (unlike edition state or modality), so the Spanish wording used by this
         // surface lives here instead of leaking into the controller.
+        //
+        // Only "Inscrito" is listed: it is the one enrollment state the application
+        // can set (CourseEnrollmentService::enroll() leaves the column default and
+        // nothing writes it afterwards). The other enum states stay in the database
+        // schema but are not offered on screen until a flow can reach them; a stored
+        // value outside this list still renders through the neutral fallback.
         $stateLabels = [
             'enrolled' => ['Inscrito', 'text-bg-info'],
-            'confirmed' => ['Confirmado', 'text-bg-primary'],
-            'in_progress' => ['En curso', 'text-bg-info'],
-            'completed' => ['Completado', 'text-bg-success'],
-            'withdrawn' => ['Retirado', 'text-bg-secondary'],
-            'no_show' => ['No asistió', 'text-bg-danger'],
         ];
         $paymentLabels = [
             'pending' => ['Pendiente', 'text-bg-warning'],
@@ -26,14 +27,14 @@
         $fallback = static fn (string $value): array => [str_replace('_', ' ', $value), 'text-bg-secondary'];
     @endphp
 
-    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver a la edición</a>
+    <a href="{{ route('course-talks.editions.show', $edition) }}" class="btn btn-outline-secondary mb-3">Volver al dictado</a>
 
     <div class="card mb-3" data-testid="course-talks-enrollment-edition">
         <div class="card-body">
             <dl class="row mb-0">
-                <dt class="col-sm-3">Actividad</dt>
+                <dt class="col-sm-3">Curso o charla</dt>
                 <dd class="col-sm-9">{{ $edition->activity->name }}</dd>
-                <dt class="col-sm-3">Edición</dt>
+                <dt class="col-sm-3">Dictado</dt>
                 <dd class="col-sm-9"><code>{{ $edition->code ?: '—' }}</code> · {{ $edition->modality->label() }}</dd>
             </dl>
         </div>
@@ -72,7 +73,9 @@
                 <tr data-testid="course-talks-enrollment-{{ $enrollment->id }}">
                     <td>
                         <strong>{{ $enrollment->participant->last_name }}, {{ $enrollment->participant->first_name }}</strong>
-                        <div class="text-secondary small">{{ $enrollment->participant->document_type }} {{ $enrollment->participant->document_number }}</div>
+                            @if ($document = $enrollment->participant->displayDocument())
+                                <div class="text-secondary small">{{ $document }}</div>
+                            @endif
                         <div class="text-secondary small">{{ $enrollment->participant->email }}</div>
                     </td>
                     <td>
@@ -105,7 +108,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="6" class="text-center text-secondary py-4" data-testid="course-talks-enrollment-empty">Todavía no hay participantes inscritos en esta edición.</td>
+                    <td colspan="6" class="text-center text-secondary py-4" data-testid="course-talks-enrollment-empty">Todavía no hay participantes inscritos en este dictado.</td>
                 </tr>
             @endforelse
         @endslot

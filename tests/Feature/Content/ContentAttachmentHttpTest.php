@@ -1,0 +1,534 @@
+<?php
+
+namespace Tests\Feature\Content;
+
+use App\Models\Content\ContentAttachment;
+use App\Models\Content\ContentItem;
+use App\Models\Content\ContentProject;
+use App\Models\User;
+use App\Services\Content\ContentAttachmentService;
+use Database\Seeders\ContentPermissionsSeeder;
+use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
+use Mockery;
+use Tests\TestCase;
+
+/**
+ * T7 — the attachment HTTP surface of a content.
+ *
+ * Exercises what the operator does: upload an image/video, attach an external
+ * link, reorder, retire and download. It pins the private storage, the project
+ * isolation (404 for a non-member or a foreign project), the `update` ability
+ * on mutations, and the fact that no public URL exposes a stored file.
+ *
+ * The per-kind size ceiling is proven with a controlled small override of
+ * `config('content.attachments.*')`; the production defaults (10 MB image,
+ * 200 MB video) are never weakened.
+ */
+class ContentAttachmentHttpTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private ContentProject $project;
+
+    private User $manager;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->seed(RolesAndPermissionsSeeder::class);
+        $this->seed(ContentPermissionsSeeder::class);
+
+        $this->project = ContentProject::factory()->create();
+        $this->manager = User::factory()->create(['is_active' => true]);
+        $this->manager->givePermissionTo(['content_projects.view', 'content_projects.update']);
+        $this->project->members()->attach($this->manager);
+
+        $this->actingAs($this->manager);
+    }
+
+    public function test_valid_image_and_video_are_stored_privately_and_listed_on_the_content(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+
+        $this->upload($item, 'foto.jpg', $this->jpeg())->assertRedirect();
+        $this->upload($item, 'clip.mp4', $this->mp4())->assertRedirect();
+
+        $rows = ContentAttachment::query()->where('content_item_id', $item->id)->get();
+        $this->assertCount(2, $rows);
+
+        $image = $rows->firstWhere('kind', ContentAttachment::KIND_IMAGE);
+        $video = $rows->firstWhere('kind', ContentAttachment::KIND_VIDEO);
+
+        $this->assertNotNull($image);
+        $this->assertNotNull($video);
+        $this->assertSame('image/jpeg', $image->mime_type);
+        $this->assertSame('video/mp4', $video->mime_type);
+        $this->assertTrue(Storage::disk(ContentAttachmentService::DISK)->exists($image->path));
+        $this->assertTrue(Storage::disk(ContentAttachmentService::DISK)->exists($video->path));
+
+        $this->get(route('content.projects.contents.show', [$this->project, $item]))
+            ->assertOk()
+            ->assertSee('foto.jpg')
+            ->assertSee('clip.mp4')
+            ->assertSee('Archivos y enlaces');
+    }
+
+    public function test_oversize_upload_is_rejected_at_the_configured_boundary(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        // Controlled small override: production keeps 10 MB / 200 MB.
+        config(['content.attachments.image_max_bytes' => 1024, 'content.attachments.video_max_bytes' => 2048]);
+
+        $item = $this->contentItem();
+
+        // Exactly at the ceiling: accepted.
+        $this->upload($item, 'borde.jpg', $this->jpeg(1024))->assertSessionHasNoErrors();
+
+        // One byte over: refused, and nothing extra is written.
+        $this->upload($item, 'excede.jpg', $this->jpeg(1025))->assertSessionHasErrors('file');
+
+        $this->upload($item, 'excede.mp4', $this->mp4(2049))->assertSessionHasErrors('file');
+
+        $this->assertSame(1, ContentAttachment::query()->count());
+    }
+
+    public function test_non_media_content_is_rejected_through_the_route(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+
+        $spoof = UploadedFile::fake()
+            ->createWithContent('foto.jpg', 'esto no es una imagen')
+            ->mimeType('image/jpeg');
+
+        $this->post(route('content.projects.contents.attachments.store', [$this->project, $item]), ['file' => $spoof])
+            ->assertSessionHasErrors('file');
+
+        $this->assertSame(0, ContentAttachment::query()->count());
+        $this->assertSame([], Storage::disk(ContentAttachmentService::DISK)->allFiles());
+    }
+
+    public function test_unsupported_extension_is_rejected_through_the_route(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+
+        $this->upload($item, 'animacion.gif', $this->jpeg())->assertSessionHasErrors('file');
+
+        $this->assertSame(0, ContentAttachment::query()->count());
+    }
+
+    public function test_link_is_classified_when_it_names_media_and_generic_otherwise(): void
+    {
+        $item = $this->contentItem();
+
+        $this->post(route('content.projects.contents.attachments.link', [$this->project, $item]), [
+            'url' => 'https://cdn.example.com/media/foto.jpg',
+        ])->assertRedirect();
+
+        $classified = ContentAttachment::query()->where('url', 'https://cdn.example.com/media/foto.jpg')->firstOrFail();
+        $this->assertSame(ContentAttachment::KIND_IMAGE, $classified->kind);
+        $this->assertNull($classified->path);
+
+        // A YouTube watch link, a share link with query parameters and a link
+        // with no file extension are ordinary attachments now.
+        foreach ([
+            'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+            'https://drive.google.com/file/d/1AbC/view?usp=sharing',
+            'https://example.com/promo',
+        ] as $generic) {
+            $this->post(route('content.projects.contents.attachments.link', [$this->project, $item]), ['url' => $generic])
+                ->assertRedirect();
+
+            $row = ContentAttachment::query()->where('url', $generic)->firstOrFail();
+            $this->assertSame(ContentAttachment::KIND_LINK, $row->kind);
+        }
+
+        $this->assertSame(4, ContentAttachment::query()->count());
+    }
+
+    public function test_link_route_refuses_non_http_empty_and_malformed_values(): void
+    {
+        $item = $this->contentItem();
+        $route = route('content.projects.contents.attachments.link', [$this->project, $item]);
+
+        $this->postJson($route, ['url' => 'javascript:alert(1)'])->assertStatus(422)->assertJsonValidationErrors('url');
+        $this->postJson($route, ['url' => 'ftp://example.com/media/foto.jpg'])->assertStatus(422)->assertJsonValidationErrors('url');
+        $this->postJson($route, ['url' => ''])->assertStatus(422)->assertJsonValidationErrors('url');
+        $this->postJson($route, ['url' => 'no-es-una-url'])->assertStatus(422)->assertJsonValidationErrors('url');
+
+        $this->assertSame(0, ContentAttachment::query()->count());
+    }
+
+    public function test_generic_link_is_labelled_as_a_link_while_classified_keeps_the_media_label(): void
+    {
+        $item = $this->contentItem();
+
+        $this->post(route('content.projects.contents.attachments.link', [$this->project, $item]), [
+            'url' => 'https://cdn.example.com/media/foto.jpg',
+        ])->assertRedirect();
+
+        $this->get(route('content.projects.contents.show', [$this->project, $item]))
+            ->assertOk()
+            ->assertSee('content-attachment-type-image', false)
+            ->assertDontSee('Se abre fuera del CRM');
+
+        $this->post(route('content.projects.contents.attachments.link', [$this->project, $item]), [
+            'url' => 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        ])->assertRedirect();
+
+        $this->get(route('content.projects.contents.show', [$this->project, $item]))
+            ->assertOk()
+            ->assertSee('content-attachment-type-link', false)
+            ->assertSee('Se abre fuera del CRM')
+            ->assertSee('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    }
+
+    public function test_more_than_the_per_content_ceiling_is_refused_links_included(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        config(['content.attachments.max_per_content' => 2]);
+        $item = $this->contentItem();
+
+        ContentAttachment::factory()->count(2)->create(['content_item_id' => $item->id]);
+
+        $this->upload($item, 'tercero.jpg', $this->jpeg())->assertSessionHasErrors('file');
+
+        $this->postJson(route('content.projects.contents.attachments.link', [$this->project, $item]), [
+            'url' => 'https://cdn.example.com/media/tercero.jpg',
+        ])->assertStatus(422)->assertJsonValidationErrors('url');
+
+        $this->assertSame(2, ContentAttachment::query()->count());
+    }
+
+    public function test_retiring_an_attachment_keeps_the_row_and_the_file(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        $path = (string) $attachment->path;
+
+        $this->post(route('content.projects.contents.attachments.retire', [$this->project, $item, $attachment]))
+            ->assertRedirect();
+
+        // The row is retired (soft deleted) but not gone, and no code path has
+        // touched the file: "Restaurar adjunto" can bring both back.
+        $this->assertSoftDeleted('content_attachments', ['id' => $attachment->id]);
+        $this->assertSame(1, ContentAttachment::withTrashed()->count());
+        $this->assertTrue(Storage::disk(ContentAttachmentService::DISK)->exists($path));
+
+        // It leaves the active list and is shown only among the retired ones.
+        $this->get(route('content.projects.contents.show', [$this->project, $item]))
+            ->assertOk()
+            ->assertDontSee('data-testid="content-attachment-'.$attachment->id.'"', false)
+            ->assertSee('data-testid="content-attachment-retired-'.$attachment->id.'"', false);
+    }
+
+    public function test_download_is_authorized_for_a_member_and_404_for_a_non_member_or_foreign_project(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        // A member of the project downloads the private file.
+        $this->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]))
+            ->assertOk()
+            ->assertDownload('foto.jpg');
+
+        // A user who cannot reach the project gets 404 before any policy runs.
+        $stranger = User::factory()->create(['is_active' => true]);
+        $this->actingAs($stranger)
+            ->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]))
+            ->assertNotFound();
+
+        // A member of another project cannot fetch this file by addressing
+        // their own project: the attachment id is resolved inside it.
+        $foreign = ContentProject::factory()->create();
+        $foreign->members()->attach($this->manager);
+        $foreignItem = ContentItem::factory()->for($foreign, 'project')->create();
+
+        $this->actingAs($this->manager)
+            ->get(route('content.projects.contents.attachments.download', [$foreign, $foreignItem, $attachment]))
+            ->assertNotFound();
+    }
+
+    public function test_download_redirects_to_a_signed_url_when_the_docs_disk_is_cloud_backed(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        Storage::set(ContentAttachmentService::DISK, $this->signedUrlDisk());
+
+        $response = $this->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]));
+
+        $response->assertRedirect();
+        $this->assertStringContainsString('X-Amz-Signature=', (string) $response->headers->get('Location'));
+    }
+
+    public function test_a_signed_cloud_download_carries_the_attachment_name_and_content_type(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        // Assert on the object-response overrides the service hands to the
+        // disk, which is what makes the cloud download keep its identity.
+        $disk = Mockery::mock(FilesystemAdapter::class);
+        $disk->shouldReceive('exists')->andReturn(true);
+        $disk->shouldReceive('providesTemporaryUrls')->andReturn(true);
+        $disk->shouldReceive('temporaryUrl')->once()->withArgs(function (string $path, $expiration, array $options): bool {
+            return ($options['ResponseContentType'] ?? null) === 'image/jpeg'
+                && ($options['ResponseContentDisposition'] ?? null) === 'attachment; filename="foto.jpg"';
+        })->andReturn('https://crm-files.s3.amazonaws.com/private/docs/foto.jpg?X-Amz-Signature=abc&X-Amz-Expires=299');
+        Storage::set(ContentAttachmentService::DISK, $disk);
+
+        $this->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]))
+            ->assertRedirect();
+    }
+
+    public function test_a_refused_download_never_receives_a_signed_url(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+
+        $disk = $this->signedUrlDisk();
+        Storage::set(ContentAttachmentService::DISK, $disk);
+
+        // A user who cannot reach the project is refused before the service
+        // runs, so the disk is never asked for a URL.
+        $stranger = User::factory()->create(['is_active' => true]);
+
+        $this->actingAs($stranger)
+            ->get(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]))
+            ->assertNotFound();
+
+        $disk->shouldNotHaveReceived('temporaryUrl');
+    }
+
+    public function test_reordering_is_persisted(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $first = $this->storedImage($item, 'uno.jpg');
+        $second = $this->storedImage($item, 'dos.jpg');
+
+        $this->assertSame(1, $first->sort);
+        $this->assertSame(2, $second->sort);
+
+        $this->post(route('content.projects.contents.attachments.reorder', [$this->project, $item, $second]), [
+            'sort' => 0,
+        ])->assertRedirect();
+
+        $this->assertSame(0, $second->fresh()->sort);
+    }
+
+    public function test_no_public_url_exposes_the_stored_file(): void
+    {
+        // The private disk is what makes the file unreachable. These are
+        // invariants, not the local layout: private visibility, no public
+        // `url`, no `serve` handler, and a root that resolves to the same
+        // `private/docs` object path in either storage mode. They read the live
+        // configuration, so a regression that made the disk public, publicly
+        // served or pointed it at a public prefix turns them red.
+        $violations = $this->privateDiskInvariantViolations();
+        $this->assertSame([], $violations, implode('; ', $violations));
+
+        Storage::fake(ContentAttachmentService::DISK);
+        $item = $this->contentItem();
+        $attachment = $this->storedImage($item);
+        $path = (string) $attachment->path;
+
+        $this->assertTrue(Storage::disk(ContentAttachmentService::DISK)->exists($path));
+
+        // No public route serves the private path. The only served disk is the
+        // parent `local` disk at /storage, and it is private-visibility: an
+        // unsigned request is refused (403 in testing, 404 in production), and
+        // no signed URL is ever generated for an attachment path.
+        $public = $this->get('/storage/'.$path);
+        $this->assertContains($public->getStatusCode(), [403, 404]);
+
+        $show = $this->get(route('content.projects.contents.show', [$this->project, $item]));
+        $show->assertOk();
+        $this->assertStringNotContainsString('/storage/'.$path, $show->getContent());
+        $show->assertSee(route('content.projects.contents.attachments.download', [$this->project, $item, $attachment]));
+    }
+
+    public function test_the_private_disk_invariants_reject_a_public_or_misplaced_disk(): void
+    {
+        // Non-tautology guard. Each shape is what a regression would look
+        // like: public visibility, a public URL, a public serve handler, or a
+        // public root prefix. The checker must flag every one of them instead
+        // of hardcoding a pass, so the mode-aware test above keeps its teeth.
+        $disk = ContentAttachmentService::DISK;
+        $original = config("filesystems.disks.{$disk}");
+
+        $regressions = [
+            'public visibility' => ['visibility' => 'public'],
+            'a public URL' => ['url' => 'https://cdn.example.com/docs/foto.jpg'],
+            'a public serve handler' => ['serve' => true],
+            'a public root prefix' => ['root' => 'public/docs'],
+        ];
+
+        foreach ($regressions as $label => $override) {
+            config(["filesystems.disks.{$disk}" => $override + $original]);
+
+            $this->assertNotSame(
+                [],
+                $this->privateDiskInvariantViolations(),
+                "The invariants must reject {$label}.",
+            );
+        }
+
+        config(["filesystems.disks.{$disk}" => $original]);
+        $this->assertSame([], $this->privateDiskInvariantViolations());
+    }
+
+    /**
+     * Review fixes S1/S2: a plain member attaches files (this test used to
+     * assert 403 for a member without `content_projects.update`), while an
+     * archived project refuses every attachment write but still lists them.
+     */
+    public function test_plain_member_attaches_and_an_archived_project_refuses_attachment_writes(): void
+    {
+        Storage::fake(ContentAttachmentService::DISK);
+        $member = User::factory()->create(['is_active' => true]);
+        $member->givePermissionTo('content_projects.view');
+        $this->project->members()->attach($member);
+
+        $item = $this->contentItem();
+
+        $this->actingAs($member)
+            ->post(route('content.projects.contents.attachments.store', [$this->project, $item]), [
+                'file' => UploadedFile::fake()->createWithContent('foto.jpg', $this->jpeg()),
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+        $this->assertSame(1, ContentAttachment::query()->count());
+
+        $this->project->archive();
+
+        $this->actingAs($member)
+            ->get(route('content.projects.contents.show', [$this->project, $item]))
+            ->assertOk()
+            ->assertSee('Archivos y enlaces');
+
+        $this->actingAs($member)
+            ->post(route('content.projects.contents.attachments.store', [$this->project, $item]), [
+                'file' => UploadedFile::fake()->createWithContent('otra.jpg', $this->jpeg()),
+            ])
+            ->assertForbidden();
+
+        $this->actingAs($member)
+            ->post(route('content.projects.contents.attachments.link', [$this->project, $item]), [
+                'url' => 'https://cdn.example.com/media/foto.jpg',
+            ])
+            ->assertForbidden();
+
+        $this->assertSame(1, ContentAttachment::query()->count());
+    }
+
+    /**
+     * The invariants the private attachment disk must satisfy in either storage
+     * mode. Returning the violations (an empty list means safe) lets the
+     * non-tautology guard assert the checker itself rejects a bad config.
+     *
+     * @return list<string>
+     */
+    private function privateDiskInvariantViolations(): array
+    {
+        $disk = ContentAttachmentService::DISK;
+        $config = (array) config("filesystems.disks.{$disk}");
+        $violations = [];
+
+        if (in_array($config['visibility'] ?? null, ['public', 'public-read'], true)) {
+            $violations[] = 'visibility must not be public';
+        }
+
+        if (! empty($config['url'])) {
+            $violations[] = 'the disk must not expose a public URL';
+        }
+
+        if (! empty($config['serve'])) {
+            $violations[] = 'the disk must not be publicly served';
+        }
+
+        if ($this->relativeObjectRoot($disk) !== 'private/docs') {
+            $violations[] = 'the root must resolve to private/docs';
+        }
+
+        return $violations;
+    }
+
+    /**
+     * The object path a disk root stores, stripped of the local storage prefix
+     * so local and cloud modes resolve to the same value.
+     */
+    private function relativeObjectRoot(string $disk): string
+    {
+        $root = str_replace('\\', '/', (string) config("filesystems.disks.{$disk}.root"));
+        $localPrefix = str_replace('\\', '/', storage_path('app'));
+
+        if (str_starts_with($root, $localPrefix.'/')) {
+            $root = substr($root, strlen($localPrefix) + 1);
+        }
+
+        return trim($root, '/');
+    }
+
+    /**
+     * A cloud-backed private disk. The adapter is mocked so `exists()` never
+     * reaches the network, while the temporary-URL contract is the real one.
+     */
+    private function signedUrlDisk(): FilesystemAdapter
+    {
+        $disk = Mockery::mock(FilesystemAdapter::class);
+        $disk->shouldReceive('exists')->andReturn(true);
+        $disk->shouldReceive('providesTemporaryUrls')->andReturn(true);
+        $disk->shouldReceive('temporaryUrl')->andReturn(
+            'https://crm-files.s3.amazonaws.com/private/docs/foto.jpg?X-Amz-Signature=abc&X-Amz-Expires=299'
+        );
+
+        return $disk;
+    }
+
+    private function contentItem(): ContentItem
+    {
+        return ContentItem::factory()->for($this->project, 'project')->create();
+    }
+
+    private function upload(ContentItem $item, string $name, string $content): TestResponse
+    {
+        return $this->post(route('content.projects.contents.attachments.store', [$this->project, $item]), [
+            'file' => UploadedFile::fake()->createWithContent($name, $content),
+        ]);
+    }
+
+    private function storedImage(ContentItem $item, string $name = 'foto.jpg'): ContentAttachment
+    {
+        $this->upload($item, $name, $this->jpeg())->assertRedirect();
+
+        return ContentAttachment::query()->where('content_item_id', $item->id)->latest('id')->firstOrFail();
+    }
+
+    private function jpeg(int $bytes = 64): string
+    {
+        return "\xFF\xD8\xFF".str_repeat("\x00", max(0, $bytes - 3));
+    }
+
+    private function mp4(int $bytes = 64): string
+    {
+        $head = "\x00\x00\x00\x20ftypisom";
+
+        return $head.str_repeat("\x00", max(0, $bytes - strlen($head)));
+    }
+}

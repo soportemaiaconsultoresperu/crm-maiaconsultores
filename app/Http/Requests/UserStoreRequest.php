@@ -11,8 +11,7 @@ use Illuminate\Validation\Rule;
  * The password is optional here: when omitted, UserService generates a
  * random one and surfaces it back to the controller exactly once. The
  * email is unique across the table (Laravel's case-insensitive collation
- * handles the rest). Role names are restricted to the three seeded
- * roles so the admin cannot create arbitrary permissions from this form.
+ * handles the rest). Assignable roles must exist for the web guard.
  */
 class UserStoreRequest extends FormRequest
 {
@@ -26,7 +25,7 @@ class UserStoreRequest extends FormRequest
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['nullable', 'string', 'min:8', 'max:128'],
             'is_active' => ['sometimes', 'boolean'],
-            'role' => ['nullable', 'string', Rule::in(['admin', 'supervisor', 'vendedor'])],
+            'role' => ['nullable', 'string', Rule::exists('roles', 'name')->where('guard_name', 'web')],
         ];
     }
 
@@ -37,7 +36,7 @@ class UserStoreRequest extends FormRequest
     {
         return [
             'email.unique' => 'Ya existe un usuario con este correo.',
-            'role.in' => 'El rol debe ser uno de: admin, supervisor o vendedor.',
+            'role.exists' => 'El rol seleccionado no existe para usuarios web.',
         ];
     }
 

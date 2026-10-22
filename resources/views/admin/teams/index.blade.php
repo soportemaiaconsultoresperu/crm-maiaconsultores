@@ -74,7 +74,7 @@
                     <td colspan="5">
                         @include('layouts.partials.empty-state', [
                             'message' => 'No hay equipos registrados.',
-                            'hint' => 'Crea un equipo para organizar vendedores.',
+                            'hint' => 'Cree un equipo para organizar vendedores.',
                         ])
                     </td>
                 </tr>

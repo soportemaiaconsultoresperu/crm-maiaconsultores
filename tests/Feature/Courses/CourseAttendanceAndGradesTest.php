@@ -32,7 +32,7 @@ class CourseAttendanceAndGradesTest extends TestCase
         [$session, $enrollment] = $this->courseSeat(CourseActivityType::Talk);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Talk editions do not accept grades.');
+        $this->expectExceptionMessage('Los dictados de charlas no llevan notas.');
 
         app(CourseGradeService::class)->record($session, $enrollment, '15.00', 'Principal');
     }
@@ -149,7 +149,7 @@ class CourseAttendanceAndGradesTest extends TestCase
         [, $otherEnrollment] = $this->courseSeat();
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('same edition');
+        $this->expectExceptionMessage('mismo dictado');
 
         app(CourseAttendanceService::class)->mark($session, $otherEnrollment, 'present');
     }

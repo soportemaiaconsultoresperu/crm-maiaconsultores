@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Support\Permissions\SeededGrants;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -13,7 +14,7 @@ use Spatie\Permission\PermissionRegistrar;
  * B17 — Idempotent seeder for the notification module permissions.
  *
  * Always created via firstOrCreate so re-running the seeder is a no-op.
- * Also grants the right baseline to admin (everything) and supervisor
+ * Also grants (once, via SeededGrants::grantOnce) the right baseline to admin (everything) and supervisor
  * (view + audit) when those roles exist.
  *
  * The companion {@see \App\Providers\NotificationServiceProvider} runs the
@@ -81,16 +82,12 @@ class AdditionalNotificationPermissionsSeeder extends Seeder
             return;
         }
 
-        $existing = $admin->permissions->pluck('name')->all();
-
-        $toGrant = array_values(array_unique(array_merge($existing, [
+        SeededGrants::grantOnce($admin, [
             'notifications.view',
             'notifications.manage',
             'notifications.audit',
             'notifications.send',
-        ])));
-
-        $admin->syncPermissions($toGrant);
+        ]);
     }
 
     private function grantSupervisor(): void
@@ -104,10 +101,6 @@ class AdditionalNotificationPermissionsSeeder extends Seeder
             return;
         }
 
-        $existing = $supervisor->permissions->pluck('name')->all();
-
-        $toGrant = array_values(array_unique(array_merge($existing, $this->supervisorGrants)));
-
-        $supervisor->syncPermissions($toGrant);
+        SeededGrants::grantOnce($supervisor, $this->supervisorGrants);
     }
 }

@@ -19,9 +19,12 @@ use Illuminate\Http\Request;
  *   loading. The controller only maps query parameters to the projection
  *   inputs and resolves the navigation anchors (prev/next/today).
  *
- * Calendar permission (calendar.view) covers the index; it is granted to
- * vendedor and supervisor in RolesAndPermissionsSeeder. The actual
- * activity list is still owner-scoped by ActivityService::scopeQuery().
+ * The calendar is open to every authenticated active user (route middleware)
+ * so all staff can see the internal activities layer
+ * (odd/tasks/internal-activities.md). Visibility stays scoped per source:
+ * commercial activities by ActivityService::scopeQuery() (own records when
+ * the user has no wider scope), invoices by customer-payments.view, and
+ * internal activities by their audience.
  */
 class CalendarController extends Controller
 {
@@ -37,8 +40,6 @@ class CalendarController extends Controller
      */
     public function index(Request $request): View
     {
-        abort_unless($request->user()->can('calendar.view'), 403);
-
         $view = $this->resolveView((string) $request->query('view', 'month'));
         $anchor = $this->resolveAnchor((string) $request->query('anchor', ''));
 
@@ -46,6 +47,7 @@ class CalendarController extends Controller
             'subject_type' => $request->query('subject_type'),
             'owner_id' => $request->query('owner_id'),
             'status' => $request->query('status'),
+            'layer' => in_array($request->query('layer'), ['commercial', 'internal', 'projects'], true) ? $request->query('layer') : null,
         ], fn ($value) => $value !== null && $value !== '');
 
         // type_id is a controller-level filter: the DateRange query in
@@ -71,7 +73,7 @@ class CalendarController extends Controller
             'nextAnchor' => $this->navigate($view, $anchor, 1),
             'owners' => $this->ownerOptions($user),
             'types' => ActivityType::query()->where('is_active', true)->orderBy('sort')->get(),
-            'filters' => $request->only(['view', 'owner_id', 'type_id', 'subject_type', 'status']),
+            'filters' => $request->only(['view', 'owner_id', 'type_id', 'subject_type', 'status', 'layer']),
         ]);
     }
 
