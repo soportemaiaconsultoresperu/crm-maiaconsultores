@@ -1,4 +1,4 @@
 <?php
 namespace App\Models;
 use Illuminate\Database\Eloquent\Model; use Illuminate\Database\Eloquent\SoftDeletes; use Illuminate\Database\Eloquent\Relations\BelongsTo;
-class SupportIncidentDetail extends Model { use SoftDeletes; protected $guarded=[]; public function ticket(): BelongsTo{return $this->belongsTo(SupportTicket::class);} }
+class SupportIncidentDetail extends Model { use SoftDeletes; protected $guarded=[]; public function ticket(): BelongsTo{return $this->belongsTo(SupportTicket::class);} public function documents(): \Illuminate\Database\Eloquent\Relations\MorphMany{return $this->morphMany(Document::class, 'docable');} }

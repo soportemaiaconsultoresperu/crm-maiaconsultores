@@ -11,6 +11,9 @@ use App\Models\Courses\CourseCommercialDocument;
 use App\Models\Courses\CourseEdition;
 use App\Models\Courses\CourseEnrollment;
 use App\Models\CustomerInvoice;
+use App\Models\SupportIncidentDetail;
+use App\Models\SupportObservation;
+use App\Models\SupportSessionDetail;
 use App\Models\SupportTicket;
 use App\Policies\Courses\CourseAcademicDocumentPolicy;
 use App\Policies\Courses\CourseActivityPolicy;
@@ -19,6 +22,9 @@ use App\Policies\Courses\CourseCommercialDocumentPolicy;
 use App\Policies\Courses\CourseEditionPolicy;
 use App\Policies\Courses\CourseEnrollmentPolicy;
 use App\Policies\CustomerInvoicePolicy;
+use App\Policies\SupportIncidentDetailPolicy;
+use App\Policies\SupportObservationPolicy;
+use App\Policies\SupportSessionDetailPolicy;
 use App\Policies\SupportTicketPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as BaseAuthServiceProvider;
 use Illuminate\Support\Facades\Gate;
@@ -69,6 +75,9 @@ class AuthServiceProvider extends BaseAuthServiceProvider
         \App\Models\InternalActivity::class => \App\Policies\InternalActivityPolicy::class,
         \App\Models\InternalProjects\InternalProject::class => \App\Policies\InternalProjects\InternalProjectPolicy::class,
         SupportTicket::class => SupportTicketPolicy::class,
+        SupportObservation::class => SupportObservationPolicy::class,
+        SupportIncidentDetail::class => SupportIncidentDetailPolicy::class,
+        SupportSessionDetail::class => SupportSessionDetailPolicy::class,
     ];
 
     public function boot(): void

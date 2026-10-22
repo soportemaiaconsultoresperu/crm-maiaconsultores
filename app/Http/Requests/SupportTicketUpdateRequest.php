@@ -45,4 +45,18 @@ class SupportTicketUpdateRequest extends FormRequest
             'channel_id.exists' => 'El canal de ingreso no está activo.',
         ];
     }
+
+    /** @return array<string, string> */
+    public function attributes(): array
+    {
+        return [
+            'title' => 'título',
+            'description' => 'descripción',
+            'impact' => 'impacto',
+            'general_observations' => 'observaciones generales',
+            'type_id' => 'tipo de ticket',
+            'category_id' => 'categoría',
+            'channel_id' => 'canal de ingreso',
+        ];
+    }
 }

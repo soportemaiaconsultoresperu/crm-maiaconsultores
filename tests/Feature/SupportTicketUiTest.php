@@ -135,7 +135,7 @@ class SupportTicketUiTest extends TestCase
             ->assertRedirect(route('support.tickets.show', $ticket))->assertSessionHas('status');
         $this->assertSame($high->id, $ticket->fresh()->priority_id);
 
-        $this->actingAs($actor)->patch(route('support.tickets.priority.update', $ticket), [])->assertSessionHasErrors(['priority_id' => 'Seleccione una prioridad.']);
+        $this->actingAs($actor)->patch(route('support.tickets.priority.update', $ticket), [])->assertSessionHasErrors(['priority_id' => 'Seleccione una prioridad.'], null, 'priority');
 
         $noPerm = $this->actor(['support.view.any']);
         $this->actingAs($noPerm)->patch(route('support.tickets.priority.update', $ticket), ['priority_id' => $high->id])->assertForbidden();
@@ -171,7 +171,7 @@ class SupportTicketUiTest extends TestCase
     {
         $actor = $this->actor(self::ALL); $ticket = $this->inProgress($actor);
 
-        $this->actingAs($actor)->post(route('support.tickets.hold', $ticket), ['kind' => 'otra'])->assertSessionHasErrors(['kind' => 'Seleccione el tipo de espera: cliente o interna.']);
+        $this->actingAs($actor)->post(route('support.tickets.hold', $ticket), ['kind' => 'otra'])->assertSessionHasErrors(['kind' => 'Seleccione el tipo de espera: cliente o interna.'], null, 'hold');
         $this->actingAs($actor)->post(route('support.tickets.hold', $ticket), ['kind' => 'interna', 'reason' => 'Esperando proveedor'])->assertSessionHas('status');
         $this->assertSame(SupportStatus::SLUG_WAITING_INTERNAL, $ticket->fresh()->status->slug);
 

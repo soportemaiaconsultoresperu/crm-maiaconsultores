@@ -93,7 +93,7 @@ class SupportTicketPendingUiTest extends TestCase
             ->from(route('support.tickets.show', $ticket))
             ->post(route('support.tickets.assign', $ticket), ['responsible_id' => $nextResponsible->id])
             ->assertRedirect(route('support.tickets.show', $ticket))
-            ->assertSessionHasErrors('reason');
+            ->assertSessionHasErrors('reason', null, 'assign');
     }
 
     public function test_schedule_route_assigns_new_unassigned_ticket_and_persists_split_session_payload(): void

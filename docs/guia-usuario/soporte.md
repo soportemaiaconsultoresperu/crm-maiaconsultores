@@ -153,7 +153,10 @@ Desde la lista, el botón **Ver** de cada fila abre la **ficha del ticket**.
 | **Tipo** | Sí | Ver [sección 2](#2-tipos-de-ticket-y-listas-del-módulo). Elija **Incidente o error** si es una falla del sistema. |
 | **Categoría** | Sí | General, Funcional, Técnico, Capacitación o Configuración. |
 | **Canal** | Sí | Por dónde llegó el pedido: Registro interno, Llamada, WhatsApp, Correo, Reunión, Presencial u Otro. |
+| **Equipo** | No | El equipo que se encargará del caso, o **Sin equipo**. Solo aparecen equipos **activos**: todos si usted ve todos los tickets; si no, los equipos que usted supervisa o a los que pertenece. |
+| **Impacto** | No | A quién o a qué afecta. Ej.: *Detiene la facturación de toda la empresa*. Máximo 100 caracteres. |
 | **Descripción** | Sí | Qué pide el cliente, con el detalle necesario para atenderlo. |
+| **Observaciones generales** | No | Comentarios generales del caso. |
 
 3. Pulse **Guardar ticket**. El sistema lo lleva a la ficha del ticket y muestra *"Ticket de soporte creado."*.
 
@@ -162,8 +165,9 @@ Si quiere salir sin guardar, pulse **Cancelar**.
 Tenga en cuenta:
 
 - El ticket nace en estado **Nuevo** y **sin responsable**. El responsable se asigna después desde la ficha (ver [sección 8](#8-asignar-y-reasignar)).
-- Los campos **Impacto** y **Observaciones generales** no están en el alta; puede completarlos después con **Editar ticket** (ver [sección 19](#19-editar-el-ticket)).
-- El **equipo** se elige al asignar el responsable.
+- **Impacto** y **Observaciones generales** también se pueden completar o corregir después con **Editar ticket** (ver [sección 19](#19-editar-el-ticket)).
+- El **equipo** también se puede cambiar al asignar o reasignar el responsable.
+- Si falta un dato o no es válido, el mensaje aparece debajo del campo con su nombre en español (por ejemplo, *El campo cliente es obligatorio.*).
 - El **Cliente** y el **Contacto solicitante** no se pueden cambiar después.
 
 ---
@@ -213,16 +217,18 @@ La tarjeta **Acciones** de la ficha muestra solo los botones válidos para el es
 | **Programado** | Iniciar atención · Poner en espera · Cancelar ticket | Reasignar | Programar |
 | **En atención** | *Atención en marcha* (deshabilitado) · Poner en espera · Resolver · Cancelar ticket | Reasignar | Programar |
 | **En espera del cliente** / **En espera interna** | Reanudar atención · Cancelar ticket | Reasignar | Programar |
-| **Resuelto** | Cerrar · Reabrir | *No admite cambios de responsable* | Solo **Reprogramar** actividades pendientes |
-| **Cerrado** | Reabrir | *No admite cambios de responsable* | Solo **Reprogramar** actividades pendientes |
-| **Cancelado** | *No hay acciones disponibles para este ticket.* | *No admite cambios de responsable* | Solo **Reprogramar** actividades pendientes |
+| **Resuelto** | Cerrar · Reabrir | *No admite cambios de responsable* | Solo consulta (no se programa ni se reprograma) |
+| **Cerrado** | Reabrir | *No admite cambios de responsable* | Solo consulta |
+| **Cancelado** | *No hay acciones disponibles para este ticket.* | *No admite cambios de responsable* | Solo consulta |
 | **Reabierto** | Iniciar atención · Cancelar ticket | Reasignar | Programar |
 
 Además:
 
-- **Editar ticket**, la tarjeta **Prioridad**, agregar observaciones, cambiar el estado de las observaciones y el formulario de **Incidente** están disponibles en todos los estados **excepto Cerrado y Cancelado**.
+- **Editar ticket**, la tarjeta **Prioridad**, agregar observaciones, cambiar el estado de las observaciones, el formulario de **Incidente**, **Reprogramar** y registrar **participantes** están disponibles en todos los estados **excepto Cerrado y Cancelado**. El sistema también lo comprueba al guardar: si el ticket se cerró o canceló mientras usted tenía la página abierta, verá un mensaje de error (por ejemplo, *"No se puede reprogramar la atención de un ticket cerrado o cancelado."*) y no se guarda nada.
 - Las **notas internas**, las **respuestas al cliente** y los **documentos** se pueden agregar en cualquier estado.
 - Si usted no tiene ninguno de los permisos de acción (*Iniciar atención*, *Resolver tickets*, *Cerrar tickets*, *Reabrir tickets*, *Anular tickets*), la tarjeta dice *"No hay acciones disponibles para este ticket."*.
+
+**Errores junto a cada formulario:** si a un formulario de la ficha le falta un dato (por ejemplo, el motivo de cierre), el mensaje aparece **debajo de ese mismo formulario** y lo que escribió se conserva; los demás formularios no muestran el error.
 
 > **Doble clic sin duplicados:** si pulsa dos veces el mismo botón, o dos personas hacen la misma acción a la vez, el cambio se registra **una sola vez**. Si el estado ya cambió y la acción ya no es válida, verá un mensaje de error en lugar de un fallo.
 
@@ -277,6 +283,7 @@ Reglas:
 | Primera asignación | Requiere el permiso *Asignar tickets*. |
 | Ticket que ya tiene responsable (incluido un *Reabierto*) | Requiere el permiso *Reasignar tickets* y el motivo es obligatorio. |
 | Responsable inactivo | Se rechaza con *"El responsable debe ser un usuario activo."*. |
+| Equipo inactivo o inexistente | Se rechaza con *"El equipo seleccionado no existe o no está activo."*. La lista solo ofrece equipos activos. |
 
 - El **equipo** se guarda tal como lo deje en el formulario: si reasigna y deja **Sin equipo**, el ticket queda sin equipo.
 - Cada asignación queda en **Historial → Asignaciones** con fecha, responsable anterior → nuevo, cambio de equipo, quién la hizo y el motivo.
@@ -289,9 +296,9 @@ Reglas:
 En la tarjeta **Acciones**, pulse **Iniciar atención** y confirme. El ticket pasa a **En atención** y verá *"Atención iniciada."*.
 
 - Está disponible en **Nuevo**, **Asignado**, **Programado** y **Reabierto** (permiso *Iniciar atención*).
-- Si el ticket está **Nuevo y sin responsable**, el sistema lo **asigna primero a usted** (con el motivo *"Inicio de atención por el responsable"*) y luego inicia la atención.
+- Si el ticket está **Nuevo y sin responsable**, el sistema lo **asigna primero a usted** (con el motivo *"Inicio de atención por el responsable"*) y luego inicia la atención. Para esta autoasignación basta el permiso *Iniciar atención* (no se necesita *Asignar tickets*). Las dos cosas se hacen **juntas**: si el inicio no se puede completar, tampoco queda la asignación y el ticket sigue **Nuevo**, sin responsable.
 - La primera vez que un ticket entra en atención se guarda la fecha de **inicio del trabajo**.
-- Cuando el ticket ya está en atención, el botón aparece deshabilitado como **Atención en marcha**.
+- Cuando el ticket ya está en atención, el botón aparece deshabilitado como **Atención en marcha**. Si de todos modos se envía el inicio (por ejemplo, desde otra pestaña), verá el aviso informativo *"La atención ya estaba en marcha; no se realizó ningún cambio."*.
 
 ---
 
@@ -340,15 +347,15 @@ Qué ocurre:
 
 | Estado actual | Estado después de programar |
 |---|---|
-| Nuevo (sin responsable) | Se lo asigna a usted y pasa a **Programado** |
+| Nuevo (sin responsable) | Se lo asigna a usted y pasa a **Programado** (basta el permiso *Programar atención*; si la programación falla, tampoco queda la asignación) |
 | Asignado, En espera del cliente, En espera interna, Reabierto | **Programado** |
 | Programado, En atención | **No cambia** (se agrega otra actividad) |
-| Resuelto, Cerrado, Cancelado | No se puede programar (la tarjeta no muestra el formulario; las actividades pendientes todavía se pueden reprogramar) |
+| Resuelto, Cerrado, Cancelado | No se puede programar ni reprogramar (la tarjeta solo lista las actividades) |
 
 Debajo del formulario se listan las actividades del ticket con su fecha. Si no hay, dice *"Sin actividades programadas."*. Las actividades completadas o canceladas muestran la etiqueta **Completada** o **Cancelada**.
 
 ### Reprogramar
-Bajo cada actividad que no está completada ni cancelada (permiso *Reprogramar atención*):
+Bajo cada actividad que no está completada ni cancelada, mientras el ticket no esté **Resuelto**, **Cerrado** ni **Cancelado** (permiso *Reprogramar atención*):
 
 1. Elija la nueva fecha y hora.
 2. Escriba el **Motivo** (obligatorio).
@@ -357,7 +364,7 @@ Bajo cada actividad que no está completada ni cancelada (permiso *Reprogramar a
 Cada reprogramación queda en **Historial → Reprogramaciones**: fecha del cambio, actividad, fecha anterior → nueva, quién la hizo y el motivo.
 
 ### Participantes de la sesión
-En la tarjeta **Asistencia: …** (permiso *Programar atención*):
+Cada sesión tiene una tarjeta **Asistencia: …** con el tema de la sesión o, si no tiene tema, su modalidad (*Virtual*, *Presencial*, *Teléfono* o *No aplica*). En ella (permiso *Programar atención*; no disponible en tickets cerrados o cancelados):
 
 1. Escriba el **Nombre** (obligatorio) y, si lo tiene, el **Email**.
 2. Deje marcada la casilla **asistió** si la persona asistió (viene marcada) o desmárquela.
@@ -490,7 +497,8 @@ Disponible cuando el ticket está **Resuelto** o **Cerrado** (permiso *Reabrir t
 
 Qué ocurre:
 
-- El ticket pasa a **Reabierto** y comienza un **nuevo ciclo de atención**. Los tiempos del ciclo anterior se conservan para los indicadores.
+- El ticket pasa a **Reabierto** y comienza un **nuevo ciclo de atención**. Los tiempos del ciclo anterior (resolución, cierre, validación) se conservan en ese ciclo para los indicadores.
+- Las fechas de **resolución**, **cierre** y **validación del cliente** del ticket se **vacían**: mientras esté reabierto no cuenta como *resuelto* ni *cerrado* en el dashboard. Cuando se vuelva a resolver, el ticket toma la fecha de esa última resolución. Los textos de solución y cierre anteriores siguen visibles en **Registro de acciones**.
 - El motivo aparece en **Registro de acciones → Motivo de reapertura**.
 - El ticket **conserva su responsable**. Desde *Reabierto* puede **Iniciar atención**, **Programar**, **Reasignar** (con motivo; el ticket pasa a *Asignado*) o **Cancelar ticket**.
 - El ticket cuenta como **reabierto** en el indicador *Reabiertos* del dashboard.
@@ -594,12 +602,12 @@ La ficha tiene paneles **Documentos** en varios lugares:
 | Documentos de cada **sesión** | En cada tarjeta *Asistencia: …*. |
 
 - El panel indica el tamaño máximo y las extensiones permitidas.
-- Para **subir** se necesita el permiso *Subir documentos* y poder ver el ticket. Al subir verá *Documento "nombre" subido correctamente.*
+- Para **subir** se necesita el permiso *Subir documentos* y poder ver el ticket. La regla es la misma en los cuatro paneles: si usted puede ver el ticket, puede ver y usar los paneles de sus observaciones, incidente y sesiones. Al subir verá *Documento "nombre" subido correctamente.* Si intenta subir a un ticket que no puede ver, el sistema responde con un error de acceso.
 - Para **descargar** se necesita el permiso *Descargar documentos* y poder ver el ticket.
 - **Eliminar**: quien subió el documento (con el permiso *Eliminar documentos*) o quien tiene *Ver todos los documentos*.
 - Si no hay archivos, dice *"Sin documentos adjuntos."*.
 
-> Hoy el formulario para **subir** archivos en los paneles de observaciones, incidente y sesiones solo aparece para el **administrador**; los demás usuarios pueden subir archivos en el panel del ticket.
+Los documentos de una **observación**, del **incidente** y de las **sesiones** se descargan con la misma regla que los del ticket: quien puede ver el ticket y tiene el permiso de descargar documentos.
 
 ---
 
@@ -653,9 +661,9 @@ Si no hay tickets para los filtros, verá *"No hay tickets para los filtros sele
 |---|---|
 | **Tickets recibidos** | Cantidad de tickets que cumplen los filtros. |
 | **Prom. primera respuesta** | Para los tickets con al menos una *Respuesta al cliente*: promedio del tiempo desde la **creación** hasta la **primera respuesta**. |
-| **Prom. resolución** | Para los tickets que tienen fecha de resolución: promedio del tiempo desde la **creación** hasta la **resolución** (si se resolvió más de una vez, la última). |
+| **Prom. resolución** | Para los tickets que tienen fecha de resolución: promedio del tiempo desde la **creación** hasta la **resolución** (si se resolvió más de una vez, la última). Un ticket **reabierto** que todavía no se vuelve a resolver no tiene fecha de resolución y no entra en este promedio (su ciclo anterior sí cuenta en los indicadores por ciclo). |
 | **Prom. tiempo efectivo** | Lo mismo que *Prom. resolución*, pero **restando el tiempo en *En espera del cliente***. La espera interna sí se cuenta. |
-| **Prom. cierre** | Para los tickets cerrados: promedio desde la **creación** hasta el **cierre**. |
+| **Prom. cierre** | Para los tickets cerrados: promedio desde la **creación** hasta el **cierre**. Al reabrir un ticket cerrado, deja de contar como cerrado hasta que se vuelva a cerrar. |
 | **Prom. por ciclo de atención** | Para cada ciclo de atención resuelto (el primero y cada reapertura): promedio desde el **inicio del ciclo** hasta su **resolución**. Los ciclos terminados por cancelación no cuentan. |
 | **Prom. efectivo por ciclo** | Lo mismo por ciclo, **restando la espera del cliente** dentro del ciclo. |
 | **Reabiertos** | **Tickets con más de un ciclo** ÷ **tickets resueltos alguna vez** × 100, con 2 decimales. Debajo se indica *"N de M tickets resueltos alguna vez."*. Nunca supera el 100 %. |
@@ -689,6 +697,8 @@ En el dashboard, pulse **Exportar CSV**. Se descarga el archivo **reporte-soport
 
 El archivo usa codificación UTF-8 y columnas separadas por comas, para que las tildes se vean bien al abrirlo.
 
+Por seguridad, si un valor empieza con `=`, `+`, `-`, `@`, un tabulador o un retorno de carro, el archivo lo antepone con un apóstrofo (`'`). Así la hoja de cálculo lo muestra como texto y nunca lo ejecuta como fórmula.
+
 ---
 
 ## 26. Mensajes frecuentes
@@ -697,7 +707,9 @@ El archivo usa codificación UTF-8 y columnas separadas por comas, para que las 
 
 | Mensaje | Causa | Qué hacer |
 |---|---|---|
+| *El campo cliente es obligatorio.* (y otros *El campo … es obligatorio.*) | Falta un dato obligatorio al crear | Complete el campo indicado |
 | *El contacto solicitante no pertenece al cliente seleccionado.* | El contacto elegido es de otro cliente | Elija primero el cliente y luego uno de sus contactos |
+| *El equipo seleccionado no existe o no está activo.* | El equipo fue desactivado | Elija otro equipo o deje *Sin equipo* |
 | *El título es obligatorio.* / *La descripción es obligatoria.* | Falta el dato (al editar) | Complételo |
 | *El título no debe superar los 200 caracteres.* | Título demasiado largo | Acórtelo |
 | *El impacto no debe superar los 100 caracteres.* | Impacto demasiado largo | Acórtelo |
@@ -717,13 +729,18 @@ El archivo usa codificación UTF-8 y columnas separadas por comas, para que las 
 | *No se puede asignar un ticket resuelto, cerrado o cancelado.* | El ticket ya no está abierto | Reábralo primero (si está resuelto o cerrado) |
 | *El motivo de reasignación es obligatorio.* | Reasignó sin motivo | Escriba el motivo |
 | *El responsable debe ser un usuario activo.* | El usuario elegido está inactivo | Elija otro usuario |
+| *El equipo seleccionado no existe o no está activo.* | El equipo elegido fue desactivado | Elija otro equipo o deje *Sin equipo* |
 | *El ticket no está en espera.* | Pulsó *Reanudar* en un ticket que ya no está en espera | Recargue la ficha |
-| *La atención ya está en marcha.* | Pulsó *Iniciar atención* en un ticket que ya está En atención | Ninguna; el ticket ya está en atención |
+| *La atención ya estaba en marcha; no se realizó ningún cambio.* (aviso informativo) | Se envió *Iniciar atención* en un ticket que ya está En atención | Ninguna; el ticket ya está en atención |
 | *Seleccione el tipo de espera: cliente o interna.* | No eligió el tipo de espera | Elija *En espera del cliente* o *En espera interna* |
 | *Seleccione una prioridad.* / *La prioridad de soporte no está activa.* | Falta la prioridad o fue desactivada | Elija otra |
 | *No se puede cambiar la prioridad de un ticket cerrado o cancelado.* | El ticket está cerrado o cancelado | — |
 | *Fecha, tipo de actividad y modalidad válida son obligatorios.* | Faltan datos al programar | Complete todos los campos |
 | *La reprogramación requiere motivo y actividad no terminal.* | Falta el motivo o la actividad ya está completada o cancelada | Escriba el motivo; para una actividad terminada, programe una nueva |
+| *No se puede reprogramar la atención de un ticket cerrado o cancelado.* | El ticket se cerró o canceló | Si está cerrado y sigue el problema, reábralo |
+| *No se puede modificar el incidente de un ticket cerrado o cancelado.* | El ticket se cerró o canceló | Ídem |
+| *No se pueden registrar participantes en un ticket cerrado o cancelado.* | El ticket se cerró o canceló | Ídem |
+| *El campo … es obligatorio.* debajo de un formulario de la ficha | Falta un dato en ese formulario (por ejemplo, el motivo de cancelación) | Complete el dato en el mismo formulario y vuelva a enviarlo |
 
 ### Observaciones
 
@@ -731,6 +748,7 @@ El archivo usa codificación UTF-8 y columnas separadas por comas, para que las 
 |---|---|---|
 | *Transición de observación no permitida: de «…» a «…».* | El cambio no es válido para el estado actual de la observación | Recargue la ficha y use los botones que aparecen |
 | *Este cambio exige motivo.* | Pulsó *Rechazar*, *Reabrir* o *No aplica* sin motivo | Escriba el motivo |
+| *No se pueden crear observaciones en un ticket cerrado o cancelado.* | El ticket se cerró o canceló | Si está cerrado y falta algo, reábralo |
 | *Estado de observación inválido.* | El estado pedido no existe | Recargue la ficha |
 
 ### Mensajes de confirmación
@@ -778,7 +796,7 @@ Solo si tiene el permiso *Cerrar tickets con observaciones pendientes* y marca l
 Para resolver basta con que las observaciones estén levantadas (o no apliquen). Para cerrar, deben estar **Validadas** (o en *No aplica*).
 
 **Reabrí un ticket, ¿se pierden los tiempos de la primera atención?**
-No. Cada reapertura inicia un nuevo ciclo y los tiempos del ciclo anterior se conservan en los indicadores por ciclo.
+No. Cada reapertura inicia un nuevo ciclo y los tiempos del ciclo anterior se conservan en los indicadores por ciclo. Lo que sí cambia es el ticket: mientras está reabierto no cuenta como resuelto ni cerrado.
 
 **¿Puedo reabrir un ticket cancelado?**
 No. Un ticket cancelado no admite acciones. Si el pedido vuelve a ser válido, cree un ticket nuevo.

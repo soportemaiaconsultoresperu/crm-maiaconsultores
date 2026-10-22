@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\Content\ContentCellSanitizer;
 use App\Models\{Customer, SupportCategory, SupportPriority, SupportStatus, SupportTicket, SupportTicketType, Team, User};
-use App\Services\{SupportDashboardService, SupportTicketScopeService};
+use App\Services\{SupportDashboardService, SupportTicketLifecycleService, SupportTicketScopeService};
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -45,12 +46,13 @@ class SupportDashboardController extends Controller
     {
         abort_unless($request->user()->can('support.reports.view'), 403);
         $tickets=$this->dashboard->tickets($this->filters($request), $request->user());
-        $modalities=['virtual'=>'Virtual','presential'=>'Presencial','phone'=>'Teléfono','not_applicable'=>'No aplica'];
+        $modalities=SupportTicketLifecycleService::MODALITIES;
         return response()->streamDownload(function () use ($tickets, $modalities): void {
             $out=fopen('php://output','w');
             fwrite($out, "\xEF\xBB\xBF");
             fputcsv($out,['Código','Fecha de creación','Cliente','Responsable','Tipo','Categoría','Prioridad','Estado','Modalidad']);
-            foreach($tickets as $ticket) { $modality=$ticket->sessionDetails->first()?->modality; fputcsv($out,[$ticket->code,$ticket->created_at?->format('Y-m-d H:i:s'),$ticket->customer?->code,$ticket->responsible?->name,$ticket->type?->name,$ticket->category?->name,$ticket->priority?->name,$ticket->status?->name,$modality === null ? '' : ($modalities[$modality] ?? $modality)]); }
+            // Every cell goes through the formula-injection guard: user-typed values never run as formulas.
+            foreach($tickets as $ticket) { $modality=$ticket->sessionDetails->first()?->modality; fputcsv($out,array_map([ContentCellSanitizer::class, 'sanitize'], [$ticket->code,$ticket->created_at?->format('Y-m-d H:i:s'),$ticket->customer?->code,$ticket->responsible?->name,$ticket->type?->name,$ticket->category?->name,$ticket->priority?->name,$ticket->status?->name,$modality === null ? '' : ($modalities[$modality] ?? $modality)])); }
             fclose($out);
         }, 'reporte-soporte.csv', ['Content-Type'=>'text/csv; charset=UTF-8']);
     }

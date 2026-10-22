@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\InvalidOperationException;
+use App\Models\Activity;
 use App\Models\Contact;
 use App\Models\SupportAssignment;
 use App\Models\SupportCategory;
@@ -12,6 +13,7 @@ use App\Models\SupportStatus;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketType;
 use App\Models\SupportTicketUpdate;
+use App\Models\Team;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +26,8 @@ class SupportTicketService
 
     /** States where priority and details can no longer change. */
     private const FROZEN_STATES = [SupportStatus::SLUG_CLOSED, SupportStatus::SLUG_CANCELLED];
+
+    public const INACTIVE_TEAM_MESSAGE = 'El equipo seleccionado no existe o no está activo.';
 
     public function __construct(private readonly CodeGeneratorService $codes, private readonly SupportTicketLifecycleService $lifecycle) {}
 
@@ -62,6 +66,10 @@ class SupportTicketService
     {
         if (! User::query()->whereKey($newResponsible->id)->where('is_active', true)->exists()) {
             throw ValidationException::withMessages(['responsible_id' => 'El responsable debe ser un usuario activo.']);
+        }
+
+        if ($teamId !== null && ! Team::query()->whereKey($teamId)->where('is_active', true)->exists()) {
+            throw ValidationException::withMessages(['team_id' => self::INACTIVE_TEAM_MESSAGE]);
         }
 
         return DB::transaction(function () use ($ticket, $newResponsible, $actor, $teamId, $reason): SupportTicket {
@@ -121,6 +129,34 @@ class SupportTicketService
             ]);
 
             return $ticket->refresh();
+        });
+    }
+
+    /**
+     * Starts the attention; a new unassigned ticket is first assigned to the actor.
+     * Both steps share one transaction, so a refused start leaves the ticket untouched.
+     */
+    public function startAttention(SupportTicket $ticket, User $actor): SupportTicket
+    {
+        return DB::transaction(function () use ($ticket, $actor): SupportTicket {
+            $this->selfAssignIfNew($ticket, $actor, 'Inicio de atención por el responsable');
+
+            return $this->lifecycle->transition($ticket, SupportStatus::SLUG_IN_PROGRESS, $actor);
+        });
+    }
+
+    /**
+     * Schedules a session; a new unassigned ticket is first assigned to the actor, atomically.
+     *
+     * @param  array<string, mixed>  $activityData
+     * @param  array<string, mixed>  $sessionData
+     */
+    public function scheduleAttention(SupportTicket $ticket, array $activityData, array $sessionData, User $actor): Activity
+    {
+        return DB::transaction(function () use ($ticket, $activityData, $sessionData, $actor): Activity {
+            $this->selfAssignIfNew($ticket, $actor, 'Programación de atención por el responsable');
+
+            return $this->lifecycle->schedule($ticket, $activityData, $sessionData, $actor);
         });
     }
 
@@ -264,6 +300,15 @@ class SupportTicketService
 
             return $update->refresh();
         });
+    }
+
+    private function selfAssignIfNew(SupportTicket $ticket, User $actor, string $reason): void
+    {
+        $locked = $this->lifecycle->lockTicket($ticket);
+
+        if ($locked->status?->slug === SupportStatus::SLUG_NEW && $locked->responsible_id === null) {
+            $this->assign($locked, $actor, $actor, $locked->team_id, $reason);
+        }
     }
 
     private function statusBySlug(string $slug): SupportStatus

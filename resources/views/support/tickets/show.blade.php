@@ -31,6 +31,9 @@
     };
     $observationActions = ['in_process' => 'Iniciar', 'lifted' => 'Levantar', 'validated' => 'Validar', 'rejected' => 'Rechazar', 'reopened' => 'Reabrir', 'not_applicable' => 'No aplica'];
     $reasonRequired = ['rejected', 'reopened', 'not_applicable'];
+    $modalityLabels = \App\Services\SupportTicketLifecycleService::MODALITIES;
+    // Each action form posts a hidden _form marker so old input only refills the form that failed.
+    $old = fn (string $form, string $field, $default = null) => old('_form') === $form ? old($field, $default) : $default;
     $hasActionOutcome = filled($ticket->solution_summary)
         || filled($ticket->close_reason)
         || filled($ticket->reopen_reason)
@@ -165,7 +168,7 @@
                             <form method="POST" action="{{ route('support.tickets.responses.store', $ticket) }}" data-swal-loading>
                                 @csrf
                                 <textarea required name="body" class="form-control mb-1" placeholder="Respuesta al cliente"></textarea>
-                                <button class="btn btn-sm btn-outline-primary" data-swal-confirm data-swal-title="Registrar respuesta" data-swal-text="Se registrará una respuesta visible para el cliente." data-swal-type="question">Registrar respuesta</button>
+                                <button class="btn btn-sm btn-outline-primary" data-swal-confirm data-swal-title="Registrar respuesta" data-swal-text="Se registrará como respuesta dada al cliente en el historial del ticket." data-swal-type="question">Registrar respuesta</button>
                             </form>
                         </div>
                     @endcan
@@ -193,8 +196,9 @@
                     @can('support.observations.create')
                         <form class="row g-2 mb-3" method="POST" action="{{ route('support.tickets.observations.store', $ticket) }}" data-swal-loading>
                             @csrf
-                            <div class="col-md-6"><input name="title" required maxlength="255" class="form-control form-control-sm" placeholder="Nueva observación"></div>
-                            <div class="col-md-6"><input name="description" class="form-control form-control-sm" placeholder="Detalle (opcional)"></div>
+                            <input type="hidden" name="_form" value="observation">
+                            <div class="col-md-6"><input name="title" required maxlength="255" value="{{ $old('observation', 'title') }}" class="form-control form-control-sm @error('title', 'observation') is-invalid @enderror" placeholder="Nueva observación"></div>
+                            <div class="col-md-6"><input name="description" value="{{ $old('observation', 'description') }}" class="form-control form-control-sm" placeholder="Detalle (opcional)"></div>
                             <div class="col-md-5">
                                 <select name="responsible_id" class="form-select form-select-sm" aria-label="Responsable de la observación">
                                     <option value="">Sin responsable</option>
@@ -205,6 +209,7 @@
                             </div>
                             <div class="col-md-4"><input type="date" name="due_at" class="form-control form-control-sm" aria-label="Fecha límite" title="Fecha límite"></div>
                             <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100" data-swal-confirm data-swal-title="Agregar observación" data-swal-text="Se creará una nueva observación para este ticket." data-swal-type="question">Agregar</button></div>
+                            <div class="col-12">@include('support.tickets._form-errors', ['bag' => 'observation'])</div>
                         </form>
                     @endcan
                 @endif
@@ -248,6 +253,7 @@
                                 </div>
                             @endif
                         </div>
+                        @include('support.tickets._form-errors', ['bag' => 'observation'.$observation->id])
                         @include('documents.partials._panel', ['subject' => $observation, 'documents' => $observation->documents])
                     </div>
                 @empty
@@ -318,20 +324,21 @@
                 @elseif ($user?->can($ticket->responsible_id ? 'reassign' : 'assign', $ticket))
                     <form method="POST" action="{{ route('support.tickets.assign', $ticket) }}" class="vstack gap-2" data-swal-loading>
                         @csrf
-                        <select required name="responsible_id" class="form-select">
+                        <input type="hidden" name="_form" value="assign">
+                        <select required name="responsible_id" class="form-select @error('responsible_id', 'assign') is-invalid @enderror" aria-label="Responsable">
                             <option value="">Seleccione responsable</option>
                             @foreach ($users as $option)
-                                <option value="{{ $option->id }}" @selected($ticket->responsible_id === $option->id)>{{ $option->name }}</option>
+                                <option value="{{ $option->id }}" @selected((int) $old('assign', 'responsible_id', $ticket->responsible_id) === $option->id)>{{ $option->name }}</option>
                             @endforeach
                         </select>
-                        <select name="team_id" class="form-select">
+                        <select name="team_id" class="form-select @error('team_id', 'assign') is-invalid @enderror" aria-label="Equipo">
                             <option value="">Sin equipo</option>
                             @foreach ($teams as $team)
-                                <option value="{{ $team->id }}" @selected($ticket->team_id === $team->id)>{{ $team->name }}</option>
+                                <option value="{{ $team->id }}" @selected((int) $old('assign', 'team_id', $ticket->team_id) === $team->id)>{{ $team->name }}</option>
                             @endforeach
                         </select>
-                        <input name="reason" value="{{ old('reason') }}" @required($ticket->responsible_id !== null) class="form-control @error('reason') is-invalid @enderror" placeholder="{{ $ticket->responsible_id ? 'Motivo de reasignación (obligatorio)' : 'Motivo de asignación (opcional)' }}">
-                        @error('reason')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                        <input name="reason" value="{{ $old('assign', 'reason') }}" @required($ticket->responsible_id !== null) class="form-control @error('reason', 'assign') is-invalid @enderror" placeholder="{{ $ticket->responsible_id ? 'Motivo de reasignación (obligatorio)' : 'Motivo de asignación (opcional)' }}">
+                        @include('support.tickets._form-errors', ['bag' => 'assign'])
                         <button class="btn btn-outline-primary" data-swal-confirm data-swal-title="{{ $ticket->responsible_id ? 'Reasignar responsable' : 'Asignar responsable' }}" data-swal-text="Se actualizará el responsable del ticket." data-swal-type="question">{{ $ticket->responsible_id ? 'Reasignar' : 'Asignar' }}</button>
                     </form>
                 @else
@@ -361,12 +368,14 @@
                     @elseif ($holdOptions !== [])
                         <form method="POST" action="{{ route('support.tickets.hold', $ticket) }}" class="vstack gap-1" data-swal-loading>
                             @csrf
+                            <input type="hidden" name="_form" value="hold">
                             <select name="kind" class="form-select form-select-sm" required aria-label="Tipo de espera">
                                 @foreach ($holdOptions as $kind => $to)
                                     <option value="{{ $kind }}">{{ $kind === 'cliente' ? 'En espera del cliente' : 'En espera interna' }}</option>
                                 @endforeach
                             </select>
-                            <input name="reason" maxlength="10000" class="form-control form-control-sm" placeholder="Motivo de la espera (opcional)">
+                            <input name="reason" maxlength="10000" value="{{ $old('hold', 'reason') }}" class="form-control form-control-sm" placeholder="Motivo de la espera (opcional)">
+                            @include('support.tickets._form-errors', ['bag' => 'hold'])
                             <button class="btn btn-outline-warning w-100" data-swal-confirm data-swal-title="Poner en espera" data-swal-text="La espera del cliente pausa el tiempo efectivo; la espera interna no." data-swal-type="question">Poner en espera</button>
                         </form>
                     @endif
@@ -376,7 +385,9 @@
                     @can('support.resolve')
                         <form method="POST" action="{{ route('support.tickets.resolve', $ticket) }}" data-swal-loading>
                             @csrf
-                            <textarea required name="solution_summary" class="form-control mb-1" placeholder="Resumen de solución (obligatorio)"></textarea>
+                            <input type="hidden" name="_form" value="resolve">
+                            <textarea required name="solution_summary" class="form-control mb-1 @error('solution_summary', 'resolve') is-invalid @enderror" placeholder="Resumen de solución (obligatorio)">{{ $old('resolve', 'solution_summary') }}</textarea>
+                            @include('support.tickets._form-errors', ['bag' => 'resolve'])
                             @if ($unattendedObservations > 0)
                                 <div class="form-text text-warning mb-1">Hay {{ $unattendedObservations }} observación(es) por atender: levántelas o márquelas como «No aplica» antes de resolver.</div>
                             @endif
@@ -389,7 +400,9 @@
                     @can('support.close')
                         <form method="POST" action="{{ route('support.tickets.close', $ticket) }}" data-swal-loading>
                             @csrf
-                            <input required name="reason" class="form-control mb-1" placeholder="Validación o motivo de cierre">
+                            <input type="hidden" name="_form" value="close">
+                            <input required name="reason" value="{{ $old('close', 'reason') }}" class="form-control mb-1 @error('reason', 'close') is-invalid @enderror" placeholder="Validación o motivo de cierre">
+                            @include('support.tickets._form-errors', ['bag' => 'close'])
                             <div class="form-check small">
                                 <input type="hidden" name="customer_validated" value="0">
                                 <input class="form-check-input" type="checkbox" name="customer_validated" value="1" id="customer_validated">
@@ -415,7 +428,9 @@
                     @can('support.reopen')
                         <form method="POST" action="{{ route('support.tickets.reopen', $ticket) }}" data-swal-loading>
                             @csrf
-                            <input required name="reason" class="form-control mb-1" placeholder="Motivo de reapertura (qué sigue fallando)">
+                            <input type="hidden" name="_form" value="reopen">
+                            <input required name="reason" value="{{ $old('reopen', 'reason') }}" class="form-control mb-1 @error('reason', 'reopen') is-invalid @enderror" placeholder="Motivo de reapertura (qué sigue fallando)">
+                            @include('support.tickets._form-errors', ['bag' => 'reopen'])
                             <button class="btn btn-warning w-100" data-swal-confirm data-swal-title="Reabrir ticket" data-swal-text="El ticket volverá al ciclo de atención con un nuevo ciclo." data-swal-type="warning">Reabrir</button>
                         </form>
                     @endcan
@@ -425,7 +440,9 @@
                     @can('cancel', $ticket)
                         <form method="POST" action="{{ route('support.tickets.cancel', $ticket) }}" data-swal-loading>
                             @csrf
-                            <input required name="reason" class="form-control mb-1" placeholder="Motivo de cancelación">
+                            <input type="hidden" name="_form" value="cancel">
+                            <input required name="reason" value="{{ $old('cancel', 'reason') }}" class="form-control mb-1 @error('reason', 'cancel') is-invalid @enderror" placeholder="Motivo de cancelación">
+                            @include('support.tickets._form-errors', ['bag' => 'cancel'])
                             <button class="btn btn-outline-danger w-100" data-swal-confirm data-swal-title="Cancelar ticket" data-swal-text="Esta acción cancelará el ticket y no podrá reabrirse." data-swal-type="warning">Cancelar ticket</button>
                         </form>
                     @endcan
@@ -445,13 +462,14 @@
                         <form method="POST" action="{{ route('support.tickets.priority.update', $ticket) }}" class="vstack gap-2" data-swal-loading>
                             @csrf
                             @method('PATCH')
-                            <select name="priority_id" class="form-select" required aria-label="Prioridad">
+                            <input type="hidden" name="_form" value="priority">
+                            <select name="priority_id" class="form-select @error('priority_id', 'priority') is-invalid @enderror" required aria-label="Prioridad">
                                 @foreach ($priorities as $priority)
                                     <option value="{{ $priority->id }}" @selected($ticket->priority_id === $priority->id)>{{ $priority->name }}</option>
                                 @endforeach
                             </select>
-                            <input name="reason" maxlength="10000" class="form-control" placeholder="Motivo del cambio (opcional)">
-                            @error('priority_id')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                            <input name="reason" maxlength="10000" value="{{ $old('priority', 'reason') }}" class="form-control" placeholder="Motivo del cambio (opcional)">
+                            @include('support.tickets._form-errors', ['bag' => 'priority'])
                             <button class="btn btn-outline-primary" data-swal-confirm data-swal-title="Cambiar prioridad" data-swal-text="Se actualizará la prioridad del ticket." data-swal-type="question">Cambiar prioridad</button>
                         </form>
                     </div>
@@ -466,18 +484,19 @@
                     @can('support.schedule')
                         <form method="POST" action="{{ route('support.tickets.schedule', $ticket) }}" class="vstack gap-2" data-swal-loading>
                             @csrf
-                            <select required name="type_id" class="form-select">
+                            <input type="hidden" name="_form" value="schedule">
+                            <select required name="type_id" class="form-select @error('type_id', 'schedule') is-invalid @enderror" aria-label="Tipo de actividad">
                                 <option value="">Tipo de actividad</option>
-                                @foreach($activityTypes as $type)<option value="{{ $type->id }}">{{ $type->name }}</option>@endforeach
+                                @foreach($activityTypes as $type)<option value="{{ $type->id }}" @selected((int) $old('schedule', 'type_id') === $type->id)>{{ $type->name }}</option>@endforeach
                             </select>
-                            <input required name="title" class="form-control" placeholder="Título">
-                            <input required type="datetime-local" name="scheduled_at" class="form-control">
-                            <select required name="modality" class="form-select">
-                                <option value="virtual">Virtual</option>
-                                <option value="presential">Presencial</option>
-                                <option value="phone">Teléfono</option>
-                                <option value="not_applicable">No aplica</option>
+                            <input required name="title" value="{{ $old('schedule', 'title') }}" class="form-control @error('title', 'schedule') is-invalid @enderror" placeholder="Título">
+                            <input required type="datetime-local" name="scheduled_at" value="{{ $old('schedule', 'scheduled_at') }}" class="form-control @error('scheduled_at', 'schedule') is-invalid @enderror" aria-label="Fecha y hora">
+                            <select required name="modality" class="form-select" aria-label="Modalidad">
+                                @foreach ($modalityLabels as $value => $label)
+                                    <option value="{{ $value }}" @selected($old('schedule', 'modality') === $value)>{{ $label }}</option>
+                                @endforeach
                             </select>
+                            @include('support.tickets._form-errors', ['bag' => 'schedule'])
                             <button class="btn btn-outline-primary" data-swal-confirm data-swal-title="Programar atención" data-swal-text="Se creará una actividad y el ticket quedará programado." data-swal-type="question">Programar</button>
                         </form>
                     @endcan
@@ -487,12 +506,13 @@
                         {{ $activity->title }} · {{ $activity->scheduled_at?->format('d/m/Y H:i') }}
                         @if (in_array($activity->status, ['completed', 'cancelled'], true))
                             <span class="badge text-bg-light border">{{ $activity->status === 'completed' ? 'Completada' : 'Cancelada' }}</span>
-                        @else
+                        @elseif ($isOpen)
                             @can('support.reschedule')
                                 <form method="POST" action="{{ route('support.tickets.reschedule', [$ticket, $activity]) }}" data-swal-loading>
                                     @csrf
-                                    <input required type="datetime-local" name="scheduled_at" class="form-control form-control-sm mt-1">
+                                    <input required type="datetime-local" name="scheduled_at" class="form-control form-control-sm mt-1" aria-label="Nueva fecha">
                                     <input required name="reason" class="form-control form-control-sm mt-1" placeholder="Motivo">
+                                    @include('support.tickets._form-errors', ['bag' => 'reschedule'.$activity->id])
                                     <button class="btn btn-sm btn-outline-secondary mt-1" data-swal-confirm data-swal-title="Reprogramar atención" data-swal-text="Se cambiará la fecha de esta actividad." data-swal-type="warning">Reprogramar</button>
                                 </form>
                             @endcan
@@ -515,6 +535,7 @@
                                 <input name="system" value="{{ old('system', $ticket->incidentDetail?->system) }}" class="form-control mb-1" placeholder="Sistema">
                                 <textarea name="actual_result" class="form-control mb-1" placeholder="Resultado obtenido">{{ old('actual_result', $ticket->incidentDetail?->actual_result) }}</textarea>
                                 <textarea name="technical_solution" class="form-control mb-1" placeholder="Solución técnica">{{ old('technical_solution', $ticket->incidentDetail?->technical_solution) }}</textarea>
+                                @include('support.tickets._form-errors', ['bag' => 'incident'])
                                 <button class="btn btn-outline-secondary" data-swal-confirm data-swal-title="Guardar incidente" data-swal-text="Se actualizará el detalle técnico del incidente." data-swal-type="question">Guardar incidente</button>
                             </form>
                         @endcan
@@ -535,8 +556,11 @@
 
         @foreach($ticket->sessionDetails as $session)
             <div class="card mt-3">
-                <div class="card-header"><h3 class="h6 mb-0">Asistencia: {{ $session->topic ?: $session->modality }}</h3></div>
+                <div class="card-header"><h3 class="h6 mb-0">Asistencia: {{ $session->topic ?: ($modalityLabels[$session->modality] ?? $session->modality) }}</h3></div>
                 <div class="card-body">
+                    @if ($session->topic && isset($modalityLabels[$session->modality]))
+                        <div class="small text-muted mb-2">Modalidad: {{ $modalityLabels[$session->modality] }}</div>
+                    @endif
                     @can('support.schedule')
                         <form method="POST" action="{{ route('support.tickets.sessions.participants.store', [$ticket, $session]) }}" class="row g-1" data-swal-loading>
                             @csrf
@@ -544,6 +568,7 @@
                             <div class="col"><input name="email" class="form-control form-control-sm" placeholder="Email"></div>
                             <div class="col-auto"><input type="hidden" name="attended" value="0"><input type="checkbox" name="attended" value="1" checked> asistió</div>
                             <div class="col-auto"><button class="btn btn-sm btn-outline-primary" data-swal-confirm data-swal-title="Registrar participante" data-swal-text="Se agregará el participante a la asistencia." data-swal-type="question">Guardar</button></div>
+                            <div class="col-12">@include('support.tickets._form-errors', ['bag' => 'participant'.$session->id])</div>
                         </form>
                     @endcan
                     <ul class="small mb-0 mt-2">

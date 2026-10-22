@@ -73,4 +73,10 @@ class SupportObservation extends Model
     {
         return $this->morphMany(Document::class, 'docable');
     }
+
+    /** Parent ticket: document downloads and policies authorize through it. */
+    public function ticket(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(SupportTicket::class, 'ticket_id');
+    }
 }

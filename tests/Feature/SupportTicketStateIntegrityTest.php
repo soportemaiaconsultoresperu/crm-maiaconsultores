@@ -68,7 +68,7 @@ class SupportTicketStateIntegrityTest extends TestCase
         $inactive = User::factory()->create(['is_active' => false]);
         try { $this->tickets()->assign($ticket, $inactive, $actor); $this->fail('Expected refusal.'); }
         catch (ValidationException $e) { $this->assertArrayHasKey('responsible_id', $e->errors()); }
-        $this->actingAs($actor)->post(route('support.tickets.assign', $ticket), ['responsible_id' => $inactive->id])->assertSessionHasErrors('responsible_id');
+        $this->actingAs($actor)->post(route('support.tickets.assign', $ticket), ['responsible_id' => $inactive->id])->assertSessionHasErrors('responsible_id', null, 'assign');
         $this->assertNull($ticket->fresh()->responsible_id);
     }
 

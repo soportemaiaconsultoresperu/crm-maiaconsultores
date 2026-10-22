@@ -13,6 +13,7 @@ use App\Models\SupportStatus;
 use App\Models\SupportStatusPeriod;
 use App\Models\SupportTicket;
 use App\Models\SupportSessionDetail;
+use App\Models\SupportSessionParticipant;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
@@ -34,6 +35,9 @@ class SupportTicketLifecycleService
         SupportStatus::SLUG_REOPENED => [SupportStatus::SLUG_ASSIGNED, SupportStatus::SLUG_SCHEDULED, SupportStatus::SLUG_IN_PROGRESS, SupportStatus::SLUG_CANCELLED],
     ];
 
+    /** Session modalities and their Spanish labels (schedule form, session card, CSV). */
+    public const MODALITIES = ['virtual' => 'Virtual', 'presential' => 'Presencial', 'phone' => 'Teléfono', 'not_applicable' => 'No aplica'];
+
     /** Waiting kinds accepted by putOnHold(). */
     public const HOLD_STATES = ['cliente' => SupportStatus::SLUG_WAITING_CUSTOMER, 'interna' => SupportStatus::SLUG_WAITING_INTERNAL];
 
@@ -47,7 +51,7 @@ class SupportTicketLifecycleService
     public function schedule(SupportTicket $ticket, array $activityData, array $sessionData, User $actor): Activity
     {
         $modality = $sessionData['modality'] ?? null;
-        if (! in_array($modality, ['virtual', 'presential', 'phone', 'not_applicable'], true) || empty($activityData['scheduled_at']) || empty($activityData['type_id'])) {
+        if (! array_key_exists((string) $modality, self::MODALITIES) || empty($activityData['scheduled_at']) || empty($activityData['type_id'])) {
             throw ValidationException::withMessages(['schedule' => 'Fecha, tipo de actividad y modalidad válida son obligatorios.']);
         }
             return DB::transaction(function () use ($ticket, $activityData, $sessionData, $actor): Activity {
@@ -70,6 +74,7 @@ class SupportTicketLifecycleService
     {
         $reason = trim($reason); if ($reason === '' || $activity->subject_type !== SupportTicket::class || in_array($activity->status, ['completed', 'cancelled'], true)) throw ValidationException::withMessages(['reason' => 'La reprogramación requiere motivo y actividad no terminal.']);
         return DB::transaction(function () use ($activity, $newScheduledAt, $reason, $actor): Activity {
+            $this->assertNotFrozen($this->lockTicket(SupportTicket::query()->findOrFail($activity->subject_id)), 'No se puede reprogramar la atención de un ticket cerrado o cancelado.');
             SupportReschedule::query()->create(['ticket_id' => $activity->subject_id, 'activity_id' => $activity->id, 'old_scheduled_at' => $activity->scheduled_at, 'new_scheduled_at' => $newScheduledAt, 'reason' => $reason, 'rescheduled_by' => $actor->id, 'responsible_id' => $activity->owner_id]);
             $activity->scheduled_at = $newScheduledAt; $activity->updated_by = $actor->id; $activity->save();
             return $activity->refresh();
@@ -79,7 +84,19 @@ class SupportTicketLifecycleService
     /** @param array<string,mixed> $data */
     public function saveIncident(SupportTicket $ticket, array $data): SupportIncidentDetail
     {
-        return SupportIncidentDetail::query()->updateOrCreate(['ticket_id' => $ticket->id], $data);
+        return DB::transaction(function () use ($ticket, $data): SupportIncidentDetail {
+            $this->assertNotFrozen($this->lockTicket($ticket), 'No se puede modificar el incidente de un ticket cerrado o cancelado.');
+            return SupportIncidentDetail::query()->updateOrCreate(['ticket_id' => $ticket->id], $data);
+        });
+    }
+
+    /** @param array<string,mixed> $data */
+    public function addParticipant(SupportSessionDetail $session, array $data): SupportSessionParticipant
+    {
+        return DB::transaction(function () use ($session, $data): SupportSessionParticipant {
+            $this->assertNotFrozen($this->lockTicket($session->ticket), 'No se pueden registrar participantes en un ticket cerrado o cancelado.');
+            return $session->participants()->create($data);
+        });
     }
 
     /** @param array<string,mixed> $data */
@@ -87,6 +104,7 @@ class SupportTicketLifecycleService
     {
         if (trim((string) ($data['title'] ?? '')) === '') throw ValidationException::withMessages(['title' => 'El título es obligatorio.']);
         return DB::transaction(function () use ($ticket, $data, $actor): SupportObservation {
+            $this->assertNotFrozen($this->lockTicket($ticket), 'No se pueden crear observaciones en un ticket cerrado o cancelado.');
             $observation = SupportObservation::query()->create(array_merge($data, ['ticket_id' => $ticket->id, 'state' => 'pending', 'created_by' => $actor->id, 'raised_at' => $data['raised_at'] ?? now()]));
             $this->observationHistory($observation, null, 'pending', null, $actor); return $observation;
         });
@@ -171,12 +189,6 @@ class SupportTicketLifecycleService
         return SupportTicket::query()->whereKey($ticket->id)->lockForUpdate()->firstOrFail();
     }
 
-    public function effectiveSeconds(SupportTicket $ticket): int
-    {
-        $end = $ticket->resolved_at ?? $ticket->closed_at ?? now(); $total = max(0, $end->diffInSeconds($ticket->created_at));
-        $paused = $ticket->statusPeriods()->where('pauses_clock', true)->get()->sum(fn ($p) => ($p->ended_at ?? $end)->diffInSeconds($p->started_at));
-        return max(0, $total - $paused);
-    }
 
     /** Must run inside a transaction on a ticket obtained through lockTicket(). */
     private function applyTransition(SupportTicket $ticket, string $to, User $actor, string $reason, bool $closePendingException = false, bool $customerValidated = false): SupportTicket
@@ -206,7 +218,8 @@ class SupportTicketLifecycleService
             $ticket->closed_at = $now; $ticket->close_reason = $reason; $cycle->closed_at = $now; $cycle->ended_at ??= $now;
             if ($customerValidated) {$ticket->validated_at = $now; $cycle->validated_at = $now;}
         }
-        if ($to === SupportStatus::SLUG_REOPENED) $ticket->reopen_reason = $reason;
+        // The ticket-level outcome describes the current cycle only; finished cycles keep their own times.
+        if ($to === SupportStatus::SLUG_REOPENED) {$ticket->reopen_reason = $reason; $ticket->resolved_at = null; $ticket->closed_at = null; $ticket->validated_at = null;}
         if ($to === SupportStatus::SLUG_CANCELLED) {$ticket->cancel_reason = $reason; $cycle->ended_at ??= $now;}
         $cycle->save();
         $ticket->save();
@@ -233,6 +246,12 @@ class SupportTicketLifecycleService
     private function authorize(User $actor, string $permission, string $message): void
     {
         if (! $actor->can($permission)) throw new AuthorizationException($message);
+    }
+
+    /** Closed and cancelled tickets are read-only for scheduling, incidents, observations and attendance. */
+    private function assertNotFrozen(SupportTicket $ticket, string $message): void
+    {
+        if (in_array($ticket->status?->slug, [SupportStatus::SLUG_CLOSED, SupportStatus::SLUG_CANCELLED], true)) throw new InvalidOperationException($message);
     }
 
     private function observationHistory(SupportObservation $o, ?string $from, string $to, ?string $reason, User $actor): void { SupportObservationHistory::query()->create(['observation_id'=>$o->id,'from_state'=>$from,'to_state'=>$to,'reason'=>$reason,'actor_id'=>$actor->id]); }

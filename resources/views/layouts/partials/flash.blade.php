@@ -1,13 +1,15 @@
 {{--
-    Flash messages: success / error one-shot notifications.
-    Controllers use ->with('status', ...) or ->with('error', ...); 'success'
-    is accepted as an alias of 'status' (several admin controllers use it).
+    Flash messages: success / info / error one-shot notifications.
+    Controllers use ->with('status', ...), ->with('info', ...) (nothing changed,
+    e.g. a repeated action) or ->with('error', ...); 'success' is accepted as an
+    alias of 'status' (several admin controllers use it).
 
     Rendered as SweetAlert2 toasts via <x-swal-toast>. The swal-helpers.js
     module picks these up on DOMContentLoaded and turns them into toasts.
 --}}
 @php($successMessage = session('status') ?? session('success'))
 <x-swal-toast type="success" :message="$successMessage" />
+<x-swal-toast type="info" :message="session('info')" />
 <x-swal-toast type="error" :message="session('error')" />
 
 {{-- Backwards compatibility: if any older Bootstrap alert is still rendered
