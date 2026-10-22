@@ -1655,11 +1655,9 @@ textarea.form-control {
 }
 
 .ms-panel {
-	position: absolute;
+	/* Fixed so cards/tables with overflow never clip it; JS sets top/left/width. */
+	position: fixed;
 	z-index: 1060;
-	top: calc(100% + 0.25rem);
-	left: 0;
-	right: 0;
 	min-width: 14rem;
 	padding: 0.5rem;
 	background: var(--bs-body-bg);
@@ -1686,6 +1684,25 @@ textarea.form-control {
 .ms-list {
 	max-height: 15rem;
 	overflow-y: auto;
+	/* Always show that the list scrolls, and keep the wheel inside it. */
+	overscroll-behavior: contain;
+	scrollbar-gutter: stable;
+	scrollbar-width: thin;
+	scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+.ms-list::-webkit-scrollbar {
+	width: 8px;
+}
+
+.ms-list::-webkit-scrollbar-track {
+	background: #f1f5f9;
+	border-radius: 4px;
+}
+
+.ms-list::-webkit-scrollbar-thumb {
+	background: #94a3b8;
+	border-radius: 4px;
 }
 
 .ms-option {

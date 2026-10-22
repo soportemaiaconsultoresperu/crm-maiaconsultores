@@ -179,6 +179,7 @@ function enhance(select) {
         });
         empty.hidden = shown > 0;
         setActive(visibleItems()[0] || null);
+        place();
     }
 
     let active = null;
@@ -191,11 +192,46 @@ function enhance(select) {
         }
     }
 
+    // The panel floats over the page (position: fixed) so no card, table or
+    // modal with overflow can clip it. It sits below the control, or above it
+    // when there is more room there, and the list shrinks to the space left.
+    const GAP = 4;
+    const MARGIN = 8;
+    const LIST_MAX = 240;
+    const LIST_MIN = 96;
+
+    function place() {
+        if (panel.hidden) return;
+        const rect = control.getBoundingClientRect();
+        const below = window.innerHeight - rect.bottom - GAP - MARGIN;
+        const above = rect.top - GAP - MARGIN;
+
+        list.style.maxHeight = `${LIST_MAX}px`;
+        const chrome = panel.offsetHeight - list.offsetHeight;
+        const wanted = chrome + Math.min(LIST_MAX, list.scrollHeight);
+        const upward = below < wanted && above > below;
+        const room = upward ? above : below;
+
+        list.style.maxHeight = `${Math.max(LIST_MIN, Math.min(LIST_MAX, room - chrome))}px`;
+        panel.style.left = `${Math.max(MARGIN, rect.left)}px`;
+        panel.style.width = `${rect.width}px`;
+        if (upward) {
+            panel.style.top = '';
+            panel.style.bottom = `${window.innerHeight - rect.top + GAP}px`;
+        } else {
+            panel.style.bottom = '';
+            panel.style.top = `${rect.bottom + GAP}px`;
+        }
+    }
+
     function open() {
         if (select.disabled || !panel.hidden) return;
         panel.hidden = false;
         control.setAttribute('aria-expanded', 'true');
         root.classList.add('is-open');
+        place();
+        window.addEventListener('scroll', place, true);
+        window.addEventListener('resize', place);
         if (search) {
             search.value = '';
             filter();
@@ -209,6 +245,8 @@ function enhance(select) {
     function close(refocus = false) {
         if (panel.hidden) return;
         panel.hidden = true;
+        window.removeEventListener('scroll', place, true);
+        window.removeEventListener('resize', place);
         control.setAttribute('aria-expanded', 'false');
         root.classList.remove('is-open');
         setActive(null);
@@ -247,6 +285,14 @@ function enhance(select) {
 
     control.addEventListener('click', () => (panel.hidden ? open() : close(true)));
     root.addEventListener('keydown', onKeys);
+    // The wheel over the open panel only ever scrolls the list: at its ends
+    // (or over the search box and toolbar) the page must not move underneath.
+    panel.addEventListener('wheel', (event) => {
+        const inList = list.contains(event.target);
+        const atTop = list.scrollTop <= 0 && event.deltaY < 0;
+        const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 1 && event.deltaY > 0;
+        if (!inList || atTop || atBottom) event.preventDefault();
+    }, { passive: false });
     toolbar.addEventListener('mousedown', (event) => event.preventDefault());
     search?.addEventListener('input', filter);
     toolbar.querySelector('[data-ms-all]').addEventListener('click', () => setAll(true));
