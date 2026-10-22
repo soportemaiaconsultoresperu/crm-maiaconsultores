@@ -17,14 +17,15 @@ Branch: `feat/internal-projects` (stacked on `fix/content-module-review`). Never
 
 ## Tasks
 
-- [ ] T1 S2,S3,S5 foundation — migrations, models, enums, policy, progress service, factories, tests. Route: worker P1. Commit: —
-- [ ] T2 S4.1,S5,S6 UI — CRUD screens, dashboard, detail, task status updates, members/audience, sidebar. Route: worker P2 (after T1). Commit: —
-- [ ] T3 S4.2 Gantt timeline. Route: worker P3 (after T1, parallel to T2). Commit: —
-- [ ] T4 S4.3 CRM calendar layer. Route: worker P4 (after T1, parallel). Commit: —
-- [ ] T5 Integration, browser smoke, user guide, commits. Route: inline. Commit: —
+- [x] T1 S2,S3,S5 foundation — migrations, models, enums, policy, progress service, factories, tests. Route: worker P1. Commit: 42261d5
+- [x] T2 S4.1,S5,S6 UI — CRUD screens, dashboard, detail, task status updates, members/audience, sidebar. Route: worker P2 (after T1). Commit: 889fc28
+- [x] T3 S4.2 Gantt timeline. Route: worker P3 (after T1, parallel to T2). Commit: 6d87e55
+- [x] T4 S4.3 CRM calendar layer. Route: worker P4 (after T1, parallel). Commit: f996da1
+- [x] T5 Integration, browser smoke, user guide, commits. Route: inline. Commit: —
 
 ## Log
 
 - L1 User: "una consulta las actividades internas esta orientado a que por ejemplo estamos planificando desarrollar un proyecto de software y se pueda ver ahi ??" → explained limits. Then: "o sea lo que quieren es que se plantee las actividades del software para que el equipo de marketing y gerencia pueda ver lo que se plantea y el avance".
 - L2 Decisions: estructura = "Fases con tareas (Recomendado)"; avance = "Por estado de tarea (Recomendado)"; vistas = "Resumen con barras de avance (Recomendado)", "Línea de tiempo / Gantt (Recomendado)", "En el calendario del CRM"; permisos = "Equipo edita, otros solo ven (Recomendado)".
 - L3 Reuse: internal activities audience model (app/Models/InternalActivity.php scopeVisibleTo, audience_type all|roles|users); calendar layers in app/Services/CalendarEventService.php (layer param commercial|internal); ProjectColor helper app/Support/Content/ProjectColor.php; PeruTime for Lima dates; multi-select picker auto-applies to select[multiple].
+- L4 Integration: local DB migrated (additive). Browser smoke (admin): created project with 5 suggested phases, tasks with weights 2/1/3/1 (28% → 42% after a status change), overdue badge, dashboard card with % and next milestone, Gantt with phase bars, status colors, Hoy line and legend, calendar Proyectos layer showing the milestone on 15/12; QA project removed afterwards. Independent verify: PASS (visibility, scoped bindings, write abilities, calendar, timeline). Fixed lows: active-only new assignees, numeric ids on nested routes (97694f9); deactivated assignees kept on edit and empty phase order (follow-up commit). Also fixed: success flash key alias (4dbff5c), date-dependent InternalActivityTest (12bc9a9). Known cosmetic: Gantt month label truncation when a month spans few days; layout breadcrumb shows Dashboard. Not done: status history UI, auto project status at 100%.
