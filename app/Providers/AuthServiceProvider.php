@@ -67,6 +67,7 @@ class AuthServiceProvider extends BaseAuthServiceProvider
         CourseEnrollment::class => CourseEnrollmentPolicy::class,
         CustomerInvoice::class => CustomerInvoicePolicy::class,
         \App\Models\InternalActivity::class => \App\Policies\InternalActivityPolicy::class,
+        \App\Models\InternalProjects\InternalProject::class => \App\Policies\InternalProjects\InternalProjectPolicy::class,
         SupportTicket::class => SupportTicketPolicy::class,
     ];
 
