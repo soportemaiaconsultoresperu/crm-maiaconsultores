@@ -8,6 +8,7 @@ use App\Http\Requests\UserStoreRequest;
 use App\Http\Requests\UserUpdateRequest;
 use App\Models\User;
 use App\Services\UserService;
+use App\Support\Permissions\PermissionCatalog;
 use Spatie\Permission\Models\Role;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -85,6 +86,7 @@ class UserController extends Controller
         return view('admin.users.create', [
             'user' => new User(['is_active' => true]),
             'roles' => $this->availableRoles(),
+            'roleSummaries' => $this->roleSummaries(),
         ]);
     }
 
@@ -128,6 +130,7 @@ class UserController extends Controller
         return view('admin.users.edit', [
             'user' => $user,
             'roles' => $this->availableRoles(),
+            'roleSummaries' => $this->roleSummaries(),
         ]);
     }
 
@@ -217,6 +220,27 @@ class UserController extends Controller
             ->where('guard_name', 'web')
             ->orderBy('name')
             ->pluck('name')
+            ->all();
+    }
+
+    /**
+     * Modules each role can use, shown under the role select. `null` marks
+     * the full-access role (admin bypass).
+     *
+     * @return array<string, list<string>|null>
+     */
+    private function roleSummaries(): array
+    {
+        return Role::query()
+            ->where('guard_name', 'web')
+            ->with('permissions:id,name')
+            ->orderBy('name')
+            ->get()
+            ->mapWithKeys(fn (Role $role) => [
+                $role->name => PermissionCatalog::isFullAccess($role)
+                    ? null
+                    : collect(PermissionCatalog::summaryFor($role))->pluck('name')->all(),
+            ])
             ->all();
     }
 }
