@@ -1102,5 +1102,54 @@ Route::middleware(['auth', 'active'])
         });
     });
 
+/*
+ * Internal projects (odd/tasks/internal-projects.md, T2): dashboard, CRUD,
+ * phases, tasks and task statuses. Open to any active user; a project the
+ * user may not see is reported as 404 by the `internalProject` binding, and
+ * phases/tasks are scoped to their project (404 from another one). Writes are
+ * guarded by InternalProjectPolicy (`update` responsible/admin, `manageWork`
+ * team).
+ */
+Route::bind('internalProject', function (string $value): \App\Models\InternalProjects\InternalProject {
+    $project = \App\Models\InternalProjects\InternalProject::query()->findOrFail($value);
+    $user = request()->user();
+
+    abort_unless($user && $project->isVisibleTo($user), 404);
+
+    return $project;
+});
+
+Route::middleware(['auth', 'active'])
+    ->prefix('internal-projects')
+    ->name('internal-projects.')
+    ->scopeBindings()
+    ->group(function (): void {
+        Route::controller(\App\Http\Controllers\InternalProjects\InternalProjectController::class)->group(function (): void {
+            Route::get('/', 'index')->name('index');
+            Route::get('create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::get('{internalProject}', 'show')->whereNumber('internalProject')->name('show');
+            Route::get('{internalProject}/edit', 'edit')->whereNumber('internalProject')->name('edit');
+            Route::put('{internalProject}', 'update')->whereNumber('internalProject')->name('update');
+            Route::delete('{internalProject}', 'destroy')->whereNumber('internalProject')->name('destroy');
+        });
+
+        Route::get('{internalProject}/timeline', [\App\Http\Controllers\InternalProjects\InternalProjectTimelineController::class, 'show'])
+            ->whereNumber('internalProject')->name('timeline');
+
+        Route::controller(\App\Http\Controllers\InternalProjects\InternalProjectPhaseController::class)->group(function (): void {
+            Route::post('{internalProject}/phases', 'store')->name('phases.store');
+            Route::put('{internalProject}/phases/{phase}', 'update')->name('phases.update');
+            Route::delete('{internalProject}/phases/{phase}', 'destroy')->name('phases.destroy');
+        });
+
+        Route::controller(\App\Http\Controllers\InternalProjects\InternalProjectTaskController::class)->group(function (): void {
+            Route::post('{internalProject}/tasks', 'store')->name('tasks.store');
+            Route::put('{internalProject}/tasks/{task}', 'update')->name('tasks.update');
+            Route::patch('{internalProject}/tasks/{task}/status', 'status')->name('tasks.status');
+            Route::delete('{internalProject}/tasks/{task}', 'destroy')->name('tasks.destroy');
+        });
+    });
+
 // "Ver PDF" for course documents (authorized, then a short-lived signed link).
 require __DIR__.'/course-documents.php';

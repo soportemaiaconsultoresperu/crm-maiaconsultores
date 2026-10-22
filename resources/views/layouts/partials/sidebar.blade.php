@@ -60,6 +60,11 @@
                                 <i class="nav-icon bi bi-people" aria-hidden="true"></i><p>Actividades internas</p>
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a href="{{ route('internal-projects.index') }}" class="nav-link {{ request()->routeIs('internal-projects.*') ? 'active' : '' }}" data-testid="sidebar-internal-projects">
+                                <i class="nav-icon bi bi-kanban" aria-hidden="true"></i><p>Proyectos internos</p>
+                            </a>
+                        </li>
                         @can('viewAny', \App\Models\Courses\CourseActivity::class)
                             <li class="nav-item">
                                 <a href="{{ route('course-talks.activities.index') }}" class="nav-link {{ request()->routeIs('course-talks.*') ? 'active' : '' }}" aria-current="{{ request()->routeIs('course-talks.*') ? 'page' : 'false' }}" data-testid="sidebar-course-talks">
