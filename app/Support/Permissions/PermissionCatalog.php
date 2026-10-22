@@ -173,8 +173,8 @@ final class PermissionCatalog
 
         // Soporte
         'support.view.any' => ['support', 'ver', 'Ver todos los tickets', 'Ve los tickets de soporte de toda la empresa.', false, 'ver todos'],
-        'support.view.team' => ['support', 'ver', 'Ver los tickets de su equipo', 'Ve los tickets de cualquier miembro de su equipo.', false, 'ver los de su equipo'],
-        'support.view.own' => ['support', 'ver', 'Ver solo sus tickets', 'Ve únicamente los tickets asignados a la persona.', false, 'ver solo los suyos'],
+        'support.view.team' => ['support', 'ver', 'Ver los tickets de su equipo', 'Ve los tickets de los equipos activos que supervisa (asignados al equipo o a sus miembros), además de los suyos y los que creó sin responsable.', false, 'ver los de su equipo'],
+        'support.view.own' => ['support', 'ver', 'Ver solo sus tickets', 'Ve los tickets asignados a la persona y los que creó y aún no tienen responsable.', false, 'ver solo los suyos'],
         'support.reports.view' => ['support', 'ver', 'Ver reportes de soporte', 'Consulta indicadores y reportes de soporte.', false, 'ver reportes'],
         'support.create' => ['support', 'editar', 'Crear tickets', 'Registra tickets de soporte nuevos.', false, 'crear'],
         'support.update' => ['support', 'editar', 'Editar tickets', 'Modifica los datos de los tickets que puede ver.', false, 'editar'],
@@ -194,7 +194,7 @@ final class PermissionCatalog
         'support.close.with-pending-observations' => ['support', 'especiales', 'Cerrar tickets con observaciones pendientes', 'Cierra un ticket aunque tenga observaciones sin resolver.', true, 'cerrar con observaciones pendientes'],
         'support.reopen' => ['support', 'especiales', 'Reabrir tickets', 'Vuelve a abrir un ticket cerrado.', false, 'reabrir'],
         'support.cancel' => ['support', 'especiales', 'Anular tickets', 'Cancela un ticket que no procede.', false, 'anular'],
-        'support.catalogs.manage' => ['support', 'administracion', 'Gestionar catálogos de soporte', 'Administra tipos, categorías y demás listas de soporte.', false, 'gestionar catálogos'],
+        'support.catalogs.manage' => ['support', 'administracion', 'Gestionar catálogos de soporte', 'Reservado: todavía sin pantalla. Administrará tipos, categorías y demás listas de soporte.', false, 'gestionar catálogos'],
 
         // Cronograma de contenidos
         'content_projects.view' => ['content_projects', 'ver', 'Ver proyectos de contenido', 'Consulta los proyectos de contenido en los que participa.', false, 'ver los suyos'],

@@ -74,8 +74,15 @@
                         @endcan
                         @can('viewAny', \App\Models\SupportTicket::class)
                             <li class="nav-item">
-                                <a href="{{ route('support.tickets.index') }}" class="nav-link {{ request()->routeIs('support.*') ? 'active' : '' }}">
+                                <a href="{{ route('support.tickets.index') }}" class="nav-link {{ request()->routeIs('support.tickets.*') ? 'active' : '' }}">
                                     <i class="nav-icon bi bi-headset" aria-hidden="true"></i><p>Soporte</p>
+                                </a>
+                            </li>
+                        @endcan
+                        @can('support.reports.view')
+                            <li class="nav-item">
+                                <a href="{{ route('support.dashboard') }}" class="nav-link {{ request()->routeIs('support.dashboard') ? 'active' : '' }}" aria-current="{{ request()->routeIs('support.dashboard') ? 'page' : 'false' }}" data-testid="sidebar-support-dashboard">
+                                    <i class="nav-icon bi bi-bar-chart-line" aria-hidden="true"></i><p>Dashboard de soporte</p>
                                 </a>
                             </li>
                         @endcan

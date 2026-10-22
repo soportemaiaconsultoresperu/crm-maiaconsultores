@@ -16,14 +16,21 @@ class SupportDashboardController extends Controller
     {
         abort_unless($request->user()->can('support.reports.view'), 403);
         $filters=$this->filters($request);
-        return view('support.dashboard', ['metrics'=>$this->dashboard->metrics($filters), 'filters'=>$filters, 'customers'=>Customer::query()->orderBy('code')->get(['id','code']), 'users'=>User::query()->where('is_active',true)->orderBy('name')->get(['id','name']), 'teams'=>Team::query()->where('is_active',true)->orderBy('name')->get(['id','name']), 'types'=>SupportTicketType::query()->orderBy('sort')->get(['id','name']), 'categories'=>SupportCategory::query()->orderBy('sort')->get(['id','name']), 'priorities'=>SupportPriority::query()->orderBy('sort')->get(['id','name']), 'statuses'=>SupportStatus::query()->orderBy('sort')->get(['id','name'])]);
+        return view('support.dashboard', ['metrics'=>$this->dashboard->metrics($filters, $request->user()), 'filters'=>$filters, 'customers'=>Customer::query()->orderBy('code')->get(['id','code']), 'users'=>User::query()->where('is_active',true)->orderBy('name')->get(['id','name']), 'teams'=>Team::query()->where('is_active',true)->orderBy('name')->get(['id','name']), 'types'=>SupportTicketType::query()->orderBy('sort')->get(['id','name']), 'categories'=>SupportCategory::query()->orderBy('sort')->get(['id','name']), 'priorities'=>SupportPriority::query()->orderBy('sort')->get(['id','name']), 'statuses'=>SupportStatus::query()->orderBy('sort')->get(['id','name'])]);
     }
 
     public function export(Request $request): StreamedResponse
     {
         abort_unless($request->user()->can('support.reports.view'), 403);
-        $tickets=$this->dashboard->tickets($this->filters($request));
-        return response()->streamDownload(function () use ($tickets): void { $out=fopen('php://output','w'); fputcsv($out,['Code','Created at','Customer','Responsible','Type','Category','Priority','Status','Modality']); foreach($tickets as $ticket) fputcsv($out,[$ticket->code,$ticket->created_at?->format('Y-m-d H:i:s'),$ticket->customer?->code,$ticket->responsible?->name,$ticket->type?->name,$ticket->category?->name,$ticket->priority?->name,$ticket->status?->name,$ticket->sessionDetails->first()?->modality]); fclose($out); }, 'support-report.csv', ['Content-Type'=>'text/csv; charset=UTF-8']);
+        $tickets=$this->dashboard->tickets($this->filters($request), $request->user());
+        $modalities=['virtual'=>'Virtual','presential'=>'Presencial','phone'=>'Teléfono','not_applicable'=>'No aplica'];
+        return response()->streamDownload(function () use ($tickets, $modalities): void {
+            $out=fopen('php://output','w');
+            fwrite($out, "\xEF\xBB\xBF");
+            fputcsv($out,['Código','Fecha de creación','Cliente','Responsable','Tipo','Categoría','Prioridad','Estado','Modalidad']);
+            foreach($tickets as $ticket) { $modality=$ticket->sessionDetails->first()?->modality; fputcsv($out,[$ticket->code,$ticket->created_at?->format('Y-m-d H:i:s'),$ticket->customer?->code,$ticket->responsible?->name,$ticket->type?->name,$ticket->category?->name,$ticket->priority?->name,$ticket->status?->name,$modality === null ? '' : ($modalities[$modality] ?? $modality)]); }
+            fclose($out);
+        }, 'reporte-soporte.csv', ['Content-Type'=>'text/csv; charset=UTF-8']);
     }
 
     /** @return array<string,mixed> */
