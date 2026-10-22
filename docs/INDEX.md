@@ -10,6 +10,7 @@ Tabla de contenidos de la documentación del proyecto CRM Maia Consultores. Cada
 | [DECISIONES.md](DECISIONES.md) | Decisiones | ADRs (ADR-001 .. ADR-017) — las decisiones técnicas fundacionales del proyecto. |
 | [SEGURIDAD.md](SEGURIDAD.md) | Seguridad | Autenticación, autorización, protecciones web, hallazgos corregidos en B04/B08. |
 | [DESPLIEGUE_PRODUCCION_UBUNTU.md](DESPLIEGUE_PRODUCCION_UBUNTU.md) | Despliegue de producción | Guía segura y operativa para Ubuntu 24.04 con Docker, Caddy, TLS, copias de seguridad y actualizaciones. |
+| [DESPLIEGUE_ACTUALIZACION_2026-10.md](DESPLIEGUE_ACTUALIZACION_2026-10.md) | Actualización octubre 2026 | PHP 8.3.36 (CVE-2026-109618/109619), migraciones de Cursos que transforman datos, verificación y reversión. |
 | [ALMACENAMIENTO.md](ALMACENAMIENTO.md) | Almacenamiento | Interruptor local/S3 por credenciales, distribución en el bucket, URL temporal firmada, respaldo y qué queda en local. |
 | [PRUEBAS.md](PRUEBAS.md) | Pruebas | Estado de la suite, archivos por módulo, reglas y criterio de "módulo terminado". |
 | [AVANCE.md](AVANCE.md) | Avance | Bitácora por bloque (B00 .. B09) con evidencia real (comandos, números, hallazgos). |
