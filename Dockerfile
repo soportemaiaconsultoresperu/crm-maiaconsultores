@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # CRM Maia Consultores production image.
-FROM php:8.3-fpm-alpine AS base
+# Pinned to the security release that fixes CVE-2026-109618 and CVE-2026-109619
+# ("PHP2Shell", PHP 8.3.36, 2026-10-21). Do not float back to 8.3-fpm-alpine.
+FROM php:8.3.36-fpm-alpine AS base
 
 RUN apk add --no-cache \
         icu-dev \
